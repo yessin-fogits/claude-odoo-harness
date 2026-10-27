@@ -21,13 +21,21 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" . --update
 
 Show the user the report. What each action means:
 - `updated`: a harness file replaced by the new version (`harness/*.py`, `*.sh`, checks,
-  docker files);
+  docker files, `harness/docker-compose.yml`, `harness/odoo.conf` rendered from
+  `harness/harness.env`);
 - `merged`: the CLAUDE.md harness block, `.claude/settings.json`, `.gitignore` or new
   settings appended to `harness/harness.env`;
 - `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, feature_list.json,
-  BOOTSTRAP.md) which updates never touch;
-- `kept*`: a project file (docker-compose.yml, odoo.conf, e2e/conftest.py...) kept as is,
-  although the template changed.
+  BOOTSTRAP.md, ARCHITECTURE.md) which updates never touch;
+- `kept*`: a project file (e2e/conftest.py, .pylintrc...) kept as is, although the template
+  changed.
+
+A harness installed before full-project mode (with `MODULES` and `ADDONS_DIR`) is migrated:
+`CUSTOM_ADDONS` takes the old `ADDONS_DIR`, and the new settings (third-party addons,
+enterprise, base branch, GitLab project) are appended to `harness/harness.env` with their
+detected values. Check them with the user. Old root `docker-compose.yml` and `odoo.conf`
+files written by the earlier harness are no longer used: propose to delete them if the
+project does not use them itself.
 
 For each `kept*` file, show the difference:
 

@@ -214,10 +214,28 @@ def review(run, feat, attempt):
 
 def commit(run, feat):
     sh("git", "add", "-A", check=True)
-    sh("git", "commit", "-q", "-m", f"feat({feat['id']}): {feat['behavior']}\n\n"
+    sh("git", "commit", "-q", "-m", f"{hlib.commit_message(feat)}\n\n"
        f"Verified by harness/feature.py verify (loop run {run.id}).", check=True)
     run.event("commit", feature=feat["id"], sha=sh("git", "rev-parse", "--short", "HEAD").stdout.strip())
     run.summary["passing"].append(feat["id"])
+
+
+def ship(run, feat):
+    """When the feature completes its Odoo task: push the branch, open the merge request."""
+    task = feat.get("task")
+    if not task or run.args.no_mr:
+        return
+    if any(f["state"] != "passing" for f in hlib.task_features(hlib.load_features(), task)):
+        return
+    proc = sh(sys.executable, "harness/gitlab.py", "mr", task)
+    url = next((ln.split(": ", 1)[1] for ln in proc.stdout.splitlines()
+                if ln.startswith("✓ merge request")), None)
+    run.event("merge_request", task=task, ok=proc.returncode == 0, url=url,
+              error=None if proc.returncode == 0 else proc.stderr.strip()[:300])
+    if proc.returncode == 0:
+        run.summary.setdefault("merge_requests", []).append(url or task)
+    else:
+        print(proc.stderr, file=sys.stderr)
 
 
 def shelve(run, feat, start_commit, reason):
@@ -249,9 +267,10 @@ def run_graph(args):
             if feat is None:
                 run.summary["stopped"] = "no feature left to start"
                 break
-            start_commit = sh("git", "rev-parse", "HEAD").stdout.strip()
             if feat["state"] == "not_started":
+                # may check out the branch of the feature's Odoo task
                 sh(sys.executable, "harness/feature.py", "start", feat["id"], check=True)
+            start_commit = sh("git", "rev-parse", "HEAD").stdout.strip()
             run.event("select", feature=feat["id"])
             feedback, done, failure = "", False, "not verified"
             for attempt in range(1, args.attempts + 1):
@@ -268,6 +287,7 @@ def run_graph(args):
                            check=True)
                         continue
                 commit(run, feat)
+                ship(run, feat)
                 done = True
                 break
             if not done:
@@ -310,6 +330,8 @@ def parse_args(argv):
     r.add_argument("--review", action="store_true",
                    help="also require an Accept verdict from the odoo-reviewer agent")
     r.add_argument("--branch", help="create this branch first and work on it")
+    r.add_argument("--no-mr", action="store_true",
+                   help="do not push and open the merge request when a task is complete")
     r.set_defaults(fn=run_graph)
     sub.add_parser("status", help="summary of the last run").set_defaults(fn=cmd_status)
     return p.parse_args(argv)

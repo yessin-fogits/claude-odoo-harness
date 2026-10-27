@@ -60,7 +60,7 @@ def test_add_harness_check_template_works(hrepo):
                         r'r"sudo\(\)\.browse\(.*(kw|params|post)\["')
     check.write_text(text)
 
-    bad = hrepo.path / "addons" / "demo_mod" / "controllers.py"
+    bad = hrepo.path / "extra-addons" / "client" / "demo_mod" / "controllers.py"
     bad.write_text("def get(self, **kw):\n    return env['x'].sudo().browse(kw['id'])\n")
     result = hrepo.run(sys.executable, "harness/static_checks.py", str(bad),
                        odoo_version=ODOO_VERSION)

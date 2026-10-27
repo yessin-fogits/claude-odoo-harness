@@ -73,6 +73,17 @@ def test_session_start_injects_state(hrepo):
     assert (hrepo.path / ".harness/session.json").is_file()
 
 
+def test_session_start_names_the_task_branch(hrepo):
+    result = hrepo.feature("add", "--task", "T2003", "--behavior", "User sees the overview",
+                           "--verify", "e2e: e2e/test_F001_x.py")
+    assert result.returncode == 0, result.stderr
+    hrepo.commit("feature")
+    hrepo.feature("start", "F-001", "--no-branch")
+    ctx = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "Feature in progress: F-001 — User sees the overview (Odoo task T2003)" in ctx
+    assert "git checkout T2003 before working" in ctx
+
+
 def test_session_start_reports_broken_integrity(hrepo):
     add_feature(hrepo)
     data = json.loads((hrepo.path / "feature_list.json").read_text())
@@ -107,8 +118,8 @@ def test_guard_denies_evidence_edits(hrepo):
 
 
 def test_guard_allows_module_edits(hrepo):
-    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "addons/demo_mod/models/thing.py")) is None
-    assert pre(hrepo, "Edit", file_path="addons/demo_mod/models/thing.py") is None
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/client/demo_mod/models/thing.py")) is None
+    assert pre(hrepo, "Edit", file_path="extra-addons/client/demo_mod/models/thing.py") is None
 
 
 def test_guard_denies_odoo_core_and_enterprise(hrepo):
@@ -127,10 +138,41 @@ def test_guard_denies_odoo_core_and_enterprise(hrepo):
 
 def test_guard_protected_paths_setting(hrepo):
     env = hrepo.path / "harness/harness.env"
-    env.write_text(env.read_text().replace("PROTECTED_PATHS=", "PROTECTED_PATHS=vendor/,addons/oca"))
+    env.write_text(env.read_text().replace("PROTECTED_PATHS=", "PROTECTED_PATHS=vendor/,docs/x,"))
     assert denied(pre(hrepo, "Edit", file_path=str(hrepo.path / "vendor/lib.py")))
-    assert denied(pre(hrepo, "Edit", file_path=str(hrepo.path / "addons/oca/x.py")))
-    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "addons/demo_mod/x.py")) is None
+    assert denied(pre(hrepo, "Edit", file_path=str(hrepo.path / "docs/x/y.md")))
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/client/demo_mod/x.py")) is None
+
+
+def test_guard_denies_third_party_enterprise_and_deployment_files(hrepo):
+    env = hrepo.path / "harness/harness.env"
+    env.write_text(env.read_text().replace("ENTERPRISE_DIR=\n", "ENTERPRISE_DIR=../enterprise\n"))
+    out = pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/oca/web_x/models.py"))
+    assert denied(out) and "third-party addon" in out["hookSpecificOutput"][
+        "permissionDecisionReason"]
+    enterprise = hrepo.path.parent / "enterprise" / "web_studio" / "models.py"
+    assert denied(pre(hrepo, "Write", file_path=str(enterprise)))
+    for rel in ("Dockerfile", "odoo-stag.conf", "docker_compose_stag.yml", ".gitlab-ci.yml"):
+        out = pre(hrepo, "Edit", file_path=str(hrepo.path / rel))
+        assert denied(out), rel
+        assert "a human edits these files" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/client/demo_mod/x.py")) is None
+
+
+@pytest.mark.parametrize("command,ok", [
+    ("git push -u origin T2003", True),
+    ("git push origin T2003:T2003", True),
+    ("git push origin staging", False),
+    ("git push origin T2003:staging", False),
+    ("git push origin main", False),
+    ("git push", False),
+    ("git push origin HEAD", False),
+    ("git push --force origin T2003", False),
+    ("git push origin --delete T2003", False),
+    ("cd x && git push origin +T1:main", False),
+])
+def test_guard_pushes(hrepo, command, ok):
+    assert (pre(hrepo, "Bash", command=command) is None) is ok, command
 
 
 @pytest.mark.parametrize("command", [
@@ -175,7 +217,7 @@ def post(repo, path):
 
 
 def test_post_edit_reports_red_pen_for_broken_file(hrepo):
-    path = hrepo.path / "addons/demo_mod/models/thing.py"
+    path = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     path.write_text("import pdb\n")
     out = post(hrepo, path)
     assert out["decision"] == "block"
@@ -183,7 +225,7 @@ def test_post_edit_reports_red_pen_for_broken_file(hrepo):
 
 
 def test_post_edit_silent_on_clean_or_unrelated_files(hrepo):
-    assert post(hrepo, hrepo.path / "addons/demo_mod/models/thing.py") is None
+    assert post(hrepo, hrepo.path / "extra-addons/client/demo_mod/models/thing.py") is None
     (hrepo.path / "notes.py").write_text("def x(:\n")
     assert post(hrepo, hrepo.path / "notes.py") is None
 
@@ -219,12 +261,12 @@ def test_stop_reports_last_verify(hrepo):
 
 def test_stop_blocks_when_code_changed_without_progress(hrepo):
     start_session(hrepo)
-    thing = hrepo.path / "addons/demo_mod/models/thing.py"
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     thing.write_text(thing.read_text() + "\n# more\n")
     out = stop(hrepo)
     assert out["decision"] == "block"
     assert "PROGRESS.md was not updated" in out["reason"]
-    assert "addons/demo_mod/models/thing.py" in out["reason"]
+    assert "extra-addons/client/demo_mod/models/thing.py" in out["reason"]
     # after the agent records its progress, the stop goes through
     progress = hrepo.path / "PROGRESS.md"
     progress.write_text(progress.read_text().replace(
@@ -236,7 +278,7 @@ def test_stop_blocks_on_static_findings(hrepo):
     start_session(hrepo)
     progress = hrepo.path / "PROGRESS.md"
     progress.write_text(progress.read_text() + "\n- note\n")
-    (hrepo.path / "addons/demo_mod/models/thing.py").write_text("breakpoint()\n")
+    (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text("breakpoint()\n")
     out = stop(hrepo)
     assert out["decision"] == "block"
     assert "no-debug-leftovers" in out["reason"]
@@ -244,7 +286,7 @@ def test_stop_blocks_on_static_findings(hrepo):
 
 def test_stop_does_not_loop_forever(hrepo):
     start_session(hrepo)
-    (hrepo.path / "addons/demo_mod/models/thing.py").write_text("breakpoint()\n")
+    (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text("breakpoint()\n")
     assert stop(hrepo)["decision"] == "block"
     assert stop(hrepo, active=True) is None
     known = (hrepo.path / "PROGRESS.md").read_text().split("## Known issues")[1]
@@ -255,11 +297,11 @@ def test_stop_does_not_loop_forever(hrepo):
 
 def test_stop_ignores_changes_made_before_the_session(hrepo):
     """A reviewer (or a human) opening a session on uncommitted work is not blocked for it."""
-    thing = hrepo.path / "addons/demo_mod/models/thing.py"
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     thing.write_text(thing.read_text() + "\n# maker's work, before this session\n")
     start_session(hrepo, "reviewer")
     assert stop(hrepo) is None
     # but a change made during the session still counts
     thing.write_text(thing.read_text() + "\n# changed during the session\n")
     out = stop(hrepo)
-    assert out["decision"] == "block" and "addons/demo_mod/models/thing.py" in out["reason"]
+    assert out["decision"] == "block" and "extra-addons/client/demo_mod/models/thing.py" in out["reason"]

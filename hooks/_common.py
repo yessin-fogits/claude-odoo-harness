@@ -43,6 +43,16 @@ def load_env(root):
     return values
 
 
+def custom_roots(env):
+    """Repo-relative folders of the project's own modules (CUSTOM_ADDONS)."""
+    raw = env.get("CUSTOM_ADDONS") or env.get("ADDONS_DIR") or "addons"
+    return [p.strip().strip("/") for p in raw.split(",") if p.strip().strip("/")]
+
+
+def env_paths(env, key):
+    return [p.strip().strip("/") for p in env.get(key, "").split(",") if p.strip().strip("/")]
+
+
 def run(root, args, timeout=60):
     """Run a project command; returns (rc, combined output). Never raises."""
     try:

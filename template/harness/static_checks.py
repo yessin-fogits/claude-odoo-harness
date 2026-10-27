@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Layer 1 static checks that need no Odoo and no Docker (standard library only).
 
-    harness/static_checks.py              check all modules in scope
+    harness/static_checks.py              check the custom modules changed on this branch
+                                          (project checks: only on the changed lines)
+    harness/static_checks.py --all        check the whole project: every custom module and
+                                          the project files (debt report, used by discovery)
     harness/static_checks.py FILE...      check only these files (used after each edit)
 
 Checks: Python compiles, XML is well formed, manifests are consistent, security CSV
-headers, and the project checks in harness/checks/ (born from code reviews).
+headers, and the project checks in harness/checks/ (born from code reviews). With
+--all, also the project files outside the modules (configs, scripts, compose files:
+hard-coded secrets) and the lint configuration (Odoo version it validates).
 """
 
 import ast
 import csv
 import importlib.util
+import re
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -35,6 +42,10 @@ class Finding:
     what: str
     why: str
     fix: str
+    # Breaking findings (syntax, XML, manifest, security CSV) stop the module install: they
+    # always block. Quality findings (project checks) block only on lines changed on the
+    # branch; older ones are debt.
+    breaking: bool = True
 
     def redpen(self):
         return hlib.format_redpen("L1 static", f"{self.path}:{self.line}: {self.what}",
@@ -48,13 +59,51 @@ def rel(path):
         return str(path)
 
 
-def module_dirs(env):
-    root = hlib.addons_dir(env)
-    wanted = hlib.modules_in_scope(env)
-    if not root.is_dir():
+PROJECT_FILE_RE = re.compile(r"(\.(py|conf|cfg|ini|ya?ml|sh|env|json|toml)|Dockerfile[^/]*|"
+                             r"Jenkinsfile[^/]*)$")
+LINT_CONFIGS = (".pylintrc-mandatory", ".pylintrc")
+
+
+def module_dirs(env, names=None):
+    """Custom module dirs: all of them, or only `names` (unknown names are ignored)."""
+    found = hlib.custom_modules(env)
+    if names is None:
+        return [found[m] for m in sorted(found)]
+    return [found[m] for m in sorted(set(names)) if m in found]
+
+
+def project_files(env):
+    """Tracked files outside the addon folders that may hold configuration or secrets."""
+    try:
+        out = subprocess.run(["git", "ls-files"], cwd=hlib.REPO_ROOT, capture_output=True,
+                             text=True, check=True).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
         return []
-    found = sorted(p.parent for p in root.glob("*/__manifest__.py"))
-    return [d for d in found if not wanted or d.name in wanted]
+    addon_roots = [p + "/" for p in hlib.env_list(env, "CUSTOM_ADDONS")
+                   + hlib.env_list(env, "THIRD_PARTY_ADDONS")]
+    return [hlib.REPO_ROOT / f for f in out
+            if PROJECT_FILE_RE.search(f) and not f.startswith(("harness/", "e2e/", ".claude/"))
+            and not any(f.startswith(r) for r in addon_roots)
+            and (hlib.REPO_ROOT / f).is_file()]
+
+
+def check_lint_config(env):
+    version = env.get("ODOO_VERSION", "")
+    out = []
+    for name in LINT_CONFIGS:  # project-level debt, reported by --all
+        path = hlib.REPO_ROOT / name
+        if not path.is_file():
+            continue
+        match = re.search(r"^\s*valid[-_]odoo[-_]versions\s*=\s*(.+)$", path.read_text(), re.M)
+        if match and version not in [v.strip() for v in match.group(1).split(",")]:
+            out.append(Finding(name, 1, f"lint config validates Odoo {match.group(1).strip()}, "
+                               f"the project runs Odoo {version}",
+                               "pylint-odoo then flags every manifest version of the project, so "
+                               "the lint is ignored or fails for the wrong reason (the harness "
+                               "passes --valid-odoo-versions itself).",
+                               f"Set valid-odoo-versions={version} in {name} (a human change "
+                               "shared with CI and pre-commit)."))
+    return out
 
 
 def check_python(path):
@@ -139,12 +188,16 @@ def check_manifest(module_dir, odoo_version):
                 f"Add '{key}' to __manifest__.py.")
     version = str(manifest.get("version", ""))
     parts = version.split(".")
-    if "version" in manifest and (not version.startswith(odoo_version + ".") or len(parts) != 5
-                                  or not all(p.isdigit() for p in parts)):
-        bad(f"manifest version '{version}' is not {odoo_version}.x.y.z",
-            "Odoo uses the version to run migrations; the first part must match the server.",
-            f"Set 'version': '{odoo_version}.1.0.0' and bump x.y.z on each change "
-            "that needs a migration.")
+    other_series = (re.match(r"^\d{2}\.0\.", version + ".")
+                    and not version.startswith(odoo_version))
+    if "version" in manifest and (other_series or not all(p.isdigit() for p in parts)):
+        # Odoo prefixes a plain version ('1.0' -> '18.0.1.0'); a version of another series
+        # means the module was not ported to this Odoo version.
+        bad(f"manifest version '{version}' is not a version of Odoo {odoo_version}",
+            "Odoo uses the version to run migrations; a version from another Odoo series means "
+            "the module was not ported, and a non-numeric one cannot be compared.",
+            f"Port the module, then set 'version': '{odoo_version}.1.0.0' and bump it on "
+            "each change that needs a migration.")
     if not isinstance(manifest.get("depends", []), list):
         bad("'depends' must be a list", "Odoo expects a list of module names.",
             "Write 'depends': ['base', ...].")
@@ -188,7 +241,8 @@ def run_project_checks(files):
         for item in check.detect(files):
             path, line, detail = item[:3]
             why, fix = item[3:5] if len(item) == 5 else (check.WHY, check.FIX)
-            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", why, fix))
+            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", why, fix,
+                               breaking=False))
     return out
 
 
@@ -197,24 +251,38 @@ def module_files(module_dir):
                   if p.is_file() and "__pycache__" not in p.parts)
 
 
-def run(env, files=None):
-    """Run every layer 1 static check. files=None means all modules in scope."""
+def run(env, files=None, modules=None, whole_project=False):
+    """Run the layer 1 static checks on files, or on the files of `modules` (names; None
+    means every custom module). whole_project adds the project files and lint config."""
     version = env.get("ODOO_VERSION", "")
     findings = []
     if files is None:
         files = []
-        for mdir in module_dirs(env):
+        for mdir in module_dirs(env, modules):
             files += module_files(mdir)
     for path in files:
         findings += check_file(path, version)
-    findings += run_project_checks([Path(f) for f in files])
+    extra = project_files(env) if whole_project else []
+    findings += run_project_checks([Path(f) for f in files + extra])
+    if whole_project:
+        findings += check_lint_config(env)
     return findings
+
+
+def new_on_branch(env, findings):
+    """Breaking findings, and quality findings on lines changed on this branch."""
+    lines = hlib.changed_lines(hlib.base_ref(env))
+    return [f for f in findings if f.breaking or hlib.is_changed(lines, f.path, f.line)]
 
 
 def main(argv):
     env = hlib.load_env()
-    files = [Path(a) for a in argv if Path(a).is_file()] if argv else None
-    findings = run(env, files)
+    if argv == ["--all"]:
+        findings = run(env, whole_project=True)
+    elif argv:
+        findings = new_on_branch(env, run(env, [Path(a) for a in argv if Path(a).is_file()]))
+    else:
+        findings = new_on_branch(env, run(env, modules=hlib.changed_modules(env)))
     for finding in findings:
         print(finding.redpen(), file=sys.stderr)
     if not findings:

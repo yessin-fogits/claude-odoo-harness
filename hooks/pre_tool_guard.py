@@ -3,9 +3,12 @@
 
 Denies (with a red-pen reason):
   - Edit/Write of feature_list.json and harness/evidence/ (use harness/feature.py)
-  - edits of Odoo core / enterprise code (extend in custom modules instead)
+  - edits of Odoo core / enterprise code, of third-party addons (THIRD_PARTY_ADDONS),
+    of the Enterprise checkout (ENTERPRISE_DIR) and of PROTECTED_PATHS (deployment
+    files): extend in custom modules instead, a human changes deployment files
   - Bash commands that write those files, drop or target a non-test database,
-    delete docker volumes, or skip git hooks with --no-verify
+    delete docker volumes, skip git hooks with --no-verify, or push to the base
+    branch or main (task branches are pushed by harness/gitlab.py)
 """
 
 import ast
@@ -61,13 +64,26 @@ def is_core_module(module_dir):
     return "Odoo S.A." in author or str(manifest.get("license", "")).startswith("OEEL")
 
 
+def under(rel, prefix):
+    return rel.as_posix() == prefix or rel.as_posix().startswith(prefix + "/")
+
+
 def check_core(root, env, rel):
-    for prefix in filter(None, (p.strip().rstrip("/") for p in
-                                env.get("PROTECTED_PATHS", "").split(","))):
-        if rel.as_posix() == prefix or rel.as_posix().startswith(prefix + "/"):
+    for prefix in c.env_paths(env, "THIRD_PARTY_ADDONS"):
+        if under(rel, prefix):
+            deny(f"{rel} is a third-party addon ({prefix})",
+                 "OCA and vendor modules are not the project's code: a local change is lost at "
+                 "the next update of the addon and hides the real fix.",
+                 "Extend the module in a custom module (_inherit, xpath views); if the addon "
+                 "itself has a bug, tell the user so it is fixed upstream or the addon updated.")
+    for prefix in c.env_paths(env, "PROTECTED_PATHS"):
+        if under(rel, prefix):
             deny(f"{rel} is in a protected path ({prefix})",
-                 "BOOTSTRAP.md lists this path as off-limits.",
-                 "Make the change in a custom module of the project instead.")
+                 "Deployment files (images, compose files, server configs, CI) are shared with "
+                 "staging and production; BOOTSTRAP.md lists them as off-limits.",
+                 "Make the change in a custom module. If the deployment itself must change "
+                 "(a new Python dependency, a config option), tell the user what to change and "
+                 "why; a human edits these files.")
     parent = (root / rel).parent
     while parent != root and root in parent.parents:
         if (parent / "odoo-bin").is_file():
@@ -86,7 +102,17 @@ def check_file_tool(root, env, tool_input):
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     if not path:
         return
-    rel = rel_to(root, path if Path(path).is_absolute() else root / path)
+    path = Path(path) if Path(path).is_absolute() else root / path
+    enterprise = env.get("ENTERPRISE_DIR", "").strip().rstrip("/")
+    if enterprise:
+        try:
+            path.resolve().relative_to((root / enterprise).resolve())
+            deny(f"{path} is Odoo Enterprise source ({enterprise})",
+                 "Odoo Enterprise is never edited: changes are lost on upgrade and break support.",
+                 "Extend the behavior by inheritance in a custom module.")
+        except ValueError:
+            pass
+    rel = rel_to(root, path)
     if rel is None:
         return
     check_state_file(rel)
@@ -168,10 +194,34 @@ def check_bash(env, command):
         deny("command deletes docker volumes",
              "Volumes hold the databases and filestore; deleting them is not reversible.",
              "To start from a clean test DB use `harness/init.sh --reset`.")
+    check_push(env, command)
     if re.search(r"\bgit\b[^;&|\n]*\bcommit\b[^;&|\n]*--no-verify", command):
         deny("git commit --no-verify",
              "Pre-commit runs the feature list integrity check and the static checks.",
              "Commit without --no-verify and fix what the hooks report.")
+
+
+def check_push(env, command):
+    protected = {"main", "master", "production", env.get("BASE_BRANCH") or "staging"}
+    for segment in shell_segments(command) or []:
+        if segment[:2] != ["git", "push"] and not (
+                segment[:1] == ["git"] and "push" in segment[1:3]):
+            continue
+        args = segment[segment.index("push") + 1:]
+        if any(a in ("--force", "-f", "--mirror", "--all", "--delete", "-d")
+               or a.startswith("--force") for a in args):
+            deny(f"git push with a destructive option: {' '.join(segment)[:120]}",
+                 "Force, mirror, --all and --delete pushes rewrite or remove shared history.",
+                 "Push the task branch with harness/gitlab.py push; a human handles anything else.")
+        refs = [a for a in args if not a.startswith("-")][1:]
+        targets = {r.split(":")[-1].removeprefix("refs/heads/").lstrip("+") for r in refs}
+        if not refs or targets & protected or "HEAD" in targets:
+            deny(f"git push to a shared branch: {' '.join(segment)[:120]}",
+                 f"{', '.join(sorted(protected))} are deployed by CI; they change only through a "
+                 "reviewed merge request.",
+                 "Push the task branch and open its merge request with "
+                 "`harness/gitlab.py push` and `harness/gitlab.py mr` (feature.py does it when "
+                 "the task's features pass).")
 
 
 def main():

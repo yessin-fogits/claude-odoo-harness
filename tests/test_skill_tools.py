@@ -184,7 +184,7 @@ FENCE_LANG = {"python": ".py", "xml": ".xml", "javascript": ".js", "js": ".js"}
 def test_skill_examples_pass_the_harness_version_rules(hrepo):
     """Code shown by the skill must not be rejected by the harness for the same version."""
     from conftest import ODOO_VERSION
-    examples = hrepo.path / "addons" / "demo_mod" / "skill_examples"
+    examples = hrepo.path / "extra-addons" / "client" / "demo_mod" / "skill_examples"
     examples.mkdir()
     files = []
     for ref in sorted((SKILL_DIR / "references").glob("*.md")):

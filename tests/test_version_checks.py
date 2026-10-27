@@ -12,9 +12,9 @@ def check(repo, rel, text, version):
     return result.stderr
 
 
-PY = "addons/demo_mod/models/other.py"
-XML = "addons/demo_mod/views/other.xml"
-JS = "addons/demo_mod/static/src/other.js"
+PY = "extra-addons/client/demo_mod/models/other.py"
+XML = "extra-addons/client/demo_mod/views/other.xml"
+JS = "extra-addons/client/demo_mod/static/src/other.js"
 
 
 @pytest.mark.parametrize("rel,text,flagged_in,clean_in", [
@@ -96,7 +96,7 @@ class Mixin(models.AbstractModel):
     ("20.0", "demo.gadget,base.group_user,crud,"),
 ])
 def test_new_model_without_access_is_flagged(hrepo, version, expected):
-    out = check(hrepo, "addons/demo_mod/models/gadget.py", MODEL, version)
+    out = check(hrepo, "extra-addons/client/demo_mod/models/gadget.py", MODEL, version)
     assert "[model-access] model 'demo.gadget' has no access rights" in out
     assert expected in out
     assert "res.partner" not in out and "demo.mixin" not in out
@@ -104,6 +104,6 @@ def test_new_model_without_access_is_flagged(hrepo, version, expected):
 
 def test_model_with_access_is_clean(hrepo):
     # demo.thing is covered by the fixture's security CSV
-    out = check(hrepo, "addons/demo_mod/models/thing.py",
-                (hrepo.path / "addons/demo_mod/models/thing.py").read_text(), ODOO_VERSION)
+    out = check(hrepo, "extra-addons/client/demo_mod/models/thing.py",
+                (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").read_text(), ODOO_VERSION)
     assert "[model-access]" not in out

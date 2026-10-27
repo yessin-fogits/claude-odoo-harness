@@ -63,13 +63,13 @@ def test_retry_gets_the_red_pen_feedback(loop_repo):
 
 def test_exhausted_attempts_shelve_and_block(loop_repo):
     with_feature(loop_repo)
-    before = (loop_repo.path / "addons/demo_mod/models/thing.py").read_text()
+    before = (loop_repo.path / "extra-addons/client/demo_mod/models/thing.py").read_text()
     result = loop(loop_repo, "--attempts", "2", fake_maker="break")
     assert result.returncode == 1
     assert len(agent_prompts(loop_repo)) == 2
     feat = loop_repo.features()[0]
     assert feat["state"] == "blocked"
-    assert (loop_repo.path / "addons/demo_mod/models/thing.py").read_text() == before
+    assert (loop_repo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() == before
     assert "harness-loop" in git(loop_repo, "stash", "list")
     assert git(loop_repo, "status", "--porcelain").strip() == ""
     known = (loop_repo.path / "PROGRESS.md").read_text().split("## Known issues")[1]

@@ -25,7 +25,7 @@ if "--agent" in args:
     print(json.dumps({"result": f"### Verdict\n{verdict}: reviewed.\n\n### Findings\nnone"}))
     sys.exit(0)
 
-thing = Path("addons/demo_mod/models/thing.py")
+thing = Path("extra-addons/client/demo_mod/models/thing.py")
 mode = os.environ.get("FAKE_MAKER", "fix")
 broken = mode == "break" or (mode == "break-then-fix" and "Attempt 1 of" in prompt)
 if mode != "none":

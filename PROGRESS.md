@@ -1,8 +1,8 @@
 # Progress
 
 ## Current state
-- Last commit: Phase 6 (autonomous maker-checker loop, fixes from live runs)
-- Test status: 197 passed on each version branch; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 (`python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`
+- Last commit: Phase 7 (full-project mode for fogits Odoo projects)
+- Test status: 236 passed on each version branch; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 (`python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`
 - Lint: shellcheck clean on template scripts
 
 ## Completed tasks
@@ -17,9 +17,13 @@
 
 - [x] Phase 6: autonomous maker-checker loop (harness/loop.py run/status), bounded attempts and budgets, stash + block on failure, optional odoo-reviewer gate, events log; README section (EN/FR). Live runs with a real Claude maker and reviewer (Docker/curl simulated) found two bugs, both fixed with regression tests: verify refused a feature the maker had already verified, and the Stop gate blocked the reviewer session for the maker's uncommitted work. Third live run: F-001 implemented, verified, reviewed (Accept) and committed in one attempt ($0.19 maker, $0.05 reviewer)
 
+- [x] Phase 7: full-project mode: project detection (addons_path, Dockerfile, enterprise, base branch, GitLab, deployment files) checked on qafila, ad-tunisie, evms and conforama-sh; test runtime on the project's image with its own database; verify scope = changed modules + dependents; older findings are debt (ratchet on changed lines); project rcfile for pylint; no-hardcoded-secrets check; guard for third-party/enterprise/deployment files and pushes; Odoo tasks with T<code> branches, [T<code>] commits and merge requests (harness/gitlab.py); discovery in init (ARCHITECTURE.md from harness/project_map.py, CLAUDE.md project section, open Odoo tasks through the Odoo MCP connector)
+
 ## In progress
 
 ## Known issues
+- Reading Odoo tasks through the Odoo MCP connector is not yet tested live (the Odoo_Qafila and Odoo_AD-Tunisie connectors failed to connect in the development session); the merge request flow is tested against a fake GitLab server only.
+- Real Odoo with Enterprise is not exercised in CI (Enterprise is private); the demo project runs without it.
 - A live headless Claude Code session with the plugin installed from the GitHub marketplace received the SessionStart context, had a shell write to feature_list.json denied by the guard, and ran feature.py. The loop worked a full feature end to end with real agents, but Docker and curl were simulated there: real Odoo is covered by the odoo-e2e CI job, not yet by an agent-driven run.
 - Files written by the e2e container in `.harness/runs/` may be owned by root on Linux hosts.
 - The repository default branch is not main yet (repository settings cannot be changed from this environment); installs pin main explicitly.
