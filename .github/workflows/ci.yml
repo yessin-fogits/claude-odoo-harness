@@ -10,7 +10,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest shellcheck-py "pylint-odoo==10.0.12"
+      - run: pip install pytest shellcheck-py actionlint-py "pylint-odoo==10.0.12"
+      - run: actionlint .github/workflows/ci.yml
       - run: python -m pytest -q
 
   skill-check:
@@ -49,7 +50,7 @@ jobs:
     timeout-minutes: 60
     defaults:
       run:
-        working-directory: ${{ runner.temp }}/demo
+        working-directory: ${{ github.workspace }}/demo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,7 +58,7 @@ jobs:
           python-version: "3.12"
       - name: Build the demo project
         working-directory: ${{ github.workspace }}
-        run: python tools/make_demo_project.py "$RUNNER_TEMP/demo"
+        run: python tools/make_demo_project.py demo
       - name: "Initialization step 1: harness/init.sh (baseline verification)"
         run: harness/init.sh
       - name: Feature F-001 reaches passing through the harness
@@ -96,5 +97,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: harness-runs-${{ github.ref_name }}
-          path: ${{ runner.temp }}/demo/.harness/
+          path: ${{ github.workspace }}/demo/.harness/
           if-no-files-found: ignore
