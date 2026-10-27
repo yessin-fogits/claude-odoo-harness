@@ -76,17 +76,18 @@ import re
 from playwright.sync_api import expect
 
 
-def test_salesman_applies_discount(odoo_page):
+def test_salesman_applies_discount(odoo_page, unique):
     page = odoo_page
+    name = f"Spring {unique}"
     page.goto("/odoo/discounts")                     # the action's `path`
     page.get_by_role("button", name="New").click()
-    page.get_by_label("Name").fill("Spring")
+    page.get_by_label("Name").fill(name)
     page.get_by_label("Rate").fill("10")
     page.locator(".o_form_button_save").click()
-    expect(page.locator(".o_breadcrumb")).to_contain_text("Spring")
+    expect(page.locator(".o_breadcrumb")).to_contain_text(name)
 
     page.goto("/odoo/discounts")
-    row = page.locator(".o_data_row", has_text="Spring")
+    row = page.locator(".o_data_row", has_text=name)
     expect(row).to_be_visible()
     expect(row).to_contain_text(re.compile(r"10[.,]00"))
 ```
@@ -94,6 +95,8 @@ def test_salesman_applies_discount(odoo_page):
 - Prefer user-facing locators (`get_by_role`, `get_by_label`, `get_by_text`) and a few stable
   classes: `.o_main_navbar`, `.o_data_row`, `.o_form_button_save`, `.o_notification`.
 - Assert with `expect(...)` (it waits); never `time.sleep`.
+- The test DB persists between runs: give the records a test creates unique names (the
+  `unique` fixture) and never assume a list starts empty.
 - Create the data the test needs through the UI or in a fixture; the test DB has no demo
   data unless the project installs it.
 - A failure keeps a trace (`.harness/runs/<run>/e2e/`): open it with
