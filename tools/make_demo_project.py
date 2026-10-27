@@ -56,16 +56,17 @@ MAJOR = int(os.environ.get("ODOO_VERSION", "17.0").split(".")[0])
 URL = "/odoo/demo-things" if MAJOR >= 18 else "/web#action=demo_mod.demo_thing_action"
 
 
-def test_create_demo_thing(odoo_page):
+def test_create_demo_thing(odoo_page, unique):
     page = odoo_page
+    name = f"Thing {unique}"
     page.goto(URL)
     page.get_by_role("button", name="New").click()
-    page.locator(".o_field_widget[name=name] input").fill("Thing from e2e")
+    page.locator(".o_field_widget[name=name] input").fill(name)
     page.locator(".o_form_button_save").click()
     expect(page.locator(".o_form_button_save")).to_be_hidden()
 
     page.goto(URL)
-    expect(page.locator(".o_data_row", has_text="Thing from e2e")).to_be_visible()
+    expect(page.locator(".o_data_row", has_text=name)).to_be_visible()
 '''
 
 

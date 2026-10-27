@@ -89,7 +89,9 @@ CATALOG = [
     Entry("playwright-strict-mode",
           r"strict mode violation: (.+) resolved to (\d+) elements",
           "The locator {1} matches {2} elements, so Playwright cannot pick one.",
-          "Make the locator precise (role and name, or scope it inside the right container)."),
+          "Make the locator precise (role and name, or scope it inside the right container). "
+          "If the duplicates are records left by earlier runs (the test DB persists), give "
+          "the records the test creates unique names with the `unique` fixture."),
     Entry("playwright-assertion",
           r"AssertionError: Locator expected to (.+)",
           "An e2e expectation failed: the page did not reach the expected state ({1}).",
