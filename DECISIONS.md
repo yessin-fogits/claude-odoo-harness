@@ -34,3 +34,7 @@ Append-only. One line per decision: `- YYYY-MM-DD: decision (why)`.
 - 2026-10-27: Odoo listens on 0.0.0.0 inside the container (Odoo 20.0 defaults to 127.0.0.1); the host port is published on 127.0.0.1 only.
 - 2026-10-27: The e2e test DB persists between runs; e2e tests name what they create with the unique fixture.
 - 2026-10-27: Red pens always show a short excerpt of the failing record (the assertion message), and the Odoo test summary record is not reported as a separate error.
+- 2026-10-27: plugin.json has no version: Claude Code then versions the plugin by the commit of its branch, so pushes reach users (a pinned version keeps everyone on the cached copy).
+- 2026-10-27: Projects turn on autoUpdate for the odoo-harness marketplace (third-party marketplaces do not auto-update by default).
+- 2026-10-27: Installed files have an owner: state (never overwritten), project (created once, kept by --update which reports template changes as kept*), harness (replaced by --update), merged (CLAUDE.md block, settings, .gitignore). The update skill runs install_template.py --update; a different Odoo version is refused as a migration.
+- 2026-10-27: The red-pen catalog is split: harness/errors.py (harness, updated) and harness/errors_project.py (project patterns, checked first, never overwritten).
