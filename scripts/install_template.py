@@ -18,7 +18,7 @@ from pathlib import Path
 # The Odoo version this branch of the harness targets.
 ODOO_VERSION = "17.0"
 POSTGRES_IMAGE = "postgres:16"
-DEFAULT_MARKETPLACE_REPO = "yassin25414/claude-odoo-harness"
+DEFAULT_MARKETPLACE_REPO = "yessin-fogits/claude-odoo-harness"
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
 
