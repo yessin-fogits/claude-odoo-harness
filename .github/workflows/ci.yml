@@ -12,3 +12,33 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest shellcheck-py "pylint-odoo==10.0.12"
       - run: python -m pytest -q
+
+  skill-check:
+    # The odoo skill of this branch must match the real Odoo source of its version.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch the Odoo source of this branch's version
+        run: |
+          version=$(python -c "import json; print(json.load(open('odoo_version.json'))['odoo_version'])")
+          tools/odoo-skill-extract/fetch_odoo.sh "$version" "$RUNNER_TEMP/odoo"
+          python tools/odoo-skill-extract/extract.py "$RUNNER_TEMP/odoo" -o "$RUNNER_TEMP/facts.json"
+      - name: Check the skill against the facts
+        run: |
+          if [ -f skills/odoo/SKILL.md ]; then
+            python tools/odoo-skill-extract/check_skill.py "$RUNNER_TEMP/facts.json" skills/odoo
+          else
+            echo "no odoo skill on this branch"
+          fi
+
+  branches:
+    # Shared harness files are identical on all version branches.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: tools/check_branches.sh

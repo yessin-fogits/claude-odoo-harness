@@ -13,6 +13,7 @@ import argparse
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -175,6 +176,15 @@ def manifest_keys(src):
     return sorted(set(re.findall(r"^\s*['\"](\w+)['\"]\s*:", match.group(1), re.M))) if match else []
 
 
+def source_commit(src):
+    try:
+        out = subprocess.run(["git", "-C", str(src), "rev-parse", "HEAD"], capture_output=True,
+                             text=True, check=True)
+        return out.stdout.strip()[:12]
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def extract(src):
     src = Path(src).resolve()
     rng_files, list_tag = view_rng(src)
@@ -185,6 +195,7 @@ def extract(src):
                            "returns"}]
     return {
         "odoo_version": odoo_version(src),
+        "source_commit": source_commit(src),
         "api_decorators": decorators,
         "api_exports": exported_names(api_path),
         "models_exports": exported_names(module_path(src, "odoo/models")),
