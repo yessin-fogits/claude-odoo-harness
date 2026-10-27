@@ -36,6 +36,7 @@ ODOO_RAN_RE = re.compile(r"Ran (\d+) tests?")
 PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|failed|errors?)\b")
 PYTEST_FAILED_RE = re.compile(r"^(FAILED|ERROR) (\S+)(?: - (.*))?$", re.M)
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
+EXCERPT_LINES = 15
 
 
 class LayerFailed(Exception):
@@ -79,12 +80,12 @@ def excerpt(text, lines=25):
 
 def redpen_from_text(layer, what, text, log_path):
     """Print the catalog explanation of text, or the unknown-error fallback."""
+    print(excerpt(text, EXCERPT_LINES), file=sys.stderr)
     matches = errors.explain(text)
     if matches:
         _id, why, fix = matches[0]
         hlib.print_redpen(layer, what, why, f"{fix} (log: {rel(log_path)})")
     else:
-        print(excerpt(text), file=sys.stderr)
         hlib.print_redpen(layer, what, f"See the excerpt above (full log: {rel(log_path)}).",
                           errors.UNKNOWN_FIX)
 
@@ -173,6 +174,8 @@ def layer_runtime(env, tags, run_dir):
               "errors": errs, "log_errors": len(blocks), "log": rel(log)}
     if rc != 0 or failed or errs or blocks:
         result["status"] = "fail"
+        # Odoo 20 logs the test summary at ERROR level; it repeats the failures above it.
+        blocks = [b for b in blocks if "odoo.tests.result:" not in b.splitlines()[0]] or blocks
         for block in blocks[:5] or [out]:
             redpen_from_text("L2 runtime", f"Odoo tests failed ({failed} failed, {errs} errors "
                              f"of {tests})", block, log)
@@ -227,7 +230,7 @@ def cross_component(env, files):
             continue
         else:
             shared.append(name)
-    return (len(modules) > 1 or bool(shared)), sorted(modules)
+    return (len(modules) > 1 or bool(shared)), sorted(modules), sorted(shared)
 
 
 def server_log_errors(since, run_dir):
@@ -340,12 +343,14 @@ def main(argv=None):
     full = args.full_e2e or not args.e2e
     if args.feature and not full:
         start = hlib.load_state().get(args.feature, {}).get("start_commit")
-        is_cross, touched = cross_component(env, changed_files(start))
+        is_cross, touched, shared = cross_component(env, changed_files(start))
         report["touched_modules"] = touched
+        report["shared_files"] = shared
         if is_cross:
             full = True
-            step(f"cross-component change ({', '.join(touched) or 'shared files'}): "
-                 "full e2e suite required")
+            reason = (f"modules {', '.join(touched)}" if len(touched) > 1
+                      else f"shared files {', '.join(shared[:5])}")
+            step(f"cross-component change ({reason}): full e2e suite required")
 
     layers = [(1, "static", lambda: layer_static(env, run_dir)),
               (2, "runtime", lambda: layer_runtime(env, args.tags, run_dir)),

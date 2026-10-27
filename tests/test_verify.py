@@ -48,11 +48,12 @@ def test_parse_pytest_summary():
 
 
 @pytest.mark.parametrize("files,expected", [
-    ({"addons/demo_mod/models/x.py"}, (False, ["demo_mod"])),
-    ({"addons/demo_mod/models/x.py", "e2e/test_F001_x.py", "PROGRESS.md"}, (False, ["demo_mod"])),
-    ({"addons/a/x.py", "addons/b/y.py"}, (True, ["a", "b"])),
-    ({"addons/a/x.py", "e2e/conftest.py"}, (True, ["a"])),
-    ({"addons/a/x.py", "docker-compose.yml"}, (True, ["a"])),
+    ({"addons/demo_mod/models/x.py"}, (False, ["demo_mod"], [])),
+    ({"addons/demo_mod/models/x.py", "e2e/test_F001_x.py", "PROGRESS.md"},
+     (False, ["demo_mod"], [])),
+    ({"addons/a/x.py", "addons/b/y.py"}, (True, ["a", "b"], [])),
+    ({"addons/a/x.py", "e2e/conftest.py"}, (True, ["a"], ["e2e/conftest.py"])),
+    ({"addons/a/x.py", "docker-compose.yml"}, (True, ["a"], ["docker-compose.yml"])),
 ])
 def test_cross_component(files, expected):
     assert verify.cross_component({"ADDONS_DIR": "addons"}, files) == expected
@@ -176,3 +177,31 @@ def test_pylintrc_is_valid_and_finds_odoo_issues(hrepo):
                 if m]
     assert "config-parse-error" not in result.stdout
     assert messages == ["print-used"], result.stdout
+
+
+ODOO20_FAILED_LOG = """\
+2026-10-27 11:10:24,300 1 ERROR harness_test odoo.addons.demo_mod.tests.test_thing: FAIL: TestThing.test_create
+Traceback (most recent call last):
+  File "/mnt/extra-addons/demo_mod/tests/test_thing.py", line 7, in test_create
+    self.assertEqual(thing.name, "x")
+AssertionError: 'X' != 'x'
+2026-10-27 11:10:24,406 1 ERROR harness_test odoo.tests.result: 1 failed, 0 error(s) of 1 tests when loading database 'harness_test'
+"""
+
+
+def test_failure_shows_the_assertion_once(hrepo):
+    """Real Odoo 20 output: one red pen, with the assertion text, no summary duplicate."""
+    result = hrepo.verify(fake_odoo_log=ODOO20_FAILED_LOG, fake_odoo_rc=1)
+    assert result.returncode == 1
+    assert result.stderr.count("✗ [L2 runtime]") == 1
+    assert "AssertionError: 'X' != 'x'" in result.stderr
+    assert "No catalog entry" not in result.stderr
+
+
+def test_cross_component_names_shared_files(hrepo):
+    add_feature(hrepo)
+    hrepo.commit("add feature")
+    hrepo.feature("start", "F-001")
+    (hrepo.path / "notes.log").write_text("x")
+    result = hrepo.feature("verify", "F-001")
+    assert "cross-component change (shared files notes.log)" in result.stdout
