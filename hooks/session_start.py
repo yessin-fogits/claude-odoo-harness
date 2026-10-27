@@ -50,6 +50,11 @@ def unchecked_bootstrap(root):
     return [ln.strip() for ln in ready.splitlines() if "[ ]" in ln]
 
 
+def init_command(root):
+    major = c.load_env(root).get("ODOO_VERSION", "").split(".")[0] or "<version>"
+    return f"/odoo-harness-{major}:init"
+
+
 def recent_decisions(root):
     path = root / "DECISIONS.md"
     if not path.is_file():
@@ -84,7 +89,8 @@ def main():
     if pending:
         parts.append("## Initialization incomplete (BOOTSTRAP.md, Ready means)\n"
                      + "\n".join(pending)
-                     + "\nFeature work starts only after these are done (/odoo-harness:init).")
+                     + "\nFeature work starts only after these are done "
+                     f"({init_command(root)}).")
 
     rc, out = c.run(root, ["bash", "harness/init.sh", "--check"], timeout=60)
     if rc == 0:

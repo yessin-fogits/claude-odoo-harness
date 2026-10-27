@@ -104,7 +104,8 @@ def load_features():
     except FileNotFoundError:
         raise RedPen("features", "feature_list.json not found",
                      "The harness keeps the work split into features in feature_list.json.",
-                     "Run /odoo-harness:init, or restore the file from git.")
+                     "Run the odoo-harness init skill (/odoo-harness-<version>:init), or "
+                     "restore the file from git.")
     except json.JSONDecodeError as exc:
         raise RedPen("features", f"feature_list.json is not valid JSON (line {exc.lineno})",
                      "The file was edited by hand and broken.",

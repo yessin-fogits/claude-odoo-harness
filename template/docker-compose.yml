@@ -54,6 +54,7 @@ services:
     ipc: host
     environment:
       ODOO_DB: ${TEST_DB:-harness_test}
+      ODOO_VERSION: ${ODOO_VERSION:-17.0}
     volumes:
       - .:/work
 

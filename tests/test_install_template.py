@@ -120,7 +120,8 @@ def test_existing_settings_are_merged(repo):
     assert "Bash(make:*)" in settings["permissions"]["allow"]
     assert "Edit(feature_list.json)" in settings["permissions"]["deny"]
     assert settings["model"] == "x"
-    assert settings["enabledPlugins"]["odoo-harness@odoo-harness"] is True
+    major = install_template.ODOO_VERSION.split(".")[0]
+    assert settings["enabledPlugins"][f"odoo-harness-{major}@odoo-harness"] is True
 
 
 def test_existing_gitignore_is_merged(repo):
