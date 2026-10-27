@@ -76,6 +76,11 @@ def render_facts(facts):
     return "\n".join(lines)
 
 
+def _without_source(text):
+    """Odoo commits daily to stable branches: only the facts matter, not the commit."""
+    return "\n".join(line for line in text.splitlines() if not line.startswith("Source: "))
+
+
 def code_blocks(text):
     """(start_line, code) of each fenced code block."""
     for match in FENCE_RE.finditer(text):
@@ -149,7 +154,7 @@ def check(facts, skill_dir, write=False):
     if write:
         facts_md.parent.mkdir(parents=True, exist_ok=True)
         facts_md.write_text(expected)
-    elif not facts_md.is_file() or facts_md.read_text() != expected:
+    elif not facts_md.is_file() or _without_source(facts_md.read_text()) != _without_source(expected):
         problems.append("references/version-facts.md is out of date: run check_skill.py --write")
     for path in sorted([skill_md, *(skill_dir / "references").glob("*.md")]):
         if path.name in EXEMPT:

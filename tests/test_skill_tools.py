@@ -143,6 +143,14 @@ def test_stale_version_facts_detected(mini_odoo, tmp_path):
     assert any("out of date" in p for p in check_skill.check(facts, skill))
 
 
+def test_new_odoo_commit_alone_is_not_stale(mini_odoo, tmp_path):
+    facts = extract.extract(mini_odoo)
+    facts["source_commit"] = "aaaaaaaaaaaa"
+    skill = make_skill(tmp_path, facts, {})
+    facts["source_commit"] = "bbbbbbbbbbbb"
+    assert check_skill.check(facts, skill) == []
+
+
 def test_frontmatter_must_name_version(mini_odoo, tmp_path):
     facts = extract.extract(mini_odoo)
     skill = make_skill(tmp_path, facts, {})
