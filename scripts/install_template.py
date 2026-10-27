@@ -83,9 +83,9 @@ def install(target, ctx, force=False):
         raise SystemExit(f"target {target} is not a directory")
     report = []
     for src in sorted(TEMPLATE_DIR.rglob("*")):
-        if src.is_dir():
-            continue
         rel = src.relative_to(TEMPLATE_DIR)
+        if src.is_dir() or "__pycache__" in rel.parts:
+            continue
         content = render(src.read_text(), ctx)
         if rel.as_posix() == GITIGNORE_FRAGMENT:
             report.append(merge_gitignore(target / ".gitignore", content))
@@ -104,7 +104,7 @@ def install(target, ctx, force=False):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
         shutil.copymode(src, dest)
-        if dest.suffix in {".sh", ".py"}:
+        if rel.parent.as_posix() == "harness" and dest.suffix in {".sh", ".py"}:
             dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         report.append((action, rel.as_posix()))
     (target / ctx["ADDONS_DIR"]).mkdir(parents=True, exist_ok=True)

@@ -10,5 +10,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest shellcheck-py
+      - run: pip install pytest shellcheck-py "pylint-odoo==10.0.12"
       - run: python -m pytest -q

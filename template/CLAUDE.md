@@ -51,5 +51,6 @@ Only the e2e test is real verification. Unit tests passing is not enough to decl
 Harness failures are printed as `✗ [layer] what`, `WHY:`, `HOW TO FIX:`. Read the HOW TO FIX line and apply it before trying anything else.
 
 # When a review finds a new mistake type
-Turn it into a check: add a file in `harness/checks/` that detects it with a WHY / HOW TO FIX message, then append a line to `DECISIONS.md`.
+Turn it into a check: add a file in `harness/checks/` that detects it with a WHY / HOW TO FIX message (copy the shape of `harness/checks/no_debug_leftovers.py`), then append a line to `DECISIONS.md`.
+When a failure prints "No catalog entry", add its pattern to `harness/errors.py` once it is fixed.
 <!-- odoo-harness:end -->

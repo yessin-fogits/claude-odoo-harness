@@ -1,0 +1,15 @@
+# Fast harness checks before each commit. Full verification: harness/verify.sh
+repos:
+  - repo: local
+    hooks:
+      - id: harness-feature-list
+        name: feature list integrity (passing needs evidence)
+        entry: python3 harness/feature.py check
+        language: system
+        pass_filenames: false
+        files: ^(feature_list\.json|harness/evidence/)
+      - id: harness-static
+        name: harness static checks (layer 1, no docker)
+        entry: python3 harness/static_checks.py
+        language: system
+        types_or: [python, xml, csv]

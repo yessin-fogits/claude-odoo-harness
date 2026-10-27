@@ -13,6 +13,8 @@
     "deny": [
       "Edit(feature_list.json)",
       "Write(feature_list.json)",
+      "Edit(harness/evidence/**)",
+      "Write(harness/evidence/**)",
       "Read(.env)",
       "Read(.env.*)"
     ]

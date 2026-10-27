@@ -30,11 +30,11 @@ A harness is the work system around the model. It makes an agent reliable on lon
    4. task breakdown (`feature_list.json`).
 
 ## Status
-Phase 1 (core harness) is in place. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
+Phases 1 (core harness) and 2 (state machine and 3-layer verification) are in place. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
 and [PROGRESS.md](PROGRESS.md) for the current state.
 
 ## Develop
 ```
-pip install pytest shellcheck-py
+pip install pytest shellcheck-py "pylint-odoo==10.0.12"
 python -m pytest -q
 ```

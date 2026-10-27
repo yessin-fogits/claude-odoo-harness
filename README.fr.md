@@ -30,5 +30,5 @@ Le harness est le système de travail autour du modèle. Il rend l'agent fiable 
    4. découpage des tâches (`feature_list.json`).
 
 ## État
-La phase 1 (harness de base) est en place. Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le plan
+Les phases 1 (harness de base) et 2 (machine à états et vérification en 3 couches) sont en place. Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le plan
 complet et [PROGRESS.md](PROGRESS.md) pour l'état actuel.
