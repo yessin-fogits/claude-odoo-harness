@@ -21,7 +21,7 @@ One plugin per Odoo version, all from this marketplace:
 | 20.0 | `odoo-harness-20` | [`20.0`](../../tree/20.0) |
 
 ```
-/plugin marketplace add yessin-fogits/claude-odoo-harness
+/plugin marketplace add yessin-fogits/claude-odoo-harness@main
 /plugin install odoo-harness-20@odoo-harness
 ```
 
