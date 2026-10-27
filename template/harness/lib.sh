@@ -24,7 +24,8 @@ ok()   { printf '✓ %s\n' "$*"; }
 step() { printf '→ %s\n' "$*"; }
 
 dc() {
-    docker compose --project-directory "$REPO_ROOT" --env-file "$HARNESS_ENV" "$@"
+    docker compose --project-directory "$REPO_ROOT" -f "$HARNESS_DIR/docker-compose.yml" \
+        --env-file "$HARNESS_ENV" "$@"
 }
 
 # Run an odoo-bin command in a one-off container (no published ports).
@@ -40,6 +41,9 @@ test_db_exists() {
     [ "$(psql_db "SELECT 1 FROM pg_database WHERE datname='${TEST_DB}'" 2>/dev/null)" = "1" ]
 }
 
+# Every custom module of the project (CUSTOM_ADDONS), or base when there is none yet.
 modules_or_base() {
-    if [ -n "${MODULES:-}" ]; then printf '%s' "$MODULES"; else printf 'base'; fi
+    local mods
+    mods="$(python3 "$HARNESS_DIR/hlib.py" modules)"
+    if [ -n "$mods" ]; then printf '%s' "$mods"; else printf 'base'; fi
 }

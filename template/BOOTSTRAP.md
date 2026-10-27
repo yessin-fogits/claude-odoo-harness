@@ -4,11 +4,13 @@ This file is the contract between the humans and the agents working on this repo
 `harness/init.sh` must satisfy it before any feature work starts. If it does not, fixing it is the first task.
 
 ## Environment
-- Odoo version: {{ODOO_VERSION}} (image `{{ODOO_IMAGE}}`), PostgreSQL image `{{POSTGRES_IMAGE}}`
-- Runtime: Docker Compose (`docker-compose.yml`), settings in `harness/harness.env`
-- Custom addons directory: `{{ADDONS_DIR}}`
-- Modules in scope: `{{MODULES}}`
-- Test database: `{{TEST_DB}}` (disposable, recreated by `harness/init.sh --reset`)
+- Odoo version: {{ODOO_VERSION}}, test image `{{ODOO_IMAGE}}` (built from `{{ODOO_DOCKERFILE}}` when set), PostgreSQL image `{{POSTGRES_IMAGE}}`
+- Test runtime: `harness/docker-compose.yml` (its own containers, database and port), settings in `harness/harness.env`
+- Custom addons (the project's code): `{{CUSTOM_ADDONS}}`
+- Third-party addons (read-only): `{{THIRD_PARTY_ADDONS}}`
+- Odoo Enterprise (read-only, outside the repository): `{{ENTERPRISE_DIR}}`
+- Test database: `{{TEST_DB}}` with demo data (disposable, recreated by `harness/init.sh --reset`)
+- Git: task branches `T<code>` start from `{{BASE_BRANCH}}`; merge requests target it (GitLab project `{{GITLAB_PROJECT}}`)
 
 ## Commands
 | Purpose | Command |
@@ -23,13 +25,14 @@ This file is the contract between the humans and the agents working on this repo
 ## Expected baseline
 `harness/init.sh` ends with `✓ baseline OK`, which means:
 - the `db` and `odoo` containers are running and Odoo answers on `/web/login`;
-- the test DB exists and the modules in scope install without error;
+- the test DB exists and every custom module installs without error;
 - `harness/verify.sh` passes on the current code.
 
 ## Off-limits
-- Odoo core and enterprise source code (only extend through custom modules).
-- Any database other than the test DB.
-- Production configuration files and credentials.
+- Odoo core, Odoo Enterprise and third-party (OCA) addons: extend them in custom modules.
+- Deployment files, changed by a human: `{{PROTECTED_PATHS}}`.
+- Any database other than the test DB, including the dev stack's database.
+- Credentials: never write a token or password in a tracked file.
 
 ## Ready means
 The four initialization steps are done:

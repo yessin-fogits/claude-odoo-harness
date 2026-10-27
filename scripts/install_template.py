@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Install or update the odoo-harness template in an Odoo repository.
 
-    install_template.py TARGET --modules a,b [--addons-dir addons]   first install
-    install_template.py TARGET --update                              update the harness files
-    install_template.py TARGET --show docker-compose.yml             print a template file
+    install_template.py TARGET [overrides]          first install (layout detected)
+    install_template.py TARGET --update             update the harness files
+    install_template.py TARGET --show FILE          print a rendered template file
+
+TARGET is the root of an Odoo project repository. Its layout (custom and third-party
+addon folders, Odoo Enterprise, Dockerfile, base branch, GitLab project, deployment
+files) is detected by detect_project.py; the overrides replace what was detected.
 
 Deterministic and idempotent. Files have an owner:
-- state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md): never overwritten;
-- project (docker-compose.yml, odoo.conf, harness.env, e2e/conftest.py...): created once,
-  then the project's; --update keeps them and reports when the template changed;
-- harness (harness/*.py, *.sh, checks, docker files): replaced by --update;
+- state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md, ARCHITECTURE.md):
+  never overwritten;
+- project (harness.env, e2e/conftest.py, .pylintrc...): created once, then the project's;
+  --update keeps them and reports when the template changed;
+- harness (harness/*.py, *.sh, checks, docker files, harness/docker-compose.yml,
+  harness/odoo.conf): replaced by --update, rendered from harness.env;
 - merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time.
 """
 
@@ -29,18 +35,18 @@ POSTGRES_IMAGE = _BRANCH["postgres_image"]
 DEFAULT_MARKETPLACE_REPO = "yessin-fogits/claude-odoo-harness"
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import detect_project  # noqa: E402
 
-STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "feature_list.json", "BOOTSTRAP.md"}
-PROJECT_FILES = {"docker-compose.yml", "odoo.conf", ".pylintrc", ".pre-commit-config.yaml",
-                 "e2e/conftest.py", "e2e/test_smoke.py", "harness/harness.env",
-                 "harness/errors_project.py"}
+STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "feature_list.json", "BOOTSTRAP.md", "ARCHITECTURE.md"}
+PROJECT_FILES = {".pylintrc", ".pre-commit-config.yaml", "e2e/conftest.py", "e2e/test_smoke.py",
+                 "harness/harness.env", "harness/errors_project.py"}
 HARNESS_ENV = "harness/harness.env"
 CLAUDE_MD = "CLAUDE.md"
 SETTINGS = ".claude/settings.json"
 GITIGNORE_FRAGMENT = "gitignore"
 BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?", re.S)
 
-MODULES_RE = re.compile(r"^([a-z0-9_]+(,[a-z0-9_]+)*)?$")
 DB_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 ENV_KEY_RE = re.compile(r"^([A-Z_]+)=(.*)$")
 
@@ -49,10 +55,15 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("target", type=Path, help="root of the Odoo repository")
-    p.add_argument("--modules", help="comma-separated custom modules in scope")
-    p.add_argument("--addons-dir", help="custom addons dir, relative to target (default: addons)")
+    p.add_argument("--custom-addons", help="comma-separated folders of the project's modules")
+    p.add_argument("--third-party-addons", help="comma-separated read-only addon folders (OCA...)")
+    p.add_argument("--enterprise-dir", help="Odoo Enterprise checkout, relative to target "
+                   "(default: ../enterprise when the project uses it); '' for none")
+    p.add_argument("--dockerfile", help="project Dockerfile the test image is built from; '' "
+                   "to use the plain odoo:<version> image")
+    p.add_argument("--base-branch", help="branch task branches start from (default: staging)")
     p.add_argument("--test-db", help="disposable test database (default: harness_test)")
-    p.add_argument("--port", type=int, help="host port of Odoo (default: 8069)")
+    p.add_argument("--port", type=int, help="host port of the harness Odoo (default: 18069)")
     p.add_argument("--project-name", help="docker compose project name")
     p.add_argument("--marketplace-repo", default=DEFAULT_MARKETPLACE_REPO)
     mode = p.add_mutually_exclusive_group()
@@ -74,6 +85,18 @@ def read_env(path):
     return values
 
 
+def clean_paths(raw, what, allow_outside=False):
+    out = []
+    for item in (raw or "").split(","):
+        item = item.strip().removeprefix("./").rstrip("/")
+        if not item:
+            continue
+        if Path(item).is_absolute() or (".." in Path(item).parts and not allow_outside):
+            raise SystemExit(f"invalid {what} {item!r}: must be a path inside the repository")
+        out.append(item)
+    return ",".join(out)
+
+
 def build_context(args):
     target = args.target.resolve()
     existing = read_env(target / HARNESS_ENV)
@@ -86,33 +109,62 @@ def build_context(args):
                 f"this project targets Odoo {existing.get('ODOO_VERSION')} and this plugin "
                 f"Odoo {ODOO_VERSION}: that is a version migration, not an update. Update with "
                 f"the odoo-harness plugin of Odoo {existing.get('ODOO_VERSION')}.")
+    found = detect_project.detect(target)
+    if not existing and found["odoo_version"] and found["odoo_version"] != ODOO_VERSION:
+        raise SystemExit(
+            f"this project runs Odoo {found['odoo_version']} ({found['dockerfile']}) and this "
+            f"plugin is for Odoo {ODOO_VERSION}: install odoo-harness-"
+            f"{found['odoo_version'].split('.')[0]}@odoo-harness instead.")
 
-    def pick(arg, key, default):
-        return str(arg) if arg is not None else existing.get(key, default)
+    def pick(arg, key, detected):
+        """Command line, then the installed harness.env, then detection."""
+        if arg is not None:
+            return str(arg)
+        return existing[key] if key in existing else detected
 
-    modules = pick(args.modules, "MODULES", "").replace(" ", "")
-    if not MODULES_RE.match(modules):
-        raise SystemExit(f"invalid --modules {modules!r}: expected 'mod_a,mod_b'")
+    # Harnesses installed before full-project mode had ADDONS_DIR.
+    custom = clean_paths(pick(args.custom_addons, "CUSTOM_ADDONS",
+                              existing.get("ADDONS_DIR") or ",".join(found["custom_addons"])
+                              or "addons"), "--custom-addons")
+    third = clean_paths(pick(args.third_party_addons, "THIRD_PARTY_ADDONS",
+                             ",".join(found["third_party_addons"])), "--third-party-addons")
+    enterprise = clean_paths(pick(args.enterprise_dir, "ENTERPRISE_DIR", found["enterprise_dir"]),
+                             "--enterprise-dir", allow_outside=True)
+    dockerfile = clean_paths(pick(args.dockerfile, "ODOO_DOCKERFILE", found["dockerfile"]),
+                             "--dockerfile")
+    name = pick(args.project_name, "COMPOSE_PROJECT_NAME", f"{found['project_name']}-harness")
     test_db = pick(args.test_db, "TEST_DB", "harness_test")
     if not DB_RE.match(test_db):
         raise SystemExit(f"invalid --test-db {test_db!r}: letters, digits and _ only")
-    raw_addons = pick(args.addons_dir, "ADDONS_DIR", "addons")
-    addons_dir = raw_addons.strip().removeprefix("./").rstrip("/")
-    if not addons_dir or Path(addons_dir).is_absolute() or ".." in Path(addons_dir).parts:
-        raise SystemExit(f"invalid --addons-dir {raw_addons!r}: must be inside the repository")
-    default_project = re.sub(r"[^a-z0-9_-]", "-", target.name.lower()).strip("-") or "odoo-harness"
+    image = existing.get("ODOO_IMAGE", "")
+    if not image or (dockerfile and image.startswith("odoo:")):
+        # never build the project's Dockerfile into an official image name
+        image = f"{name}-odoo:local" if dockerfile else f"odoo:{ODOO_VERSION}"
+    mounts = [f"/mnt/repo/{p}" for p in (custom + "," + third).split(",") if p]
+    if enterprise:
+        mounts.append("/mnt/enterprise")
+    major = int(ODOO_VERSION.split(".")[0])
     return target, {
         "ODOO_VERSION": ODOO_VERSION,
-        "ODOO_IMAGE": existing.get("ODOO_IMAGE", f"odoo:{ODOO_VERSION}"),
+        "ODOO_IMAGE": image,
+        "ODOO_DOCKERFILE": dockerfile,
         "POSTGRES_IMAGE": existing.get("POSTGRES_IMAGE", POSTGRES_IMAGE),
-        "MODULES": modules,
-        "ADDONS_DIR": addons_dir,
+        "CUSTOM_ADDONS": custom,
+        "THIRD_PARTY_ADDONS": third,
+        "ENTERPRISE_DIR": enterprise,
+        "ADDONS_PATH": ",".join(mounts),
+        "DEMO_OPTION": "with_demo = True" if major >= 19 else "without_demo = False",
         "TEST_DB": test_db,
-        "ODOO_PORT": pick(args.port, "ODOO_PORT", "8069"),
-        "PROJECT_NAME": pick(args.project_name, "COMPOSE_PROJECT_NAME", default_project),
+        "ODOO_PORT": pick(args.port, "ODOO_PORT", "18069"),
+        "BASE_BRANCH": pick(args.base_branch, "BASE_BRANCH", found["base_branch"]),
+        "GITLAB_URL": pick(None, "GITLAB_URL", found["gitlab_url"]),
+        "GITLAB_PROJECT": pick(None, "GITLAB_PROJECT", found["gitlab_project"]),
+        "PROTECTED_PATHS": pick(None, "PROTECTED_PATHS", ",".join(found["deployment_files"])),
+        "PROJECT_NAME": name,
         "MARKETPLACE_REPO": args.marketplace_repo,
-        "PLUGIN_ID": f"odoo-harness-{ODOO_VERSION.split('.')[0]}@odoo-harness",
+        "PLUGIN_ID": f"odoo-harness-{major}@odoo-harness",
         "DATE": datetime.date.today().isoformat(),
+        "DETECTED": detect_project.summary(found),
     }
 
 
@@ -167,7 +219,8 @@ def install(target, ctx, force=False, update=False):
         if Path(rel).parent.as_posix() == "harness" and dest.suffix in {".sh", ".py"}:
             dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         report.append((action, rel))
-    (target / ctx["ADDONS_DIR"]).mkdir(parents=True, exist_ok=True)
+    for folder in ctx["CUSTOM_ADDONS"].split(","):
+        (target / folder).mkdir(parents=True, exist_ok=True)
     return report
 
 
@@ -238,6 +291,8 @@ def main(argv=None):
         sys.stdout.write(render(src.read_text(), ctx))
         return 0
     report = install(target, ctx, force=args.force, update=args.update)
+    if not args.update:
+        print(ctx["DETECTED"] + "\n")
     for action, rel in report:
         print(f"{action:8} {rel}")
     if args.update:
