@@ -70,6 +70,7 @@ def build_context(args):
         "ODOO_PORT": str(args.port),
         "PROJECT_NAME": project or "odoo-harness",
         "MARKETPLACE_REPO": args.marketplace_repo,
+        "PLUGIN_ID": f"odoo-harness-{ODOO_VERSION.split('.')[0]}@odoo-harness",
         "DATE": datetime.date.today().isoformat(),
     }
 

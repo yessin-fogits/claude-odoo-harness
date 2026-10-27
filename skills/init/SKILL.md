@@ -1,6 +1,8 @@
 ---
-description: Install the odoo-harness in this Odoo repository and run the 4 initialization steps
+name: init
+description: Install the odoo-harness in this Odoo repository and run the 4 initialization steps (executable environment, verifiable test frame, bootstrap contract, task breakdown).
 argument-hint: "[modules,comma,separated] [addons-dir]"
+disable-model-invocation: true
 ---
 
 You are initializing the odoo-harness in the current repository. Work through the four steps
@@ -16,8 +18,6 @@ Arguments given: `$ARGUMENTS`
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" . --modules <mods> --addons-dir <dir>
    ```
-   If `CLAUDE_PLUGIN_ROOT` is empty, the plugin root is the directory two levels above this
-   command file (`commands/init.md`).
 3. Show the user the installer report (created / merged / kept). Files reported `kept` were
    not touched: point out any that may need a manual look.
 
