@@ -37,6 +37,10 @@ version). It installs the harness files and walks through the 4 initialization s
 The project's `.claude/settings.json` then enables the right plugin for everyone who
 opens the repository. Requirements: Docker with the compose plugin, Python 3.10+, git.
 
+If an install fails with `Permission denied (publickey)`, your marketplace copy predates
+the switch to HTTPS sources: run `/plugin marketplace update odoo-harness`, then install
+again. No SSH key is needed: the plugins are cloned over HTTPS from this public repository.
+
 ## What you get in the Odoo repository
 
 | File | Role |

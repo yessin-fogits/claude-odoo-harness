@@ -38,6 +38,11 @@ version). Il installe les fichiers du harness et suit les 4 étapes d'initialisa
 Le fichier `.claude/settings.json` du projet active ensuite le bon plugin pour toute
 personne qui ouvre le dépôt. Prérequis : Docker avec le plugin compose, Python 3.10+, git.
 
+Si une installation échoue avec `Permission denied (publickey)`, votre copie de la
+marketplace date d'avant le passage aux sources HTTPS : lancez
+`/plugin marketplace update odoo-harness`, puis réinstallez. Aucune clé SSH n'est
+nécessaire : les plugins sont clonés en HTTPS depuis ce dépôt public.
+
 ## Ce que vous obtenez dans le dépôt Odoo
 
 | Fichier | Rôle |

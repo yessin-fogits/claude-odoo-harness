@@ -17,7 +17,14 @@ jobs:
           data = json.load(open(".claude-plugin/marketplace.json"))
           problems = []
           for entry in data["plugins"]:
-              ref = entry["source"]["ref"]
+              source = entry["source"]
+              if source.get("source") != "url" or not source.get("url", "").startswith("https://"):
+                  problems.append(
+                      f"{entry['name']}: source must be {{\"source\": \"url\", \"url\": \"https://...\"}}\n"
+                      "  WHY: github sources are cloned over SSH when the user has an SSH key, and the\n"
+                      "  install fails with 'Permission denied (publickey)' if GitHub does not accept it\n"
+                      "  HOW TO FIX: use the url source with https://github.com/<owner>/<repo>.git and ref")
+              ref = source["ref"]
               major = ref.split(".")[0]
               if entry["name"] != f"odoo-harness-{major}":
                   problems.append(f"{entry['name']}: name does not match branch {ref}")
