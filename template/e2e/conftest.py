@@ -5,6 +5,7 @@ Changing this file is a shared change: the full e2e suite runs on the next verif
 """
 
 import os
+import uuid
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -12,6 +13,13 @@ from playwright.sync_api import Page, expect
 DB = os.environ.get("ODOO_DB", "harness_test")
 LOGIN = os.environ.get("ODOO_LOGIN", "admin")
 PASSWORD = os.environ.get("ODOO_PASSWORD", "admin")
+
+
+@pytest.fixture
+def unique() -> str:
+    """A short unique suffix. The test DB persists between runs: records an e2e test creates
+    must have unique names, or a later run finds several of them."""
+    return uuid.uuid4().hex[:8]
 
 
 @pytest.fixture
