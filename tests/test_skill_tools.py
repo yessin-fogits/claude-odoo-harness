@@ -97,7 +97,8 @@ def make_skill(root, facts, refs):
 def test_check_accepts_matching_skill(mini_odoo, tmp_path):
     facts = extract.extract(mini_odoo)
     skill = make_skill(tmp_path, facts, {"orm.md": (
-        "Use `@api.depends`.\n```python\nfrom odoo.fields import Char, Domain\n\n\nclass A:\n"
+        "Use `@api.depends` (`from odoo.fields import Domain`); never `bool(domain)`.\n"
+        "```python\nfrom odoo.fields import Char, Domain\n\n\nclass A:\n"
         "    pass\nfrom odoo.api import (\n    depends,\n    model,\n)\n"
         "name = fields.Char()\n"
         "_uniq = models.Constraint('UNIQUE(name)')\n"
