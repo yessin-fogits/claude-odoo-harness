@@ -58,5 +58,5 @@ Harness failures are printed as `✗ [layer] what`, `WHY:`, `HOW TO FIX:`. Read 
 
 # When a review finds a new mistake type
 Turn it into a check: add a file in `harness/checks/` that detects it with a WHY / HOW TO FIX message (copy the shape of `harness/checks/no_debug_leftovers.py`), then append a line to `DECISIONS.md`.
-When a failure prints "No catalog entry", add its pattern to `harness/errors.py` once it is fixed.
+When a failure prints "No catalog entry", add its pattern to `harness/errors_project.py` once it is fixed.
 <!-- odoo-harness:end -->

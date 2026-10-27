@@ -175,3 +175,85 @@ def test_init_check_reports_red_pen_without_docker(repo, tmp_path):
     assert result.returncode == 1
     assert "✗ [env] docker not found" in result.stderr
     assert "WHY:" in result.stderr and "HOW TO FIX:" in result.stderr
+
+
+# --- update ---------------------------------------------------------------------
+
+def test_update_replaces_harness_files_and_keeps_the_rest(repo, capsys):
+    run_install(repo, "--test-db", "client_test", "--port", "8070")
+    (repo / "harness/verify.py").write_text("# old harness version\n")
+    (repo / "PROGRESS.md").write_text("my progress")
+    compose = repo / "docker-compose.yml"
+    compose.write_text(compose.read_text() + "# project customization\n")
+    capsys.readouterr()
+    assert install_template.main([str(repo), "--update"]) == 0
+    out = capsys.readouterr().out
+    assert "updated  harness/verify.py" in out
+    assert "kept*    docker-compose.yml" in out and "--show <file>" in out
+    assert "# old harness version" not in (repo / "harness/verify.py").read_text()
+    assert (repo / "PROGRESS.md").read_text() == "my progress"
+    assert compose.read_text().endswith("# project customization\n")
+    env = (repo / "harness/harness.env").read_text()
+    assert "TEST_DB=client_test" in env and "ODOO_PORT=8070" in env
+    assert "MODULES=sale_x,stock_y" in env
+
+
+def test_update_appends_new_settings_to_harness_env(repo):
+    run_install(repo)
+    env = repo / "harness/harness.env"
+    env.write_text("\n".join(line for line in env.read_text().splitlines()
+                             if not line.startswith("PROTECTED_PATHS")) + "\n")
+    install_template.main([str(repo), "--update"])
+    text = env.read_text()
+    assert text.count("PROTECTED_PATHS=") == 1
+    assert "MODULES=sale_x,stock_y" in text
+
+
+def test_update_is_idempotent(repo):
+    run_install(repo)
+    install_template.main([str(repo), "--update"])
+    before = {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()}
+    install_template.main([str(repo), "--update"])
+    assert {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()} == before
+
+
+def test_update_refuses_another_odoo_version(repo):
+    run_install(repo)
+    env = repo / "harness/harness.env"
+    env.write_text(env.read_text().replace(f"ODOO_VERSION={install_template.ODOO_VERSION}",
+                                           "ODOO_VERSION=16.0"))
+    with pytest.raises(SystemExit, match="version migration"):
+        install_template.main([str(repo), "--update"])
+
+
+def test_update_needs_an_installed_harness(repo):
+    with pytest.raises(SystemExit, match="needs an installed harness"):
+        install_template.main([str(repo), "--update"])
+
+
+def test_show_renders_with_project_values(repo, capsys):
+    run_install(repo, "--test-db", "client_test")
+    capsys.readouterr()
+    install_template.main([str(repo), "--show", "odoo.conf"])
+    assert "dbfilter = ^client_test$" in capsys.readouterr().out
+
+
+def test_project_error_catalog_is_kept_and_used(repo):
+    run_install(repo)
+    catalog = repo / "harness/errors_project.py"
+    catalog.write_text(catalog.read_text().replace(
+        "PROJECT_CATALOG = [\n]",
+        'PROJECT_CATALOG = [\n    Entry("custom", r"boom (\\w+)", "it went boom: {1}", "defuse {1}"),\n]'))
+    install_template.main([str(repo), "--update"])
+    assert '"custom"' in catalog.read_text()
+    result = subprocess.run(
+        [sys.executable, "-c", "import sys; sys.path.insert(0, 'harness'); import errors; "
+                               "print(errors.explain('boom bomb'))"],
+        cwd=repo, capture_output=True, text=True)
+    assert "it went boom: bomb" in result.stdout and "defuse bomb" in result.stdout
+
+
+def test_settings_enable_auto_update(repo):
+    run_install(repo)
+    settings = json.loads((repo / ".claude/settings.json").read_text())
+    assert settings["extraKnownMarketplaces"]["odoo-harness"]["autoUpdate"] is True
