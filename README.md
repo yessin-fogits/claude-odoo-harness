@@ -25,11 +25,23 @@ One plugin per Odoo version, all from this marketplace:
 /plugin install odoo-harness-20@odoo-harness
 ```
 
-Then, in your Odoo repository, run `/odoo-harness-20:init` (with the number of your
-version). It installs the harness files and walks through the 4 initialization steps:
+Then start Claude Code at the root of your Odoo project's git repository (fogits layout:
+`~/Project/<client>/git`, with Odoo Enterprise in `../enterprise`) and run
+`/odoo-harness-20:init` (with the number of your version). The harness covers the **whole
+project**, new or already developed:
 
-1. **Executable environment**: Docker Compose (Odoo, PostgreSQL), a disposable test DB,
-   your modules installed (`harness/init.sh`).
+- **Detection**: custom modules, third-party (OCA) addons, Enterprise, the Odoo version and
+  image, the base branch, the GitLab project and the deployment files are read from the
+  project itself (`odoo-stag.conf`, `Dockerfile`, git). You confirm them.
+- **Discovery of an existing project**: `ARCHITECTURE.md` (module map, dependencies, risks
+  and debt), a project section in `CLAUDE.md`, and the open tasks of the project in your Odoo
+  (read through the Odoo MCP connector) proposed as features.
+
+Then the 4 initialization steps:
+
+1. **Executable environment**: the project's own image, its own PostgreSQL, port and
+   disposable test DB with demo data (never your dev stack), every custom module installed
+   (`harness/init.sh`).
 2. **Verifiable test frame**: a passing test at each level (unit, integration, e2e).
 3. **Bootstrap contract**: `BOOTSTRAP.md`, reviewed by a human.
 4. **Task breakdown**: small features in `feature_list.json`, reviewed by a human.
@@ -48,17 +60,20 @@ again. No SSH key is needed: the plugins are cloned over HTTPS from this public 
 | `CLAUDE.md` | Work Rules (WIP = 1, do less but finish), Feature List Rules, Definition of Done, Validation Hierarchy |
 | `PROGRESS.md` | Current state (rewritten automatically), completed / in progress, known issues, next steps |
 | `DECISIONS.md` | `- date: decision` |
-| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`; changed only by `harness/feature.py` |
-| `harness/feature.py` | `add`, `start` (refused if another feature is in progress), `block`, `verify` (the only way to `passing`), `check` |
-| `harness/verify.sh` | Three layers: static checks + pylint-odoo, Odoo unit/integration tests, Playwright e2e with a clean server log |
+| `ARCHITECTURE.md` | Map of the project: modules, models, dependencies, risks and debt |
+| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, and the Odoo `task` (`T2003`); changed only by `harness/feature.py` |
+| `harness/feature.py` | `add`, `start` (refused if another feature is in progress; checks out the task branch), `block`, `verify` (the only way to `passing`), `check` |
+| `harness/verify.sh` | Three layers on the changed modules and every module that depends on them: static checks + pylint-odoo (the project's rcfile), Odoo tests, Playwright e2e with a clean server log. Older findings are debt, not blockers |
+| `harness/gitlab.py` | `mr T2003`: once every feature of the task passes, push the task branch and open its merge request to `staging` |
 | `harness/checks/` | Project checks; every new kind of mistake found in a review becomes one |
 | `harness/errors.py` | Red-pen catalog: each failure prints WHY and HOW TO FIX |
 
 ## What the plugin adds to Claude Code
 
 - **Automatic sessions** (hooks): context loaded at session start; edits of the feature
-  list, the evidence, Odoo core/enterprise and non-test databases denied; static checks
-  after each edit; a clean-state gate at the end of each turn.
+  list, the evidence, Odoo core/Enterprise, third-party addons, deployment files and
+  non-test databases denied, and no push to `staging`/`main`; static checks after each
+  edit; a clean-state gate at the end of each turn.
 - **Skills**: `init`, `update` (refresh the harness files after a plugin update), `add-harness-check`, and `odoo`: the Odoo reference for the plugin's
   version (ORM, views, security, OWL, controllers, tests, migrations, version notes),
   written from the real `odoo/odoo` source and checked against it in CI.

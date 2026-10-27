@@ -26,11 +26,23 @@ Un plugin par version d'Odoo, tous dans cette marketplace :
 /plugin install odoo-harness-20@odoo-harness
 ```
 
-Ensuite, dans votre dépôt Odoo, lancez `/odoo-harness-20:init` (avec le numéro de votre
-version). Il installe les fichiers du harness et suit les 4 étapes d'initialisation :
+Ensuite, lancez Claude Code à la racine du dépôt git de votre projet Odoo (organisation
+fogits : `~/Project/<client>/git`, avec Odoo Enterprise dans `../enterprise`) puis
+`/odoo-harness-20:init` (avec le numéro de votre version). Le harness couvre **tout le
+projet**, nouveau ou déjà développé :
 
-1. **Environnement exécutable** : Docker Compose (Odoo, PostgreSQL), une base de test
-   jetable, vos modules installés (`harness/init.sh`).
+- **Détection** : modules spécifiques, modules tiers (OCA), Enterprise, version et image
+  d'Odoo, branche de base, projet GitLab et fichiers de déploiement sont lus dans le projet
+  lui-même (`odoo-stag.conf`, `Dockerfile`, git). Vous les confirmez.
+- **Découverte d'un projet existant** : `ARCHITECTURE.md` (carte des modules, dépendances,
+  risques et dette), une section projet dans `CLAUDE.md`, et les tâches ouvertes du projet
+  dans votre Odoo (lues via le connecteur MCP Odoo) proposées comme fonctionnalités.
+
+Puis les 4 étapes d'initialisation :
+
+1. **Environnement exécutable** : l'image du projet, sa propre base PostgreSQL, son port et
+   une base de test jetable avec données de démo (jamais votre stack de dev), tous les
+   modules spécifiques installés (`harness/init.sh`).
 2. **Cadre de test vérifiable** : un test qui passe à chaque niveau (unitaire, intégration, e2e).
 3. **Document de contrat d'amorçage** : `BOOTSTRAP.md`, relu par un humain.
 4. **Découpage des tâches** : de petites fonctionnalités dans `feature_list.json`, relues par un humain.
@@ -50,18 +62,21 @@ nécessaire : les plugins sont clonés en HTTPS depuis ce dépôt public.
 | `CLAUDE.md` | Règles de travail (WIP = 1, faire moins mais terminer), règles de la liste de fonctionnalités, définition de terminé, hiérarchie de validation |
 | `PROGRESS.md` | État actuel (réécrit automatiquement), terminé / en cours, problèmes connus, prochaines étapes |
 | `DECISIONS.md` | `- date : décision` |
-| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence` ; modifié uniquement par `harness/feature.py` |
-| `harness/feature.py` | `add`, `start` (refusé si une autre fonctionnalité est en cours), `block`, `verify` (le seul chemin vers `passing`), `check` |
-| `harness/verify.sh` | Trois couches : analyse statique + pylint-odoo, tests Odoo unitaires/intégration, e2e Playwright avec un log serveur propre |
+| `ARCHITECTURE.md` | Carte du projet : modules, modèles, dépendances, risques et dette |
+| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, et la `task` Odoo (`T2003`) ; modifié uniquement par `harness/feature.py` |
+| `harness/feature.py` | `add`, `start` (refusé si une autre fonctionnalité est en cours ; bascule sur la branche de la tâche), `block`, `verify` (le seul chemin vers `passing`), `check` |
+| `harness/verify.sh` | Trois couches sur les modules modifiés et tous ceux qui en dépendent : analyse statique + pylint-odoo (le rcfile du projet), tests Odoo, e2e Playwright avec un log serveur propre. Les anomalies anciennes sont de la dette, pas des blocages |
+| `harness/gitlab.py` | `mr T2003` : quand toutes les fonctionnalités de la tâche passent, pousse la branche et ouvre sa merge request vers `staging` |
 | `harness/checks/` | Vérifications du projet ; chaque nouveau type d'erreur trouvé en revue en devient une |
 | `harness/errors.py` | Annotations au stylo rouge : chaque échec affiche POURQUOI et COMMENT CORRIGER |
 
 ## Ce que le plugin ajoute à Claude Code
 
 - **Sessions automatiques** (hooks) : contexte chargé au début de session ; modifications
-  de la liste de fonctionnalités, des preuves, du cœur Odoo/enterprise et des bases autres
-  que la base de test refusées ; vérifications statiques après chaque modification ;
-  contrôle de l'état propre à la fin de chaque tour.
+  de la liste de fonctionnalités, des preuves, du cœur Odoo/Enterprise, des modules tiers,
+  des fichiers de déploiement et des bases autres que la base de test refusées, et pas de
+  push vers `staging`/`main` ; vérifications statiques après chaque modification ; contrôle
+  de l'état propre à la fin de chaque tour.
 - **Skills** : `init`, `update` (rafraîchir les fichiers du harness après une mise à jour du plugin), `add-harness-check`, et `odoo` : la référence Odoo de la version du
   plugin (ORM, vues, sécurité, OWL, contrôleurs, tests, migrations, notes de version),
   écrite à partir du vrai code `odoo/odoo` et vérifiée contre lui en CI.

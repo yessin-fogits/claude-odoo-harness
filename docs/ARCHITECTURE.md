@@ -193,7 +193,8 @@ docs/en/, docs/fr/, README.md, README.fr.md
 3. **Automatic hooks**: SessionStart, PreToolUse, PostToolUse and Stop.
 4. **Odoo 20 skill**: the extractor and references, then adapted to the `19.0`, `18.0` and `17.0` branches.
 5. **Review → check loop**: the `add-harness-check` skill, the reviewer subagent, and CI across the branches.
-6. Later: autonomous loops (course lectures 13–14).
+6. **Autonomous loops** (course lectures 13–14): `harness/loop.py`, a maker-checker graph with bounded attempts and budgets.
+7. **Full-project mode** (fogits projects): detection of the project layout, the project's own image and a separate test database, verify scope = changed modules + dependents, older findings as debt, Odoo tasks with `T<code>` branches and merge requests, discovery (`ARCHITECTURE.md`, open tasks through the Odoo MCP connector).
 
 ## Verification of the harness project itself
 - `pytest tests/` covers:
