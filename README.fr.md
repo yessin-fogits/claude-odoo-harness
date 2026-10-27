@@ -41,6 +41,29 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
    3. document de contrat d'amorçage (`BOOTSTRAP.md`) ;
    4. découpage des tâches (`feature_list.json`).
 
+## Boucle autonome
+
+`harness/loop.py run` avance seul dans `feature_list.json`, avec Claude Code sans
+interface, sous forme de graphe producteur-vérificateur :
+
+```
+select -> maker (claude -p) -> verify (harness/feature.py verify) -> [review] -> commit -> select
+             ^---- nouvel essai avec le stylo rouge (essais limités) ----|
+             essais épuisés -> travail gardé dans un git stash, fonctionnalité bloquée avec la raison
+```
+
+- Le producteur ne juge jamais son propre travail : seul `feature.py verify` peut passer une
+  fonctionnalité en `passing`, et `--review` ajoute l'agent `odoo-reviewer` comme second
+  vérificateur indépendant.
+- Seul le travail vérifié est commité. Le travail en échec est gardé dans un `git stash`
+  nommé et la fonctionnalité est bloquée avec la raison et le nom du stash dans PROGRESS.md.
+- Budgets : `--max-features` (1 par défaut, pour qu'un humain relise chaque fonctionnalité),
+  `--attempts` (3 par défaut), `--max-turns` et `--max-budget-usd` par appel d'agent, `--timeout`.
+- `--branch loop/<nom>` travaille sur une nouvelle branche. Journaux et sorties des agents :
+  `.harness/loop/<run>/` ; dernier résumé : `harness/loop.py status`.
+- Prérequis : un arbre de travail propre, une base saine (`harness/init.sh --check`), et la
+  commande `claude` connectée avec le plugin installé.
+
 ## Collaborateurs
 
 Dans les commandes ci-dessous, `<N>` est la version majeure d'Odoo (17, 18, 19 ou 20).
