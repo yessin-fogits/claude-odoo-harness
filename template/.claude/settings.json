@@ -23,7 +23,8 @@
     "odoo-harness": {
       "source": {
         "source": "github",
-        "repo": "{{MARKETPLACE_REPO}}"
+        "repo": "{{MARKETPLACE_REPO}}",
+        "ref": "main"
       }
     }
   },
