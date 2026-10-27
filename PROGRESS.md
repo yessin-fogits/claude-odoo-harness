@@ -18,7 +18,7 @@
 ## In progress
 
 ## Known issues
-- The hooks are tested with the documented hook JSON and the plugin installs and loads for real (3 skills, 2 agents, 4 hooks), but no full Claude Code session has yet worked a feature end to end with the plugin active.
+- A live headless Claude Code session with the plugin installed from the GitHub marketplace received the SessionStart context, had a shell write to feature_list.json denied by the guard, and ran feature.py; no full feature has yet been worked end to end by an agent in a live session.
 - Files written by the e2e container in `.harness/runs/` may be owned by root on Linux hosts.
 - The repository default branch is not main yet (repository settings cannot be changed from this environment); installs pin main explicitly.
 

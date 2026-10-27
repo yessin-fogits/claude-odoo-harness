@@ -38,3 +38,4 @@ Append-only. One line per decision: `- YYYY-MM-DD: decision (why)`.
 - 2026-10-27: Projects turn on autoUpdate for the odoo-harness marketplace (third-party marketplaces do not auto-update by default).
 - 2026-10-27: Installed files have an owner: state (never overwritten), project (created once, kept by --update which reports template changes as kept*), harness (replaced by --update), merged (CLAUDE.md block, settings, .gitignore). The update skill runs install_template.py --update; a different Odoo version is refused as a migration.
 - 2026-10-27: The red-pen catalog is split: harness/errors.py (harness, updated) and harness/errors_project.py (project patterns, checked first, never overwritten).
+- 2026-10-27: Deny rules use Edit(...) only: Claude Code matches Edit rules for every file-editing tool and ignores Write(...) rules (seen in a live session); the PreToolUse guard still covers Write and Bash.
