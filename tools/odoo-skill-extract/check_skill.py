@@ -99,6 +99,13 @@ def check_reference(name, text, facts):
     for m in re.finditer(r"\bfields\.([A-Z]\w*)", text):
         if m.group(1) not in facts["fields_exports"]:
             bad(m.start(), f"fields.{m.group(1)} does not exist in Odoo {facts['odoo_version']}")
+    for module, key in (("fields", "fields_exports"), ("api", "api_exports"),
+                        ("models", "models_exports")):
+        for m in re.finditer(rf"from odoo\.{module} import ([\w, ()\n]+)", text):
+            for imported in re.findall(r"\w+", m.group(1)):
+                if imported != "as" and imported not in facts[key]:
+                    bad(m.start(), f"odoo.{module}.{imported} does not exist in Odoo "
+                                   f"{facts['odoo_version']}")
     for m in re.finditer(r"from odoo\.tests import ([\w, ()\n]+)", text):
         for imported in re.findall(r"\w+", m.group(1)):
             if imported not in facts["tests_exports"]:
