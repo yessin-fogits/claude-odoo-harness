@@ -34,8 +34,8 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
 ```
 
 ## Installer dans un projet Odoo
-1. Ajouter ce plugin à Claude Code depuis la branche de votre version d'Odoo.
-2. Dans votre dépôt Odoo, lancer `/odoo-harness:init`. La commande suit les 4 étapes d'initialisation :
+1. Ajouter la marketplace (`/plugin marketplace add yessin-fogits/claude-odoo-harness@main`) et installer `odoo-harness-<major>@odoo-harness` pour votre version d'Odoo.
+2. Dans votre dépôt Odoo, lancer `/odoo-harness-<major>:init`. La commande suit les 4 étapes d'initialisation :
    1. environnement exécutable (Docker Compose, base de test, modules installés) ;
    2. cadre de test vérifiable (un test qui passe à chaque niveau) ;
    3. document de contrat d'amorçage (`BOOTSTRAP.md`) ;
