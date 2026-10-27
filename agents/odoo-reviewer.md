@@ -64,6 +64,6 @@ One line each, most severe first:
 
 ### New kinds of mistakes
 For each finding that is a recurring kind of mistake (not a one-off), say whether a check
-already covers it (`harness/checks/`, `harness/errors.py`); if none does, propose one:
+already covers it (`harness/checks/`, `harness/errors.py`, `harness/errors_project.py`); if none does, propose one:
 `<check-id>`: what to detect and a detection idea (regex or rule). The main agent turns
 these into checks with the `add-harness-check` skill.

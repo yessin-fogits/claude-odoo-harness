@@ -25,7 +25,8 @@
         "source": "github",
         "repo": "{{MARKETPLACE_REPO}}",
         "ref": "main"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": {
