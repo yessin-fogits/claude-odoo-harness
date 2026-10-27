@@ -118,3 +118,15 @@ def load_json(path, default):
 def write_json(path, data):
     Path(path).write_text(json.dumps(data, indent=2) + "\n")
 
+
+
+def dirty_files(root):
+    """{path: blob hash} of files modified or untracked right now (content fingerprint)."""
+    names = set(git(root, "diff", "--name-only", "HEAD").splitlines())
+    names |= set(git(root, "ls-files", "--others", "--exclude-standard").splitlines())
+    names = sorted(n for n in names if n and (root / n).is_file())
+    if not names:
+        return {}
+    rc, out = run(root, ["git", "hash-object", "--", *names], timeout=60)
+    hashes = out.splitlines() if rc == 0 else []
+    return dict(zip(names, hashes)) if len(hashes) == len(names) else {}

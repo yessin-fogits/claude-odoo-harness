@@ -181,6 +181,11 @@ Do not commit; do not start another feature; do not edit feature_list.json.
 
 
 def verify(run, feat, attempt):
+    """The loop's own verification. If the maker already marked the feature passing (it may
+    run verify itself), reopen it: the judge re-runs the check, it does not trust the maker."""
+    state = hlib.find_feature(hlib.load_features(), feat["id"])["state"]
+    if state == "passing":
+        sh(sys.executable, "harness/feature.py", "start", feat["id"], "--reopen", check=True)
     proc = sh(sys.executable, "harness/feature.py", "verify", feat["id"])
     output = proc.stdout + proc.stderr
     (run.dir / f"{feat['id']}-attempt{attempt}-verify.log").write_text(output)
@@ -192,13 +197,19 @@ def verify(run, feat, attempt):
 
 def review(run, feat, attempt):
     prompt = (f"Review feature {feat['id']} (\"{feat['behavior']}\") of this repository. "
-              "It just passed harness/feature.py verify. Answer in your report format.")
+              "It just passed harness/feature.py verify. The changes are not committed yet on "
+              "purpose: the loop commits them after your Accept, so judge the code, tests and "
+              "scope, not the missing commit. Answer in your report format, starting with "
+              "the ### Verdict section.")
     rc, result = run_agent(run, f"{feat['id']}-attempt{attempt}-review", prompt, REVIEWER_TOOLS,
                            agent=f"{plugin_name()}:odoo-reviewer")
     match = VERDICT_RE.search(result)
-    verdict = match.group(1).capitalize() if match else "Unknown"
+    verdict = match.group(1).capitalize() if match else "none"
     run.event("review", feature=feat["id"], attempt=attempt, verdict=verdict)
-    return verdict == "Accept", result[-4000:]
+    if verdict == "none":
+        result = ("The reviewer gave no verdict (its last message is below); the work is not "
+                  "accepted.\n" + result)
+    return verdict == "Accept", verdict, result[-4000:]
 
 
 def commit(run, feat):
@@ -242,15 +253,17 @@ def run_graph(args):
             if feat["state"] == "not_started":
                 sh(sys.executable, "harness/feature.py", "start", feat["id"], check=True)
             run.event("select", feature=feat["id"])
-            feedback, done = "", False
+            feedback, done, failure = "", False, "not verified"
             for attempt in range(1, args.attempts + 1):
                 maker(run, feat, attempt, feedback)
                 passed, feedback = verify(run, feat, attempt)
                 if not passed:
+                    failure = "not verified"
                     continue
                 if args.review:
-                    accepted, feedback = review(run, feat, attempt)
+                    accepted, verdict, feedback = review(run, feat, attempt)
                     if not accepted:
+                        failure = f"verified, but the review verdict was {verdict}"
                         sh(sys.executable, "harness/feature.py", "start", feat["id"], "--reopen",
                            check=True)
                         continue
@@ -258,7 +271,7 @@ def run_graph(args):
                 done = True
                 break
             if not done:
-                shelve(run, feat, start_commit, f"not verified after {args.attempts} attempts")
+                shelve(run, feat, start_commit, f"{failure} after {args.attempts} attempts")
         else:
             run.summary["stopped"] = f"--max-features {args.max_features} reached"
     except Stop as exc:

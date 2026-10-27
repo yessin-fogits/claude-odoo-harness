@@ -124,3 +124,25 @@ def test_status(loop_repo):
     assert "No loop run yet" in loop_repo.run(sys.executable, "harness/loop.py", "status").stdout
     loop(loop_repo, fake_maker="fix")
     assert '"stopped"' in loop_repo.run(sys.executable, "harness/loop.py", "status").stdout
+
+
+def test_maker_that_verifies_itself_is_verified_again(loop_repo):
+    """Real Claude makers run feature.py verify themselves (seen in a live run)."""
+    with_feature(loop_repo)
+    result = loop(loop_repo, fake_maker="fix-and-verify")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(agent_prompts(loop_repo)) == 1
+    assert (loop_repo.agent_calls.parent / "agent_calls.jsonl.self-verified").read_text() == "F-001"
+    assert loop_repo.features()[0]["state"] == "passing"
+    events = (loop_repo.path / ".harness/loop").glob("*/events.jsonl")
+    verifies = [json.loads(line) for f in events for line in f.read_text().splitlines()
+                if '"verify"' in line]
+    assert verifies[-1]["passed"] is True
+
+
+def test_review_rejection_is_the_shelve_reason(loop_repo):
+    with_feature(loop_repo)
+    result = loop(loop_repo, "--review", "--attempts", "2", fake_maker="fix", fake_reviews="Block")
+    assert result.returncode == 1
+    known = (loop_repo.path / "PROGRESS.md").read_text().split("## Known issues")[1]
+    assert "verified, but the review verdict was Block after 2 attempts" in known
