@@ -21,6 +21,8 @@ from pathlib import Path
 
 EXEMPT = {"version-notes.md", "version-facts.md"}
 FENCE_RE = re.compile(r"```[\w-]*\n(.*?)```", re.S)
+# the names of `from x import ...`: a parenthesized list may span lines, otherwise one line
+IMPORTED = r"(\([^)]*\)|[^\n]+)"
 
 
 def render_facts(facts):
@@ -101,12 +103,12 @@ def check_reference(name, text, facts):
             bad(m.start(), f"fields.{m.group(1)} does not exist in Odoo {facts['odoo_version']}")
     for module, key in (("fields", "fields_exports"), ("api", "api_exports"),
                         ("models", "models_exports")):
-        for m in re.finditer(rf"from odoo\.{module} import ([\w, ()\n]+)", text):
+        for m in re.finditer(rf"from odoo\.{module} import {IMPORTED}", text):
             for imported in re.findall(r"\w+", m.group(1)):
                 if imported != "as" and imported not in facts[key]:
                     bad(m.start(), f"odoo.{module}.{imported} does not exist in Odoo "
                                    f"{facts['odoo_version']}")
-    for m in re.finditer(r"from odoo\.tests import ([\w, ()\n]+)", text):
+    for m in re.finditer(rf"from odoo\.tests import {IMPORTED}", text):
         for imported in re.findall(r"\w+", m.group(1)):
             if imported not in facts["tests_exports"]:
                 bad(m.start(), f"odoo.tests.{imported} does not exist in Odoo "
