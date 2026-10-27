@@ -61,18 +61,27 @@ jobs:
         run: python tools/make_demo_project.py demo
       - name: "Initialization step 1: harness/init.sh (baseline verification)"
         run: harness/init.sh
-      - name: Feature F-001 reaches passing through the harness
+      - name: Feature F-001 (task T0001) reaches passing on its task branch
         run: |
+          git config user.name ci && git config user.email ci@example.com
           python3 harness/feature.py start F-001
+          test "$(git symbolic-ref --short HEAD)" = T0001
+          # the feature's change: L1 lints the changed module with the project's rcfile
+          echo "# F-001" >> extra-addons/demo/demo_mod/models/thing.py
           python3 harness/feature.py verify F-001
           python3 harness/feature.py check
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
+          git add -A && git commit -q -m "[T0001] F-001 A user creates a demo thing and finds it in the list"
+      - name: Project map and debt report (discovery tools)
+        run: |
+          python3 harness/project_map.py
+          python3 harness/static_checks.py --all || true
       - name: An injected bug fails verification with a red-pen message
         run: |
           python3 harness/feature.py start F-001 --reopen
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("addons/demo_mod/models/thing.py")
+          p = Path("extra-addons/demo/demo_mod/models/thing.py")
           s = p.read_text().replace("from odoo import fields, models", "from odoo import api, fields, models")
           s += (
               "\n    @api.model_create_multi\n"
@@ -94,7 +103,7 @@ jobs:
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
       - name: Odoo server log
         if: failure()
-        run: docker compose --env-file harness/harness.env logs --no-color --tail 300 odoo
+        run: docker compose --project-directory . -f harness/docker-compose.yml --env-file harness/harness.env logs --no-color --tail 300 odoo
       - name: Upload the harness runs
         if: always()
         uses: actions/upload-artifact@v4

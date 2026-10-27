@@ -31,8 +31,10 @@ import hlib  # noqa: E402
 import static_checks  # noqa: E402
 
 PYLINT_TEMPLATE = "{path}:{line}: [{msg_id}({symbol})] {msg}"
-# OCA-only rules, not relevant for client projects (cannot be disabled in .pylintrc).
-PYLINT_DISABLE = "--disable=manifest-required-author,missing-readme"
+# OCA-only rules, not relevant for client projects (cannot be disabled in .pylintrc), and
+# the warnings about messages a project's older rcfile enables but this pylint-odoo removed.
+PYLINT_DISABLE = ("--disable=manifest-required-author,missing-readme,unknown-option-value,"
+                  "useless-option-value,bad-option-value")
 # The project's mandatory lint config first (OCA template), then the optional one.
 PYLINT_RCFILES = (".pylintrc-mandatory", ".pylintrc")
 PYLINT_RE = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+): \[(?P<id>\w+)\((?P<symbol>[\w-]+)\)\] "
@@ -109,12 +111,20 @@ def lint_rcfile():
     return next((f for f in PYLINT_RCFILES if (hlib.REPO_ROOT / f).is_file()), None)
 
 
-def layer_static(env, names, run_dir):
+def layer_static(env, names, since, run_dir):
+    """Breaking findings always block; quality findings (project checks, pylint) block only
+    on the lines changed since `since`, older ones are counted as debt."""
     modules = static_checks.module_dirs(env, names)
     if not modules:
         ok("L1 static: no custom module changed on this branch, nothing to check")
         return {"status": "pass", "modules": [], "static_findings": 0, "lint_messages": 0}
-    findings = static_checks.run(env, modules=names)
+    lines = hlib.changed_lines(since)
+    findings, debt = [], 0
+    for finding in static_checks.run(env, modules=names):
+        if finding.breaking or hlib.is_changed(lines, finding.path, finding.line):
+            findings.append(finding)
+        else:
+            debt += 1
     for finding in findings:
         print(finding.redpen(), file=sys.stderr)
     lint_messages = []
@@ -126,7 +136,10 @@ def layer_static(env, names, run_dir):
                               f"--valid-odoo-versions={env.get('ODOO_VERSION', '')}",
                               f"--msg-template={PYLINT_TEMPLATE}",
                               *[rel(m) for m in modules]], log)
-        lint_messages = [m.groupdict() for m in map(PYLINT_RE.match, out.splitlines()) if m]
+        all_messages = [m.groupdict() for m in map(PYLINT_RE.match, out.splitlines()) if m]
+        lint_messages = [m for m in all_messages
+                         if hlib.is_changed(lines, m["path"], int(m["line"]))]
+        debt += len(all_messages) - len(lint_messages)
         for msg in lint_messages:
             hlib.print_redpen("L1 lint", f"{msg['path']}:{msg['line']}: {msg['symbol']} "
                               f"({msg['id']})", msg["msg"], errors.pylint_fix(msg["symbol"]))
@@ -139,10 +152,14 @@ def layer_static(env, names, run_dir):
             lint_messages.append({"symbol": "lint-tool-error"})
     result = {"status": "pass" if not findings and not lint_messages else "fail",
               "modules": [m.name for m in modules], "rcfile": rcfile,
-              "static_findings": len(findings), "lint_messages": len(lint_messages)}
+              "static_findings": len(findings), "lint_messages": len(lint_messages),
+              "preexisting": debt}
+    if debt:
+        print(f"  {debt} older finding(s) on lines this branch did not change: debt, not "
+              "blocking (harness/static_checks.py --all)", flush=True)
     if result["status"] == "fail":
         raise LayerFailed(result)
-    ok(f"L1 static: {len(modules)} module(s), no findings")
+    ok(f"L1 static: {len(modules)} module(s), no finding on the changed lines")
     return result
 
 
@@ -383,7 +400,8 @@ def main(argv=None):
         step(f"modules depending on the change are tested too: "
              f"{', '.join(sorted(set(scope) - set(changed)))}")
 
-    layers = [(1, "static", lambda: layer_static(env, changed, run_dir)),
+    since = hlib.base_ref(env) or start
+    layers = [(1, "static", lambda: layer_static(env, changed, since, run_dir)),
               (2, "runtime", lambda: layer_runtime(env, args.tags, scope, run_dir)),
               (3, "system", lambda: layer_system(env, args.e2e, full, args.fresh_install,
                                                  scope, run_dir))]

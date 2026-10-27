@@ -142,6 +142,36 @@ def changed_files(since=None):
     return {n for n in names if n}
 
 
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
+
+
+def changed_lines(since=None):
+    """{repo-relative path: set of changed line numbers, or None for a whole new file}."""
+    out = {}
+    current = None
+    for line in git("diff", "-U0", "--no-color", "--no-ext-diff", since or "HEAD").splitlines():
+        if line.startswith("+++ "):
+            current = line[6:] if line.startswith("+++ b/") else None
+            if current:
+                out.setdefault(current, set())
+            continue
+        match = HUNK_RE.match(line)
+        if match and current:
+            start, count = int(match.group(1)), int(match.group(2) or 1)
+            out[current].update(range(start, start + count))
+    for name in git("ls-files", "--others", "--exclude-standard").splitlines():
+        if name:
+            out[name] = None
+    return out
+
+
+def is_changed(lines, path, line):
+    """True when path:line is new or changed according to changed_lines()."""
+    if path not in lines:
+        return False
+    return lines[path] is None or line in lines[path] or (line <= 1 and bool(lines[path]))
+
+
 def changed_modules(env, since=None):
     """Custom modules with changes on this branch (since `since`, or the base branch)."""
     since = since or base_ref(env)

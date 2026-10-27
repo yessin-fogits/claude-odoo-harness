@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from conftest import ROOT, add_feature
+from conftest import ODOO_VERSION, ROOT, add_feature
 
 HARNESS = ROOT / "template" / "harness"
 
@@ -285,3 +285,41 @@ def test_odoo17_summary_records_are_not_separate_errors(hrepo):
     assert result.stderr.count("✗ [L2 runtime]") == 1
     assert "AssertionError: 'X' != 'x'" in result.stderr
     assert "No catalog entry" not in result.stderr
+
+
+def test_older_findings_in_a_touched_module_are_debt_not_blockers(hrepo):
+    """Touching a module does not make its whole history the feature's problem."""
+    thing = hrepo.path / f"{MOD}/models/thing.py"
+    thing.write_text(thing.read_text() + "\nimport pdb  # left by someone, long ago\n")
+    hrepo.commit("legacy debug leftover")
+    old_line = len(thing.read_text().splitlines())
+    thing.write_text("# a new comment at the top\n" + thing.read_text())
+    lint = (f"{MOD}/models/thing.py:{old_line + 1}: [W8116(print-used)] Print used.\n"
+            f"{MOD}/models/thing.py:1: [C8107(translation-required)] needs translation.\n")
+    result = hrepo.verify("--only", "1", fake_pylint_out=lint)
+    assert result.returncode == 1
+    assert "translation-required" in result.stderr  # on a changed line: blocks
+    assert "print-used" not in result.stderr and "no-debug-leftovers" not in result.stderr
+    assert "older finding(s) on lines this branch did not change" in result.stdout
+    result = hrepo.verify("--only", "1", fake_pylint_out=lint.splitlines()[0] + "\n")
+    assert result.returncode == 0, result.stderr
+    # the hooks' command line follows the same rule; --all still lists everything
+    assert hrepo.run(sys.executable, "harness/static_checks.py").returncode == 0
+    assert hrepo.run(sys.executable, "harness/static_checks.py", "--all").returncode == 1
+    thing.write_text(thing.read_text() + "breakpoint()\n")
+    result = hrepo.run(sys.executable, "harness/static_checks.py")
+    assert result.returncode == 1 and "no-debug-leftovers" in result.stderr
+
+
+def test_project_rcfile_and_odoo_version_are_passed_to_pylint(hrepo):
+    (hrepo.path / ".pylintrc-mandatory").write_text("[ODOOLINT]\nvalid-odoo-versions=11.0\n")
+    hrepo.commit("project lint config")
+    (hrepo.path / f"{MOD}/models/thing.py").write_text(
+        (hrepo.path / f"{MOD}/models/thing.py").read_text() + "\n# x\n")
+    hrepo.verify("--only", "1")
+    lint = [c for c in hrepo.calls() if "pylint" in c][0]
+    assert "--rcfile=.pylintrc-mandatory" in lint
+    assert f"--valid-odoo-versions={ODOO_VERSION}" in lint
+    assert any("unknown-option-value" in a for a in lint)
+    debt = hrepo.run(sys.executable, "harness/static_checks.py", "--all")
+    assert "lint config validates Odoo 11.0" in debt.stderr

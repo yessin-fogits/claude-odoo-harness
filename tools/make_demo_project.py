@@ -49,6 +49,34 @@ build:
   stage: build
   script: [echo build]
 """,
+    # The OCA template of the fogits projects: stale Odoo version, messages removed from
+    # recent pylint-odoo (api-one-deprecated...), OCA author rule. The harness copes with it.
+    ".pylintrc-mandatory": """[MASTER]
+load-plugins=pylint_odoo
+score=n
+
+[ODOOLINT]
+manifest-required-authors=Odoo Community Association (OCA)
+manifest-required-keys=license
+manifest-deprecated-keys=description,active
+valid-odoo-versions=17.0
+
+[MESSAGES CONTROL]
+disable=all
+enable=anomalous-backslash-in-string,
+    api-one-deprecated,
+    api-one-multi-together,
+    dangerous-default-value,
+    duplicate-key,
+    manifest-required-author,
+    manifest-required-key,
+    manifest-version-format,
+    method-required-super,
+    print-used,
+    sql-injection,
+    translation-required,
+    unreachable
+""",
     "extra-addons/oca/README.md": "OCA modules used by the project.\n",
     "extra-addons/{client}/README.md": "Modules of the {client} project.\n",
 }
@@ -149,7 +177,7 @@ def build(dest, feature=True):
     install_template.main([str(dest), "--enterprise-dir", ""])
     if feature:
         (dest / E2E_FILE).write_text(E2E_TEST)
-        run(dest, sys.executable, "harness/feature.py", "add",
+        run(dest, sys.executable, "harness/feature.py", "add", "--task", "T0001",
             "--behavior", "A user creates a demo thing and finds it in the list",
             "--verify", "unit: /demo_mod:TestThing", "--verify", f"e2e: {E2E_FILE}")
     run(dest, "git", "add", "-A")

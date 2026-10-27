@@ -2,6 +2,7 @@
 """Layer 1 static checks that need no Odoo and no Docker (standard library only).
 
     harness/static_checks.py              check the custom modules changed on this branch
+                                          (project checks: only on the changed lines)
     harness/static_checks.py --all        check the whole project: every custom module and
                                           the project files (debt report, used by discovery)
     harness/static_checks.py FILE...      check only these files (used after each edit)
@@ -41,6 +42,10 @@ class Finding:
     what: str
     why: str
     fix: str
+    # Breaking findings (syntax, XML, manifest, security CSV) stop the module install: they
+    # always block. Quality findings (project checks) block only on lines changed on the
+    # branch; older ones are debt.
+    breaking: bool = True
 
     def redpen(self):
         return hlib.format_redpen("L1 static", f"{self.path}:{self.line}: {self.what}",
@@ -85,7 +90,7 @@ def project_files(env):
 def check_lint_config(env):
     version = env.get("ODOO_VERSION", "")
     out = []
-    for name in LINT_CONFIGS:
+    for name in LINT_CONFIGS:  # project-level debt, reported by --all
         path = hlib.REPO_ROOT / name
         if not path.is_file():
             continue
@@ -236,7 +241,8 @@ def run_project_checks(files):
         for item in check.detect(files):
             path, line, detail = item[:3]
             why, fix = item[3:5] if len(item) == 5 else (check.WHY, check.FIX)
-            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", why, fix))
+            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", why, fix,
+                               breaking=False))
     return out
 
 
@@ -263,15 +269,20 @@ def run(env, files=None, modules=None, whole_project=False):
     return findings
 
 
+def new_on_branch(env, findings):
+    """Breaking findings, and quality findings on lines changed on this branch."""
+    lines = hlib.changed_lines(hlib.base_ref(env))
+    return [f for f in findings if f.breaking or hlib.is_changed(lines, f.path, f.line)]
+
+
 def main(argv):
     env = hlib.load_env()
     if argv == ["--all"]:
         findings = run(env, whole_project=True)
     elif argv:
-        findings = run(env, [Path(a) for a in argv if Path(a).is_file()])
+        findings = new_on_branch(env, run(env, [Path(a) for a in argv if Path(a).is_file()]))
     else:
-        changed = hlib.changed_modules(env)
-        findings = run(env, modules=changed)
+        findings = new_on_branch(env, run(env, modules=hlib.changed_modules(env)))
     for finding in findings:
         print(finding.redpen(), file=sys.stderr)
     if not findings:
