@@ -41,6 +41,9 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
    3. document de contrat d'amorçage (`BOOTSTRAP.md`) ;
    4. découpage des tâches (`feature_list.json`).
 
+Aucune clé SSH n'est nécessaire : les plugins sont clonés en HTTPS. Si une installation échoue
+avec `Permission denied (publickey)`, lancez `/plugin marketplace update odoo-harness` et réinstallez.
+
 ## Boucle autonome
 
 `harness/loop.py run` avance seul dans `feature_list.json`, avec Claude Code sans
