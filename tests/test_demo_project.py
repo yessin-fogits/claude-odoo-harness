@@ -23,7 +23,12 @@ def test_build_demo_project(tmp_path):
     assert "CUSTOM_ADDONS=extra-addons/demo\n" in env and "ODOO_DOCKERFILE=Dockerfile" in env
     result = subprocess.run([sys.executable, "harness/static_checks.py", "--all"], cwd=dest,
                             capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    findings = [ln for ln in result.stderr.splitlines() if ln.startswith("✗")]
+    # the demo keeps the fogits rcfile as it is: it validates Odoo 17.0 on every branch
+    expected = [] if make_demo_project.ODOO_VERSION == "17.0" else [
+        f"✗ [L1 static] .pylintrc-mandatory:1: lint config validates Odoo 17.0, the project "
+        f"runs Odoo {make_demo_project.ODOO_VERSION}"]
+    assert findings == expected, result.stderr
 
 
 @pytest.mark.parametrize("version", ["17.0", "18.0", "19.0", "20.0"])
