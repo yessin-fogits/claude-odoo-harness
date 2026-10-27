@@ -39,9 +39,13 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
 
 ## Install in an Odoo project
 1. Add the marketplace (`/plugin marketplace add yessin-fogits/claude-odoo-harness@main`) and install `odoo-harness-<N>@odoo-harness` for your Odoo version.
-2. Start Claude Code at the root of the project's git repository (fogits layout:
-   `~/Project/<client>/git`, with Odoo Enterprise cloned in `../enterprise`) and run
-   `/odoo-harness-<N>:init`. It:
+2. Start Claude Code in the client folder (fogits layout: `~/Project/<client>`, with the git
+   repository in `git/` and Odoo Enterprise in `enterprise/`), or in the repository itself,
+   and run `/odoo-harness-<N>:init`. The harness is installed in the repository (`git/`) and
+   versioned with it; the client folder gets a `CLAUDE.md` that imports `git/CLAUDE.md` and
+   a `.claude/settings.json` that enables the plugin (not versioned). After cloning a project
+   that already has the harness, `/odoo-harness-<N>:update` writes just these two files.
+   The init:
    - **detects the project**: `addons_path` from `odoo-stag.conf` / `odoo-main.conf`, custom
      modules (`extra-addons/<client>`), third-party addons (`extra-addons/oca`, read-only),
      Enterprise, the Odoo version and image from the `Dockerfile`, the base branch (`staging`),

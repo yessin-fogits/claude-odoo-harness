@@ -108,7 +108,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: harness-runs-${{ github.ref_name }}
+          name: harness-runs-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}/demo/.harness/
           if-no-files-found: ignore
           include-hidden-files: true

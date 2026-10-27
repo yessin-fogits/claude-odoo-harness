@@ -5,9 +5,11 @@ argument-hint: "[--custom-addons dir,...] [--enterprise-dir path] [--base-branch
 disable-model-invocation: true
 ---
 
-You are initializing the odoo-harness in the current repository: a whole Odoo project, new or
-already developed. Run Claude Code from the root of the git repository (for the fogits layout,
-`~/Project/<client>/git`, with `../enterprise` next to it).
+You are initializing the odoo-harness in an Odoo project: a whole Odoo project, new or
+already developed. Claude Code runs either in the client workspace (fogits layout:
+`~/Project/<client>`, with the repository in `git/` and Odoo Enterprise in `enterprise/`) or in
+the git repository itself. The harness is always installed in the repository, so it is
+versioned with the project.
 
 Work through the steps in order. Do not skip a step and do not start any feature work:
 initialization ends when the bootstrap contract holds and the feature list is reviewed.
@@ -15,9 +17,18 @@ initialization ends when the bootstrap contract holds and the feature list is re
 Arguments given: `$ARGUMENTS`
 
 ## Step 0: detect the project and install the harness
+0. Find the repository (`REPO` below):
+   - the current folder is the root of a git repository (`git rev-parse --show-toplevel`
+     prints it): `REPO` is `.`, there is no workspace;
+   - otherwise `git/` is the root of a git repository (fogits workspace): `REPO` is `git`
+     and the workspace is `.`;
+   - otherwise ask the user which folder holds the Odoo repository.
+   With a workspace, every command below runs from the workspace with `REPO` as the path
+   (`git/harness/init.sh`, `python3 git/harness/project_map.py`, `git -C git log`), and the
+   paths the harness prints are relative to `REPO`.
 1. Detect the layout:
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_project.py" .
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_project.py" REPO
    ```
    It reads `addons_path` from the project's Odoo config, the Odoo version and image from the
    Dockerfile, the base branch, the GitLab project and the deployment files.
@@ -30,10 +41,14 @@ Arguments given: `$ARGUMENTS`
    (`odoo-harness-<major>@odoo-harness`).
 3. Install:
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" . [--custom-addons a,b] \
-     [--third-party-addons x] [--enterprise-dir ../enterprise] [--dockerfile Dockerfile] \
-     [--base-branch staging]
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO [--workspace .] \
+     [--custom-addons a,b] [--third-party-addons x] [--enterprise-dir ../enterprise] \
+     [--dockerfile Dockerfile] [--base-branch staging]
    ```
+   Pass `--workspace .` when Claude Code runs in the workspace: it writes the workspace's
+   `CLAUDE.md` (it imports `REPO/CLAUDE.md`) and `.claude/settings.json` (the same
+   permissions and the plugin enabled). They are not versioned; each developer gets them
+   from this skill or from `update`.
    Show the report (created / merged / kept). Files reported `kept` were not touched.
 4. Decide which path applies: **existing project** when the custom folders already hold
    modules or the git history has feature work, otherwise **new project**. Tell the user.
