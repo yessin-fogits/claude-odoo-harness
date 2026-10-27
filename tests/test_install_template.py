@@ -122,6 +122,9 @@ def test_existing_settings_are_merged(repo):
     assert settings["model"] == "x"
     major = install_template.ODOO_VERSION.split(".")[0]
     assert settings["enabledPlugins"][f"odoo-harness-{major}@odoo-harness"] is True
+    marketplace = settings["extraKnownMarketplaces"]["odoo-harness"]["source"]
+    assert marketplace == {"source": "github", "repo": "yessin-fogits/claude-odoo-harness",
+                           "ref": "main"}
 
 
 def test_existing_gitignore_is_merged(repo):
