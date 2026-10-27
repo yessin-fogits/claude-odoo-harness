@@ -28,6 +28,6 @@
     }
   },
   "enabledPlugins": {
-    "odoo-harness@odoo-harness": true
+    "{{PLUGIN_ID}}": true
   }
 }
