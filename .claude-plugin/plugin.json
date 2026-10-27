@@ -1,0 +1,12 @@
+{
+  "name": "odoo-harness",
+  "version": "0.1.0",
+  "description": "Claude Code harness for Odoo projects: state files, WIP=1 feature workflow, 3-layer verification, automatic session hooks.",
+  "author": {
+    "name": "yassin25414"
+  },
+  "homepage": "https://github.com/yassin25414/claude-odoo-harness",
+  "repository": "https://github.com/yassin25414/claude-odoo-harness",
+  "license": "MIT",
+  "keywords": ["odoo", "harness", "claude-code", "agents"]
+}

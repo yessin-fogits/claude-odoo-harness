@@ -1,0 +1,13 @@
+{
+  "name": "odoo-harness",
+  "owner": {
+    "name": "yassin25414"
+  },
+  "plugins": [
+    {
+      "name": "odoo-harness",
+      "source": "./",
+      "description": "Claude Code harness for Odoo projects (branch = Odoo version)."
+    }
+  ]
+}

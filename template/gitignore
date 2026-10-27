@@ -1,0 +1,3 @@
+# odoo-harness
+.harness/
+harness/evidence/**/traces/

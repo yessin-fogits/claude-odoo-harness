@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(harness/init.sh:*)",
+      "Bash(harness/verify.sh:*)",
+      "Bash(harness/feature.py:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Edit(feature_list.json)",
+      "Write(feature_list.json)",
+      "Read(.env)",
+      "Read(.env.*)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "odoo-harness": {
+      "source": {
+        "source": "github",
+        "repo": "{{MARKETPLACE_REPO}}"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "odoo-harness@odoo-harness": true
+  }
+}
