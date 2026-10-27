@@ -14,6 +14,12 @@ everything you need to continue is in these files, not in your memory.
 
 Custom modules in scope: `{{MODULES}}` (in `{{ADDONS_DIR}}`).
 
+# Sessions (automatic)
+- At session start the harness loads PROGRESS.md, recent decisions, the current feature and the baseline health into your context. Start from there.
+- After each edit of a module file, fast static checks run on that file. Fix what they report right away.
+- When you end a turn, the harness rewrites "Current state" in PROGRESS.md and refuses to stop if the state is unclean: static check failures, a broken feature list, or code changed this session without PROGRESS.md being updated.
+- Edits of feature_list.json, harness/evidence/, Odoo core/enterprise code and commands on non-test databases are denied.
+
 # Work Rules
 - Work on one feature at a time (WIP = 1).
 - Only start the next feature after the current one passes e2e verification.

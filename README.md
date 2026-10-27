@@ -30,7 +30,7 @@ A harness is the work system around the model. It makes an agent reliable on lon
    4. task breakdown (`feature_list.json`).
 
 ## Status
-Phases 1 (core harness) and 2 (state machine and 3-layer verification) are in place. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
+Phases 1 (core harness), 2 (state machine and 3-layer verification) and 3 (automatic session hooks) are in place. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
 and [PROGRESS.md](PROGRESS.md) for the current state.
 
 ## Develop
