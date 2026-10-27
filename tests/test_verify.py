@@ -205,3 +205,24 @@ def test_cross_component_names_shared_files(hrepo):
     (hrepo.path / "notes.log").write_text("x")
     result = hrepo.feature("verify", "F-001")
     assert "cross-component change (shared files notes.log)" in result.stdout
+
+
+ODOO17_FAILED_LOG = """\
+2026-10-27 11:28:16,223 1 ERROR harness_test odoo.addons.demo_mod.tests.test_thing: FAIL: TestThing.test_create
+Traceback (most recent call last):
+  File "/mnt/extra-addons/demo_mod/tests/test_thing.py", line 7, in test_create
+    self.assertEqual(thing.name, "x")
+AssertionError: 'X' != 'x'
+2026-10-27 11:28:16,248 1 ERROR harness_test odoo.modules.loading: Module demo_mod: 1 failures, 0 errors of 1 tests
+2026-10-27 11:28:16,570 1 ERROR harness_test odoo.modules.loading: At least one test failed when loading the modules.
+2026-10-27 11:28:16,600 1 INFO harness_test odoo.tests.result: 1 failed, 0 error(s) of 1 tests when loading database 'harness_test'
+"""
+
+
+def test_odoo17_summary_records_are_not_separate_errors(hrepo):
+    """Real Odoo 17 output (odoo-e2e CI): one red pen with the assertion."""
+    result = hrepo.verify(fake_odoo_log=ODOO17_FAILED_LOG, fake_odoo_rc=1)
+    assert result.returncode == 1
+    assert result.stderr.count("✗ [L2 runtime]") == 1
+    assert "AssertionError: 'X' != 'x'" in result.stderr
+    assert "No catalog entry" not in result.stderr

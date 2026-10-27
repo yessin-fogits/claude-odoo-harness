@@ -33,6 +33,9 @@ PYLINT_RE = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+): \[(?P<id>\w+)\((?P<sy
 ODOO_LOG_RE = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ \d+ (?P<level>[A-Z]+) ")
 ODOO_RESULT_RE = re.compile(r"(\d+) failed, (\d+) error\(s\) of (\d+) tests")
 ODOO_RAN_RE = re.compile(r"Ran (\d+) tests?")
+# Test summary records (17.0-20.0) that Odoo logs at ERROR level after real failures.
+ODOO_SUMMARY_RE = re.compile(r"odoo\.tests\.result: |Module \w+: \d+ failures?, \d+ errors? of "
+                             r"\d+ tests|At least one test failed when loading the modules")
 PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|failed|errors?)\b")
 PYTEST_FAILED_RE = re.compile(r"^(FAILED|ERROR) (\S+)(?: - (.*))?$", re.M)
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
@@ -174,8 +177,8 @@ def layer_runtime(env, tags, run_dir):
               "errors": errs, "log_errors": len(blocks), "log": rel(log)}
     if rc != 0 or failed or errs or blocks:
         result["status"] = "fail"
-        # Odoo 20 logs the test summary at ERROR level; it repeats the failures above it.
-        blocks = [b for b in blocks if "odoo.tests.result:" not in b.splitlines()[0]] or blocks
+        # Summary records logged at ERROR level repeat the failures above them.
+        blocks = [b for b in blocks if not ODOO_SUMMARY_RE.search(b.splitlines()[0])] or blocks
         for block in blocks[:5] or [out]:
             redpen_from_text("L2 runtime", f"Odoo tests failed ({failed} failed, {errs} errors "
                              f"of {tests})", block, log)
