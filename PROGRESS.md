@@ -1,8 +1,8 @@
 # Progress
 
 ## Current state
-- Last commit: Phase 5 (review -> check loop, real Odoo e2e CI, main branch marketplace)
-- Test status: 175 passed on each version branch; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 (`python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`
+- Last commit: Phase 6 (autonomous maker-checker loop, fixes from live runs)
+- Test status: 197 passed on each version branch; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 (`python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`
 - Lint: shellcheck clean on template scripts
 
 ## Completed tasks
@@ -15,12 +15,12 @@
 
 - [x] Update and uninstall paths: unpinned plugin version, autoUpdate, installer --update/--show with file ownership, update skill, errors_project.py, README sections (collaborators, update, uninstall) in EN/FR
 
-- [x] Phase 6: autonomous maker-checker loop (harness/loop.py run/status), bounded attempts and budgets, stash + block on failure, optional odoo-reviewer gate, events log; README section (EN/FR)
+- [x] Phase 6: autonomous maker-checker loop (harness/loop.py run/status), bounded attempts and budgets, stash + block on failure, optional odoo-reviewer gate, events log; README section (EN/FR). Live runs with a real Claude maker and reviewer (Docker/curl simulated) found two bugs, both fixed with regression tests: verify refused a feature the maker had already verified, and the Stop gate blocked the reviewer session for the maker's uncommitted work. Third live run: F-001 implemented, verified, reviewed (Accept) and committed in one attempt ($0.19 maker, $0.05 reviewer)
 
 ## In progress
 
 ## Known issues
-- A live headless Claude Code session with the plugin installed from the GitHub marketplace received the SessionStart context, had a shell write to feature_list.json denied by the guard, and ran feature.py; no full feature has yet been worked end to end by an agent in a live session.
+- A live headless Claude Code session with the plugin installed from the GitHub marketplace received the SessionStart context, had a shell write to feature_list.json denied by the guard, and ran feature.py. The loop worked a full feature end to end with real agents, but Docker and curl were simulated there: real Odoo is covered by the odoo-e2e CI job, not yet by an agent-driven run.
 - Files written by the e2e container in `.harness/runs/` may be owned by root on Linux hosts.
 - The repository default branch is not main yet (repository settings cannot be changed from this environment); installs pin main explicitly.
 
