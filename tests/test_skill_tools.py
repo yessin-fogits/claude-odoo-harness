@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 import sys
 
 import pytest
@@ -166,3 +167,29 @@ def test_branch_skill_matches_branch_version():
     facts_md = (SKILL_DIR / "references" / "version-facts.md").read_text()
     assert facts_md.startswith(f"# Odoo {ODOO_VERSION}: version facts")
     assert f"Odoo {ODOO_VERSION}" in (SKILL_DIR / "SKILL.md").read_text().split("---")[1]
+
+
+FENCE_LANG = {"python": ".py", "xml": ".xml", "javascript": ".js", "js": ".js"}
+
+
+@pytest.mark.skipif(not (SKILL_DIR / "SKILL.md").exists(), reason="no odoo skill on this branch")
+def test_skill_examples_pass_the_harness_version_rules(hrepo):
+    """Code shown by the skill must not be rejected by the harness for the same version."""
+    from conftest import ODOO_VERSION
+    examples = hrepo.path / "addons" / "demo_mod" / "skill_examples"
+    examples.mkdir()
+    files = []
+    for ref in sorted((SKILL_DIR / "references").glob("*.md")):
+        if ref.name in check_skill.EXEMPT:
+            continue
+        for i, m in enumerate(re.finditer(r"```(\w+)\n(.*?)```", ref.read_text(), re.S)):
+            suffix = FENCE_LANG.get(m.group(1))
+            if suffix:
+                path = examples / f"{ref.stem}_{i}{suffix}"
+                path.write_text(m.group(2))
+                files.append(str(path))
+    assert files
+    result = hrepo.run(sys.executable, "harness/static_checks.py", *files,
+                       odoo_version=ODOO_VERSION)
+    flagged = [line for line in result.stderr.splitlines() if "[odoo-version-api]" in line]
+    assert not flagged, "\n".join(flagged)
