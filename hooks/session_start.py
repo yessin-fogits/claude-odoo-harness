@@ -56,9 +56,13 @@ def unchecked_bootstrap(root):
     return [ln.strip() for ln in ready.splitlines() if "[ ]" in ln]
 
 
-def init_command(root):
+def init_command(root, skill="init"):
     major = c.load_env(root).get("ODOO_VERSION", "").split(".")[0] or "<version>"
-    return f"/odoo-harness-{major}:init"
+    return f"/odoo-harness-{major}:{skill}"
+
+
+def update_command(root):
+    return init_command(root, "update")
 
 
 def recent_decisions(root):
@@ -68,13 +72,42 @@ def recent_decisions(root):
     return [ln for ln in path.read_text().splitlines() if ln.startswith("- ")][-MAX_DECISIONS:]
 
 
+def workspace_context(launch, root):
+    """When Claude Code runs in the client workspace, not in the repository itself."""
+    rel = root.relative_to(launch).as_posix()
+    lines = [f"Claude Code runs in the client workspace {launch}. The Odoo repository and its "
+             f"harness are in `{rel}/`: the custom modules, the state files and the harness "
+             f"scripts all live there, versioned in git.",
+             f"- Run the harness from the workspace: `{rel}/harness/feature.py ...`, "
+             f"`{rel}/harness/verify.sh`, `{rel}/harness/init.sh`, and git as `git -C {rel} ...`, "
+             f"or `cd {rel}` first.",
+             f"- Paths in PROGRESS.md, feature_list.json and the red pens are relative to `{rel}/`."]
+    enterprise = c.load_env(root).get("ENTERPRISE_DIR", "").strip().rstrip("/")
+    if enterprise:
+        lines.append(f"- Odoo Enterprise (`{(root / enterprise).resolve()}`) is read-only.")
+    bridge = launch / "CLAUDE.md"
+    imported = bridge.is_file() and f"@{rel}/CLAUDE.md" in bridge.read_text()
+    parts = ["## Workspace\n" + "\n".join(lines)]
+    if not imported and (root / "CLAUDE.md").is_file():
+        lines.append(f"- This workspace has no CLAUDE.md importing `{rel}/CLAUDE.md`: offer the "
+                     f"user to create it with {update_command(root)} (nothing in the repository "
+                     "changes).")
+        parts = ["## Workspace\n" + "\n".join(lines),
+                 f"## {rel}/CLAUDE.md (the project rules; this workspace does not import it)\n"
+                 + (root / "CLAUDE.md").read_text().strip()]
+    return parts
+
+
 def main():
     payload = c.read_input()
-    root = c.project_dir(payload)
+    launch = c.launch_dir(payload)
+    root = c.harness_root(launch)
     if not c.has_harness(root):
         sys.exit(0)
 
     parts = ["# odoo-harness session context (loaded automatically)"]
+    if root != launch:
+        parts += workspace_context(launch, root)
 
     progress = (root / "PROGRESS.md").read_text() if (root / "PROGRESS.md").is_file() else ""
     for name in ("Current state", "In progress", "Known issues", "Next steps"):
