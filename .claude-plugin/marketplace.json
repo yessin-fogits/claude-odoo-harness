@@ -1,0 +1,73 @@
+{
+  "name": "odoo-harness",
+  "description": "Claude Code harness for Odoo projects, one plugin per Odoo version (17.0 to 20.0).",
+  "owner": {
+    "name": "yessin-fogits"
+  },
+  "plugins": [
+    {
+      "name": "odoo-harness-17",
+      "source": {
+        "source": "github",
+        "repo": "yessin-fogits/claude-odoo-harness",
+        "ref": "17.0"
+      },
+      "description": "Harness for Odoo 17.0 projects: state files, WIP=1 features, 3-layer verification (pylint-odoo, Odoo tests, Playwright), automatic session hooks, Odoo 17.0 skill.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-17",
+        "harness",
+        "testing"
+      ]
+    },
+    {
+      "name": "odoo-harness-18",
+      "source": {
+        "source": "github",
+        "repo": "yessin-fogits/claude-odoo-harness",
+        "ref": "18.0"
+      },
+      "description": "Harness for Odoo 18.0 projects: state files, WIP=1 features, 3-layer verification (pylint-odoo, Odoo tests, Playwright), automatic session hooks, Odoo 18.0 skill.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-18",
+        "harness",
+        "testing"
+      ]
+    },
+    {
+      "name": "odoo-harness-19",
+      "source": {
+        "source": "github",
+        "repo": "yessin-fogits/claude-odoo-harness",
+        "ref": "19.0"
+      },
+      "description": "Harness for Odoo 19.0 projects: state files, WIP=1 features, 3-layer verification (pylint-odoo, Odoo tests, Playwright), automatic session hooks, Odoo 19.0 skill.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-19",
+        "harness",
+        "testing"
+      ]
+    },
+    {
+      "name": "odoo-harness-20",
+      "source": {
+        "source": "github",
+        "repo": "yessin-fogits/claude-odoo-harness",
+        "ref": "20.0"
+      },
+      "description": "Harness for Odoo 20.0 projects: state files, WIP=1 features, 3-layer verification (pylint-odoo, Odoo tests, Playwright), automatic session hooks, Odoo 20.0 skill.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-20",
+        "harness",
+        "testing"
+      ]
+    }
+  ]
+}

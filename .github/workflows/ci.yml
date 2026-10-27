@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  marketplace:
+    # Every plugin of the marketplace points to an existing version branch.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the marketplace entries
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          data = json.load(open(".claude-plugin/marketplace.json"))
+          problems = []
+          for entry in data["plugins"]:
+              ref = entry["source"]["ref"]
+              major = ref.split(".")[0]
+              if entry["name"] != f"odoo-harness-{major}":
+                  problems.append(f"{entry['name']}: name does not match branch {ref}")
+              try:
+                  manifest = subprocess.run(["git", "show", f"origin/{ref}:.claude-plugin/plugin.json"],
+                                            capture_output=True, text=True, check=True).stdout
+              except subprocess.CalledProcessError:
+                  problems.append(f"{entry['name']}: branch {ref} or its plugin.json is missing")
+                  continue
+              if json.loads(manifest)["name"] != entry["name"]:
+                  problems.append(f"{entry['name']}: plugin.json on {ref} has another name")
+          for p in problems:
+              print("✗", p)
+          sys.exit(1 if problems else 0)
+          PY
