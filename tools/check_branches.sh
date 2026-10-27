@@ -18,6 +18,7 @@ for b in "${branches[@]}"; do
     fi
 done
 if [ "$status" -ne 0 ]; then
-    echo "HOW TO FIX: forward-port the change: merge 17.0 into 18.0, 18.0 into 19.0, 19.0 into 20.0."
+    echo "HOW TO FIX: forward-port the change: merge 17.0 into 18.0, 18.0 into 19.0, 19.0 into 20.0"
+    echo "(run 'git config merge.ours.driver true' once so odoo_version.json keeps each branch's value)."
 fi
 exit "$status"

@@ -1,0 +1,3 @@
+# Each version branch keeps its own odoo_version.json when merging forward.
+# Needs once per clone: git config merge.ours.driver true
+odoo_version.json merge=ours
