@@ -2,3 +2,4 @@
 # Needs once per clone: git config merge.ours.driver true
 odoo_version.json merge=ours
 skills/odoo/** merge=ours
+.claude-plugin/plugin.json merge=ours

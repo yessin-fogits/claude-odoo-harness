@@ -42,3 +42,59 @@ jobs:
         with:
           fetch-depth: 0
       - run: tools/check_branches.sh
+
+  odoo-e2e:
+    # The harness on a demo project against real Odoo + PostgreSQL + Playwright (Docker).
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ${{ runner.temp }}/demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the demo project
+        working-directory: ${{ github.workspace }}
+        run: python tools/make_demo_project.py "$RUNNER_TEMP/demo"
+      - name: "Initialization step 1: harness/init.sh (baseline verification)"
+        run: harness/init.sh
+      - name: Feature F-001 reaches passing through the harness
+        run: |
+          python3 harness/feature.py start F-001
+          python3 harness/feature.py verify F-001
+          python3 harness/feature.py check
+          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
+      - name: An injected bug fails verification with a red-pen message
+        run: |
+          python3 harness/feature.py start F-001 --reopen
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("addons/demo_mod/models/thing.py")
+          s = p.read_text().replace("from odoo import fields, models", "from odoo import api, fields, models")
+          s += (
+              "\n    @api.model_create_multi\n"
+              "    def create(self, vals_list):\n"
+              "        for vals in vals_list:\n"
+              "            vals['name'] = (vals.get('name') or '').upper()\n"
+              "        return super().create(vals_list)\n"
+          )
+          p.write_text(s)
+          PY
+          if python3 harness/feature.py verify F-001 > verify.log 2>&1; then
+            cat verify.log; echo "verify passed although the code is broken"; exit 1
+          fi
+          cat verify.log
+          grep -q "WHY:" verify.log && grep -q "HOW TO FIX:" verify.log && grep -q "test_create" verify.log
+          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
+      - name: Odoo server log
+        if: failure()
+        run: docker compose --env-file harness/harness.env logs --no-color --tail 300 odoo
+      - name: Upload the harness runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-runs-${{ github.ref_name }}
+          path: ${{ runner.temp }}/demo/.harness/
+          if-no-files-found: ignore
