@@ -42,6 +42,10 @@ JS = "addons/demo_mod/static/src/other.js"
           'file="demo_mod/static/x.png"/></record></odoo>', ["20.0"], ["19.0"]),
     (XML, '<odoo><template id="t"><span t-esc="x"/></template></odoo>', ["20.0"], ["19.0"]),
     (JS, 'import { Component, useState } from "@odoo/owl";\n', ["20.0"], ["19.0", "17.0"]),
+    (PY, "class A:\n    rate = fields.Float(group_operator='avg')\n", ["18.0", "20.0"], ["17.0"]),
+    (PY, "class A:\n    rate = fields.Float(aggregator='avg')\n", ["17.0"], ["18.0"]),
+    (PY, "def f(self):\n    return self.env._('Hello')\n", ["17.0"], ["18.0"]),
+    (PY, "def f(self):\n    return self.env.user.groups_id\n", ["19.0"], ["18.0"]),
 ])
 def test_version_rules(hrepo, rel, text, flagged_in, clean_in):
     for version in flagged_in:

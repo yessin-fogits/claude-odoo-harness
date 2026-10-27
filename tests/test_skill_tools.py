@@ -115,6 +115,8 @@ def test_check_accepts_matching_skill(mini_odoo, tmp_path):
     ("```python\n@http.route('/x', type='json')\n```", "route type='json' does not exist"),
     ("```xml\n<tree/>\n```", "<tree> in a code block"),
     ("Add a line to ir.model.access.csv", "ir.model.access is not the access format"),
+    ("```python\nfrom odoo.fields import Monetary\n```", "odoo.fields.Monetary does not exist"),
+    ("```python\nfrom odoo.api import returns\n```", "odoo.api.returns does not exist"),
 ])
 def test_check_finds_wrong_api(mini_odoo, tmp_path, snippet, problem):
     facts = extract.extract(mini_odoo)
