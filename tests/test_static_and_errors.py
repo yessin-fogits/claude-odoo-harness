@@ -1,5 +1,8 @@
 import sys
 
+import pytest
+
+from conftest import IR_ACCESS, ODOO_VERSION
 from test_verify import load
 
 static_checks = load("static_checks")
@@ -28,7 +31,7 @@ def test_manifest_version_and_missing_data_file(hrepo):
           ' "data": ["views/missing.xml"]}')
     result = run_static(hrepo)
     assert result.returncode == 1
-    assert "is not 17.0.x.y.z" in result.stderr
+    assert f"is not {ODOO_VERSION}.x.y.z" in result.stderr
     assert "'data' lists 'views/missing.xml', which does not exist" in result.stderr
 
 
@@ -38,9 +41,46 @@ def test_broken_xml_points_to_line(hrepo):
     assert "views/thing_views.xml:3: XML is not well formed" in result.stderr
 
 
+ACCESS_CSV = "ir.access.csv" if IR_ACCESS else "ir.model.access.csv"
+
+
 def test_access_csv_header(hrepo):
-    write(hrepo, "addons/demo_mod/security/ir.model.access.csv", "id,name,model\n")
-    assert "wrong ir.model.access.csv header" in run_static(hrepo).stderr
+    write(hrepo, f"addons/demo_mod/security/{ACCESS_CSV}", "id,name,model\n")
+    assert f"wrong {ACCESS_CSV} header" in run_static(hrepo).stderr
+
+
+def test_access_csv_accepts_odoo_quoted_header(hrepo):
+    path = hrepo.path / f"addons/demo_mod/security/{ACCESS_CSV}"
+    lines = path.read_text().splitlines()
+    lines[0] = ",".join(f'"{c}"' for c in lines[0].split(","))
+    path.write_text("\n".join(lines) + "\n")
+    assert run_static(hrepo).returncode == 0
+
+
+@pytest.mark.parametrize("version,name,ok", [
+    ("19.0", "ir.model.access.csv", True), ("19.0", "ir.access.csv", False),
+    ("20.0", "ir.access.csv", True), ("20.0", "ir.model.access.csv", False),
+])
+def test_security_csv_matches_version(hrepo, version, name, ok):
+    for old in ("ir.model.access.csv", "ir.access.csv"):
+        (hrepo.path / f"addons/demo_mod/security/{old}").unlink(missing_ok=True)
+    content = ("id,name,model_id,group_id/id,operation,domain\n"
+               "a,demo,demo.thing,base.group_user,crud,\n") if name == "ir.access.csv" else (
+               "id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n"
+               "a,demo,model_demo_thing,base.group_user,1,1,1,1\n")
+    path = write(hrepo, f"addons/demo_mod/security/{name}", content)
+    result = hrepo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version=version)
+    assert (result.returncode == 0) is ok, result.stderr
+
+
+def test_ir_access_operation_must_be_canonical(hrepo):
+    path = write(hrepo, "addons/demo_mod/security/ir.access.csv",
+                 "id,name,model_id,group_id/id,operation,domain\n"
+                 "a,demo,demo.thing,base.group_user,ur,\n"
+                 'b,demo,demo.thing,base.group_user,r,"[(\'user_id\', \'=\', user.id)]"\n')
+    result = hrepo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version="20.0")
+    assert "ir.access.csv:2: invalid operation 'ur'" in result.stderr
+    assert ":3:" not in result.stderr
 
 
 def test_debug_leftovers_project_check(hrepo):
@@ -72,9 +112,11 @@ def test_catalog_patterns_compile_and_expand():
 
 
 def test_catalog_underscored_group():
-    found = errors.explain("WARNING db odoo.modules.loading: The model demo.thing has no access "
-                           "rules, consider adding one.")
-    assert "model_demo_thing" in found[0][2]
+    # exact message of odoo/modules/loading.py (17.0 - 19.0)
+    found = errors.explain("WARNING db odoo.modules.loading: The models ['demo.thing'] have no "
+                           "access rules in module demo_mod, consider adding some, like:")
+    assert found[0][0] == "model-no-access-rules"
+    assert "model_demo_thing" in found[0][2] and "demo_mod" in found[0][1]
 
 
 def test_catalog_unknown_text():

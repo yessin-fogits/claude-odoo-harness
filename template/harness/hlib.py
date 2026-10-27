@@ -61,6 +61,12 @@ def load_env():
     return values
 
 
+def version_tuple(version):
+    """'17.0' -> (17, 0); 'saas~18.3' -> (18, 3). Unknown -> (0, 0)."""
+    match = re.search(r"(\d+)\.(\d+)", str(version or ""))
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
+
+
 def modules_in_scope(env):
     return [m for m in env.get("MODULES", "").split(",") if m]
 

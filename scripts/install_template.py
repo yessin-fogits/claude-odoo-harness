@@ -15,9 +15,10 @@ import stat
 import sys
 from pathlib import Path
 
-# The Odoo version this branch of the harness targets.
-ODOO_VERSION = "17.0"
-POSTGRES_IMAGE = "postgres:16"
+# The Odoo version this branch of the harness targets: the only per-branch file.
+_BRANCH = json.loads((Path(__file__).resolve().parent.parent / "odoo_version.json").read_text())
+ODOO_VERSION = _BRANCH["odoo_version"]
+POSTGRES_IMAGE = _BRANCH["postgres_image"]
 DEFAULT_MARKETPLACE_REPO = "yessin-fogits/claude-odoo-harness"
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"

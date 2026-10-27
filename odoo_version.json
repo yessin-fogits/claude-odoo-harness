@@ -1,0 +1,4 @@
+{
+  "odoo_version": "17.0",
+  "postgres_image": "postgres:16"
+}

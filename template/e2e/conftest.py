@@ -20,6 +20,7 @@ def odoo_page(page: Page) -> Page:
     page.goto(f"/web/login?db={DB}")
     page.fill("input[name=login]", LOGIN)
     page.fill("input[name=password]", PASSWORD)
-    page.click("button[type=submit]")
+    # Enter submits the login form; newer versions have several submit buttons on the page.
+    page.press("input[name=password]", "Enter")
     expect(page.locator(".o_main_navbar")).to_be_visible()
     return page

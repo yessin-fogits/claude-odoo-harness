@@ -13,6 +13,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import install_template  # noqa: E402
 
+ODOO_VERSION = install_template.ODOO_VERSION
+IR_ACCESS = tuple(int(x) for x in ODOO_VERSION.split(".")) >= (20, 0)
+
+
+def adapt_fixture_module(module):
+    """The fixture is written for 17.0; make it valid for this branch's Odoo version."""
+    manifest = module / "__manifest__.py"
+    manifest.write_text(manifest.read_text().replace('"17.0.', f'"{ODOO_VERSION}.'))
+    if IR_ACCESS:
+        (module / "security/ir.model.access.csv").unlink()
+        (module / "security/ir.access.csv").write_text(
+            "id,name,model_id,group_id/id,operation,domain\n"
+            "access_demo_thing_user,demo.thing user,demo.thing,base.group_user,crud,\n")
+        manifest.write_text(manifest.read_text().replace("ir.model.access.csv", "ir.access.csv"))
+
 
 class HarnessRepo:
     """An Odoo repository with the harness installed, driven through its real scripts."""
@@ -64,6 +79,7 @@ def hrepo(tmp_path):
     target.mkdir()
     install_template.main([str(target), "--modules", "demo_mod"])
     shutil.copytree(TESTS / "fixtures" / "demo_mod", target / "addons" / "demo_mod")
+    adapt_fixture_module(target / "addons" / "demo_mod")
     repo = HarnessRepo(target, tmp_path / "calls.jsonl")
     repo.git("init", "-q")
     repo.commit("initial")

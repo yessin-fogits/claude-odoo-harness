@@ -9,6 +9,7 @@ headers, and the project checks in harness/checks/ (born from code reviews).
 """
 
 import ast
+import csv
 import importlib.util
 import sys
 import xml.etree.ElementTree as ET
@@ -18,7 +19,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hlib  # noqa: E402
 
-ACCESS_HEADER = "id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink"
+# Security CSV formats. Odoo 20 merged ir.model.access and ir.rule into ir.access.
+MODEL_ACCESS_HEADER = ["id", "name", "model_id:id", "group_id:id", "perm_read", "perm_write",
+                       "perm_create", "perm_unlink"]
+IR_ACCESS_HEADER = ["id", "name", "model_id", "group_id/id", "operation", "domain"]
+IR_ACCESS_OPERATIONS = {"crud", "cru", "crd", "cud", "rud", "cr", "cu", "cd", "ru", "rd", "ud",
+                        "c", "r", "u", "d"}
 CHECKS_DIR = hlib.HARNESS_DIR / "checks"
 
 
@@ -72,13 +78,43 @@ def check_xml(path):
     return []
 
 
-def check_access_csv(path):
-    first = Path(path).read_text().splitlines()[:1]
-    if first and first[0].strip() != ACCESS_HEADER:
-        return [Finding(rel(path), 1, "wrong ir.model.access.csv header",
+def check_access_csv(path, odoo_version):
+    path = Path(path)
+    uses_ir_access = hlib.version_tuple(odoo_version) >= (20, 0)
+    if path.name == "ir.model.access.csv" and uses_ir_access:
+        return [Finding(rel(path), 1, "ir.model.access.csv does not exist in Odoo 20",
+                        "Odoo 20 replaced ir.model.access and ir.rule by a single ir.access model.",
+                        "Write security/ir.access.csv with the header "
+                        f"{','.join(IR_ACCESS_HEADER)}; model_id is the model name (sale.order), "
+                        "operation a subset of 'crud' in that order, domain optional.")]
+    if path.name == "ir.access.csv" and not uses_ir_access:
+        return [Finding(rel(path), 1, f"ir.access.csv does not exist in Odoo {odoo_version}",
+                        "ir.access arrives in Odoo 20; this version uses ir.model.access + ir.rule.",
+                        f"Write security/ir.model.access.csv with the header "
+                        f"{','.join(MODEL_ACCESS_HEADER)}, and record rules in XML.")]
+    rows = list(csv.reader(path.read_text().splitlines()))
+    if not rows:
+        return []
+    expected = IR_ACCESS_HEADER if uses_ir_access else MODEL_ACCESS_HEADER
+    if [c.strip() for c in rows[0]] != expected:
+        return [Finding(rel(path), 1, f"wrong {path.name} header",
                         "Odoo maps CSV columns by header; a wrong header loads wrong or no rights.",
-                        f"Use exactly: {ACCESS_HEADER}")]
-    return []
+                        f"Use exactly: {','.join(expected)}")]
+    out = []
+    for lineno, row in enumerate(rows[1:], start=2):
+        if not any(cell.strip() for cell in row):
+            continue
+        if len(row) != len(expected):
+            out.append(Finding(rel(path), lineno, f"{len(row)} columns, expected {len(expected)}",
+                               "A row with the wrong number of columns fails the module install.",
+                               "Quote values containing commas (domains) with double quotes."))
+        elif uses_ir_access and row[4].strip() not in IR_ACCESS_OPERATIONS:
+            out.append(Finding(rel(path), lineno, f"invalid operation {row[4]!r}",
+                               "ir.access.operation is a selection of the letters c, r, u, d in "
+                               "this order.",
+                               "Use one of: " + ", ".join(sorted(IR_ACCESS_OPERATIONS, key=len,
+                                                                 reverse=True))))
+    return out
 
 
 def check_manifest(module_dir, odoo_version):
@@ -129,8 +165,8 @@ def check_file(path, odoo_version):
         return check_python(path)
     if path.suffix == ".xml":
         return check_xml(path)
-    if path.name == "ir.model.access.csv":
-        return check_access_csv(path)
+    if path.name in ("ir.model.access.csv", "ir.access.csv"):
+        return check_access_csv(path, odoo_version)
     return []
 
 
@@ -149,8 +185,10 @@ def load_project_checks():
 def run_project_checks(files):
     out = []
     for check in load_project_checks():
-        for path, line, detail in check.detect(files):
-            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", check.WHY, check.FIX))
+        for item in check.detect(files):
+            path, line, detail = item[:3]
+            why, fix = item[3:5] if len(item) == 5 else (check.WHY, check.FIX)
+            out.append(Finding(rel(path), line, f"[{check.ID}] {detail}", why, fix))
     return out
 
 

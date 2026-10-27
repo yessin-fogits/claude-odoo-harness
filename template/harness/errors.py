@@ -30,9 +30,9 @@ CATALOG = [
           "Define the field on '{2}' (in a model that inherits it), check the spelling, and make "
           "sure the Python file is imported in the module's __init__.py."),
     Entry("model-no-access-rules",
-          r"The model ([\w.]+) has no access rules",
-          "Model '{1}' has no line in ir.model.access.csv, so only the superuser can use it.",
-          "Add an access line for '{1}' in security/ir.model.access.csv (model_id:id = "
+          r"The models \['([\w.]+)'.*? have no access rules in module (\w+)",
+          "Model '{1}' of module '{2}' has no access rights, so only the superuser can use it.",
+          "Add a line for '{1}' in {2}/security/ir.model.access.csv (model_id:id = "
           "model_{1_underscored}) and list the CSV file in the manifest 'data'."),
     Entry("access-error",
           r"odoo\.exceptions\.AccessError: (.+)",
