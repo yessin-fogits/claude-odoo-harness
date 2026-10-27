@@ -98,11 +98,11 @@ def check_core(root, env, rel):
         parent = parent.parent
 
 
-def check_file_tool(root, env, tool_input):
+def check_file_tool(root, env, payload, tool_input):
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     if not path:
         return
-    path = Path(path) if Path(path).is_absolute() else root / path
+    path = c.tool_path(payload, path)
     enterprise = env.get("ENTERPRISE_DIR", "").strip().rstrip("/")
     if enterprise:
         try:
@@ -147,6 +147,25 @@ def shell_segments(command):
     return segments
 
 
+def normalize_feature_cli(tokens):
+    """`git/harness/feature.py ...` (run from the client workspace) reads as `harness/feature.py`."""
+    out = list(tokens)
+    for i in (0, 1) if out and out[0] in ("python", "python3") else (0,):
+        if i < len(out) and out[i].endswith("/harness/feature.py"):
+            out[i] = "harness/feature.py"
+    return out
+
+
+def git_subcommand(segment):
+    """(subcommand, its arguments) of a git command, skipping -C <dir>, -c <k=v>, --git-dir=..."""
+    if segment[:1] != ["git"]:
+        return None, []
+    i = 1
+    while i < len(segment) and segment[i].startswith("-"):
+        i += 2 if segment[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace") else 1
+    return (segment[i], segment[i + 1:]) if i < len(segment) else (None, [])
+
+
 def check_state_commands(command):
     if not any(p in command for p in STATE_PATHS):
         return
@@ -163,7 +182,7 @@ def check_state_commands(command):
             if token.endswith(">") and any(p in tokens[i + 1] for p in STATE_PATHS):
                 deny("shell redirection into feature_list.json or harness/evidence/",
                      "The harness owns feature states and evidence.", "Use harness/feature.py.")
-        text = " ".join(tokens)
+        text = " ".join(normalize_feature_cli(tokens))
         in_place = tokens[0] in ("sed", "perl") and any(t.startswith("-i") for t in tokens)
         if tokens[0] == "tee" or in_place or not text.startswith(READ_ONLY_PREFIXES):
             deny(f"command may modify harness state: {text[:120]}",
@@ -204,10 +223,9 @@ def check_bash(env, command):
 def check_push(env, command):
     protected = {"main", "master", "production", env.get("BASE_BRANCH") or "staging"}
     for segment in shell_segments(command) or []:
-        if segment[:2] != ["git", "push"] and not (
-                segment[:1] == ["git"] and "push" in segment[1:3]):
+        sub, args = git_subcommand(segment)
+        if sub != "push":
             continue
-        args = segment[segment.index("push") + 1:]
         if any(a in ("--force", "-f", "--mirror", "--all", "--delete", "-d")
                or a.startswith("--force") for a in args):
             deny(f"git push with a destructive option: {' '.join(segment)[:120]}",
@@ -233,7 +251,7 @@ def main():
     tool = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
     if tool in FILE_TOOLS:
-        check_file_tool(root, env, tool_input)
+        check_file_tool(root, env, payload, tool_input)
     elif tool == "Bash":
         check_bash(env, tool_input.get("command", ""))
     sys.exit(0)

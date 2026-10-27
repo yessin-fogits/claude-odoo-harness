@@ -4,6 +4,9 @@
     install_template.py TARGET [overrides]          first install (layout detected)
     install_template.py TARGET --update             update the harness files
     install_template.py TARGET --show FILE          print a rendered template file
+    install_template.py TARGET --workspace DIR      also write the workspace files in DIR
+    install_template.py TARGET --workspace DIR --workspace-only
+                                                    only the workspace files (fresh clone)
 
 TARGET is the root of an Odoo project repository. Its layout (custom and third-party
 addon folders, Odoo Enterprise, Dockerfile, base branch, GitLab project, deployment
@@ -17,6 +20,13 @@ Deterministic and idempotent. Files have an owner:
 - harness (harness/*.py, *.sh, checks, docker files, harness/docker-compose.yml,
   harness/odoo.conf): replaced by --update, rendered from harness.env;
 - merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time.
+
+The workspace is the folder Claude Code is started in when it is not the repository
+itself: the fogits client folder ~/Project/<client>, with the repository in git/ and
+Odoo Enterprise in enterprise/. It gets a CLAUDE.md that imports the repository's
+CLAUDE.md and a .claude/settings.json with the same permissions, rooted at the
+repository, and the plugin enabled. Both are merged every time and are not versioned:
+the harness itself stays in the repository.
 """
 
 import argparse
@@ -35,6 +45,7 @@ POSTGRES_IMAGE = _BRANCH["postgres_image"]
 DEFAULT_MARKETPLACE_REPO = "yessin-fogits/claude-odoo-harness"
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
+WORKSPACE_TEMPLATE = Path(__file__).resolve().parent.parent / "workspace" / "CLAUDE.md"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import detect_project  # noqa: E402
 
@@ -66,6 +77,10 @@ def parse_args(argv):
     p.add_argument("--port", type=int, help="host port of the harness Odoo (default: 18069)")
     p.add_argument("--project-name", help="docker compose project name")
     p.add_argument("--marketplace-repo", default=DEFAULT_MARKETPLACE_REPO)
+    p.add_argument("--workspace", type=Path, help="folder Claude Code is started in, when it "
+                   "contains the repository (~/Project/<client> for TARGET ~/Project/<client>/git)")
+    p.add_argument("--workspace-only", action="store_true",
+                   help="only write the workspace files (an already installed harness)")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--force", action="store_true",
                       help="overwrite every existing file except state files")
@@ -163,6 +178,7 @@ def build_context(args):
         "PROJECT_NAME": name,
         "MARKETPLACE_REPO": args.marketplace_repo,
         "PLUGIN_ID": f"odoo-harness-{major}@odoo-harness",
+        "ODOO_MAJOR": str(major),
         "DATE": datetime.date.today().isoformat(),
         "DETECTED": detect_project.summary(found),
     }
@@ -224,16 +240,79 @@ def install(target, ctx, force=False, update=False):
     return report
 
 
-def merge_claude_md(dest, block):
+def merge_claude_md(dest, block, name=CLAUDE_MD):
     current = dest.read_text()
     if BLOCK_RE.search(current):
         new = BLOCK_RE.sub(lambda _: block, current, count=1)
     else:
         new = current.rstrip("\n") + "\n\n" + block
     if new == current:
-        return ("kept", CLAUDE_MD)
+        return ("kept", name)
     dest.write_text(new)
-    return ("merged", CLAUDE_MD)
+    return ("merged", name)
+
+
+def workspace_repo(target, workspace):
+    """The repository's path relative to the workspace (`git` in the fogits layout)."""
+    workspace = workspace.resolve()
+    if not workspace.is_dir():
+        raise SystemExit(f"workspace {workspace} is not a directory")
+    try:
+        rel = target.relative_to(workspace)
+    except ValueError:
+        raise SystemExit(f"the repository {target} is not inside the workspace {workspace}")
+    if not rel.parts:
+        raise SystemExit("the workspace is the repository itself: no --workspace needed")
+    return workspace, rel.as_posix()
+
+
+def workspace_rule(rule, rel):
+    """A repository permission rule, as seen from the workspace."""
+    tool, _, arg = rule.partition("(")
+    arg = arg.removesuffix(")")
+    if tool == "Bash" and arg.startswith("harness/"):
+        return [f"Bash({rel}/{arg})"]
+    if tool == "Bash" and arg.startswith("git "):
+        return [rule, f"Bash(git -C {rel} {arg[4:]})"]
+    if tool in ("Edit", "Read", "Write"):
+        return [f"{tool}({rel}/{arg})"]
+    return [rule]
+
+
+def install_workspace(target, workspace, ctx):
+    """CLAUDE.md and .claude/settings.json of the workspace. Returns (action, path) pairs."""
+    workspace, rel = workspace_repo(target, workspace)
+    note = "not used"
+    if ctx["ENTERPRISE_DIR"]:
+        enterprise = (target / ctx["ENTERPRISE_DIR"]).resolve()
+        where = enterprise.relative_to(workspace) if enterprise.is_relative_to(workspace) \
+            else enterprise
+        note = f"`{where}/`, read-only"
+    wctx = {**ctx, "REPO_DIR": rel, "ENTERPRISE_NOTE": note}
+    report = []
+    block = render(WORKSPACE_TEMPLATE.read_text(), wctx)
+    dest = workspace / CLAUDE_MD
+    if dest.exists():
+        action, _ = merge_claude_md(dest, block)
+    else:
+        dest.write_text(block)
+        action = "created"
+    report.append((action, f"{workspace}/{CLAUDE_MD}"))
+
+    settings = json.loads(render((TEMPLATE_DIR / SETTINGS).read_text(), ctx))
+    settings["permissions"] = {
+        key: [r for rule in rules for r in workspace_rule(rule, rel)]
+        for key, rules in settings["permissions"].items()}
+    content = json.dumps(settings, indent=2) + "\n"
+    dest = workspace / SETTINGS
+    if dest.exists():
+        action, _ = merge_settings(dest, content)
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content)
+        action = "created"
+    report.append((action, f"{workspace}/{SETTINGS}"))
+    return report
 
 
 def merge_settings(dest, content):
@@ -290,7 +369,18 @@ def main(argv=None):
             raise SystemExit(f"{args.show} is not a template file")
         sys.stdout.write(render(src.read_text(), ctx))
         return 0
+    if args.workspace_only:
+        if not args.workspace:
+            raise SystemExit("--workspace-only needs --workspace DIR")
+        if not (target / HARNESS_ENV).is_file():
+            raise SystemExit(f"{target / HARNESS_ENV} not found: install the harness first "
+                             "(the init skill)")
+        for action, rel in install_workspace(target, args.workspace, ctx):
+            print(f"{action:8} {rel}")
+        return 0
     report = install(target, ctx, force=args.force, update=args.update)
+    if args.workspace:
+        report += install_workspace(target, args.workspace, ctx)
     if not args.update:
         print(ctx["DETECTED"] + "\n")
     for action, rel in report:

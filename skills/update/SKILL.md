@@ -8,15 +8,28 @@ You are updating the harness files of this repository to the installed plugin ve
 The plugin itself is updated by Claude Code (`claude plugin update`); this skill updates the
 files the plugin once copied into the repository.
 
+`REPO` below is the repository: `.` when Claude Code runs in it, `git` when it runs in the
+client workspace (`~/Project/<client>`, with the repository in `git/`). In a workspace, add
+`--workspace .` to the installer commands and run the other commands with the `REPO` path
+(`git -C git status`, `python3 git/harness/feature.py check`).
+
+**Fresh clone of a project that already has the harness**, run from the workspace: only the
+workspace files are missing (`CLAUDE.md` importing `git/CLAUDE.md`, `.claude/settings.json`).
+Write them and stop, nothing in the repository changes:
+
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" git --workspace . --workspace-only
+```
+
 ## 1. Start from a clean tree
 
-Run `git status --porcelain`. If anything is uncommitted, ask the user to commit or stash
+Run `git -C REPO status --porcelain`. If anything is uncommitted, ask the user to commit or stash
 first, so the update is one reviewable commit.
 
 ## 2. Update
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" . --update
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO --update [--workspace .]
 ```
 
 Show the user the report. What each action means:
@@ -40,7 +53,7 @@ project does not use them itself.
 For each `kept*` file, show the difference:
 
 ```
-diff <file> <(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" . --show <file>)
+diff REPO/<file> <(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO --show <file>)
 ```
 
 Propose to apply the template's changes that do not undo a project customization, and
