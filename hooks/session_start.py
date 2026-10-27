@@ -109,6 +109,8 @@ def main():
             "source": payload.get("source"),
             "start_commit": c.git(root, "rev-parse", "HEAD") or None,
             "progress_body": c.body_without(progress, "Current state"),
+            # files already changed before this session: not this session's work
+            "dirty_at_start": c.dirty_files(root),
         })
 
     c.emit({"hookSpecificOutput": {"hookEventName": "SessionStart",

@@ -251,3 +251,15 @@ def test_stop_does_not_loop_forever(hrepo):
     assert "session ended with an unclean state" in known
     stop(hrepo, active=True)
     assert (hrepo.path / "PROGRESS.md").read_text().count("session ended with an unclean") == 1
+
+
+def test_stop_ignores_changes_made_before_the_session(hrepo):
+    """A reviewer (or a human) opening a session on uncommitted work is not blocked for it."""
+    thing = hrepo.path / "addons/demo_mod/models/thing.py"
+    thing.write_text(thing.read_text() + "\n# maker's work, before this session\n")
+    start_session(hrepo, "reviewer")
+    assert stop(hrepo) is None
+    # but a change made during the session still counts
+    thing.write_text(thing.read_text() + "\n# changed during the session\n")
+    out = stop(hrepo)
+    assert out["decision"] == "block" and "addons/demo_mod/models/thing.py" in out["reason"]
