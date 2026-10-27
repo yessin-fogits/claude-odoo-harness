@@ -57,12 +57,70 @@ personne qui ouvre le dépôt. Prérequis : Docker avec le plugin compose, Pytho
   de la liste de fonctionnalités, des preuves, du cœur Odoo/enterprise et des bases autres
   que la base de test refusées ; vérifications statiques après chaque modification ;
   contrôle de l'état propre à la fin de chaque tour.
-- **Skills** : `init`, `add-harness-check`, et `odoo` : la référence Odoo de la version du
+- **Skills** : `init`, `update` (rafraîchir les fichiers du harness après une mise à jour du plugin), `add-harness-check`, et `odoo` : la référence Odoo de la version du
   plugin (ORM, vues, sécurité, OWL, contrôleurs, tests, migrations, notes de version),
   écrite à partir du vrai code `odoo/odoo` et vérifiée contre lui en CI.
 - **Agents** : `odoo-reviewer` (grille d'évaluation + checklist Odoo, propose de nouvelles
   vérifications) et `odoo-explorer` (trouve les définitions parentes dans le code Odoo de
   votre version).
+
+## Collaborateurs
+
+Dans les commandes ci-dessous, `<N>` est la version majeure d'Odoo (17, 18, 19 ou 20).
+
+
+Le skill init active le plugin dans le `.claude/settings.json` du projet, mais Claude Code
+ne télécharge pas un plugin à partir des seuls réglages du projet. Chaque personne
+l'installe une fois :
+
+```
+claude plugin install odoo-harness-<N>@odoo-harness --scope project
+```
+
+## Mise à jour
+
+**Le plugin** (skills, agents, hooks). Les projets installés par le skill init activent la
+mise à jour automatique de la marketplace `odoo-harness` : Claude Code met le plugin à jour
+en arrière-plan et vous demande de lancer `/reload-plugins`. Pour mettre à jour tout de suite :
+
+```
+claude plugin update odoo-harness-<N>@odoo-harness
+```
+
+ou `/plugin` → **Installed** → `odoo-harness-<N>` → **Update now**. Pour arrêter les mises
+à jour automatiques : `/plugin` → **Marketplaces** → `odoo-harness` → **Disable auto-update**.
+
+**Les fichiers du harness dans votre dépôt Odoo** (scripts du harness, vérifications,
+catalogue stylo rouge, bloc CLAUDE.md). Après une mise à jour du plugin, lancez
+`/odoo-harness-<N>:update`. Il remplace les fichiers du harness, conserve l'état du projet
+(PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md) et sa configuration
+(docker-compose.yml, odoo.conf, harness/harness.env, e2e/conftest.py,
+harness/errors_project.py), montre comment les modèles des fichiers conservés ont changé,
+lance les vérifications et enregistre la mise à jour. Committez le résultat.
+
+**Une autre version d'Odoo.** Passer un projet à la version suivante d'Odoo est une
+migration, pas une mise à jour : installez le plugin de la nouvelle version, changez
+`ODOO_VERSION` et `ODOO_IMAGE` dans `harness/harness.env` et le plugin activé dans
+`.claude/settings.json`, puis suivez `references/migrations.md` du nouveau skill `odoo`.
+
+## Désinstallation
+
+- Le désactiver pour vous dans un projet : `claude plugin disable odoo-harness-<N>@odoo-harness --scope local`
+- Désinstaller le plugin : `claude plugin uninstall odoo-harness-<N>@odoo-harness`
+  (`--scope project` le retire du `.claude/settings.json` du projet pour tout le monde)
+- Retirer la marketplace et tous les plugins installés depuis elle : `claude plugin marketplace remove odoo-harness`
+
+Désinstaller le plugin ne modifie pas votre dépôt Odoo. Pour en retirer le harness :
+
+1. Supprimez le bloc entre `<!-- odoo-harness:start -->` et `<!-- odoo-harness:end -->` dans `CLAUDE.md`.
+2. Dans `.claude/settings.json`, retirez `odoo-harness-<N>@odoo-harness` de `enabledPlugins`,
+   `odoo-harness` de `extraKnownMarketplaces`, et les règles de permission du harness dont vous ne voulez plus.
+3. Arrêtez les conteneurs : `docker compose --env-file harness/harness.env down`
+   (ajoutez `-v` seulement pour supprimer les volumes de la base de test).
+4. Supprimez `harness/`, `.harness/`, et les fichiers ajoutés par le harness que vous ne gardez
+   pas : `e2e/`, `docker-compose.yml`, `odoo.conf`, `.pylintrc`, `.pre-commit-config.yaml`.
+5. Gardez ou archivez `PROGRESS.md`, `DECISIONS.md`, `feature_list.json` et `BOOTSTRAP.md` :
+   c'est l'historique du projet.
 
 ## Comment c'est vérifié
 
