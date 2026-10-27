@@ -46,11 +46,33 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
 `harness/loop.py run` works through `feature_list.json` on its own, with Claude Code
 headless, as a maker-checker graph:
 
+```mermaid
+flowchart TD
+    P["preflight<br/>clean tree, valid feature list, healthy environment"] --> S["select<br/>a feature to work on?"]
+    S -->|"none left"| E(["end of run"])
+    S -->|"F-xxx"| M["maker<br/>claude -p implements the feature"]
+    M --> V["verify<br/>harness/feature.py verify"]
+    V -->|"fail"| A{"attempts left?"}
+    V -->|"pass, with --review"| R["review<br/>odoo-reviewer agent"]
+    V -->|"pass, no --review"| C["commit<br/>feat(F-xxx): ..."]
+    R -->|"Accept"| C
+    R -->|"Revise / Block"| A
+    A -->|"yes: retry with the red pens<br/>or the review findings"| M
+    A -->|"no"| B["shelve<br/>work saved in a git stash,<br/>feature blocked with the reason"]
+    C --> N{"--max-features reached?"}
+    B --> N
+    N -->|"no"| S
+    N -->|"yes"| E
 ```
-select -> maker (claude -p) -> verify (harness/feature.py verify) -> [review] -> commit -> select
-             ^---- retry with the red-pen output (bounded attempts) ----|
-             attempts exhausted -> work saved in a git stash, feature blocked with the reason
-```
+
+Each step:
+
+1. **preflight**: the working tree is clean, `feature.py check` passes and the environment is healthy.
+2. **select**: the feature in progress, else the first `not_started` one.
+3. **maker**: a headless Claude Code session (`claude -p`) implements the feature.
+4. **verify**: `harness/feature.py verify` runs the 3 layers; it is the only judge of done.
+5. **review** (with `--review`): the `odoo-reviewer` agent, in a fresh context, must answer Accept.
+6. **commit** the verified work, or **shelve** it once the attempts are used up.
 
 - The maker never judges its own work: only `feature.py verify` can mark a feature
   passing, and `--review` adds the `odoo-reviewer` agent as a second, independent checker.

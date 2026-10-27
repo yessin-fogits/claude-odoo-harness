@@ -46,11 +46,33 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
 `harness/loop.py run` avance seul dans `feature_list.json`, avec Claude Code sans
 interface, sous forme de graphe producteur-vérificateur :
 
+```mermaid
+flowchart TD
+    P["preflight<br/>arbre propre, liste valide, environnement sain"] --> S["select<br/>une fonctionnalité à traiter ?"]
+    S -->|"plus aucune"| E(["fin du run"])
+    S -->|"F-xxx"| M["maker<br/>claude -p implémente la fonctionnalité"]
+    M --> V["verify<br/>harness/feature.py verify"]
+    V -->|"échec"| A{"essais restants ?"}
+    V -->|"succès, avec --review"| R["review<br/>agent odoo-reviewer"]
+    V -->|"succès, sans --review"| C["commit<br/>feat(F-xxx): ..."]
+    R -->|"Accept"| C
+    R -->|"Revise / Block"| A
+    A -->|"oui : nouvel essai avec les stylos rouges<br/>ou les remarques de la revue"| M
+    A -->|"non"| B["shelve<br/>travail gardé dans un git stash,<br/>fonctionnalité bloquée avec la raison"]
+    C --> N{"--max-features atteint ?"}
+    B --> N
+    N -->|"non"| S
+    N -->|"oui"| E
 ```
-select -> maker (claude -p) -> verify (harness/feature.py verify) -> [review] -> commit -> select
-             ^---- nouvel essai avec le stylo rouge (essais limités) ----|
-             essais épuisés -> travail gardé dans un git stash, fonctionnalité bloquée avec la raison
-```
+
+Chaque étape :
+
+1. **preflight** : l'arbre de travail est propre, `feature.py check` passe et l'environnement est sain.
+2. **select** : la fonctionnalité en cours, sinon la première `not_started`.
+3. **maker** : une session Claude Code sans interface (`claude -p`) implémente la fonctionnalité.
+4. **verify** : `harness/feature.py verify` lance les 3 couches ; c'est le seul juge du « fini ».
+5. **review** (avec `--review`) : l'agent `odoo-reviewer`, dans un contexte neuf, doit répondre Accept.
+6. **commit** du travail vérifié, ou **shelve** quand les essais sont épuisés.
 
 - Le producteur ne juge jamais son propre travail : seul `feature.py verify` peut passer une
   fonctionnalité en `passing`, et `--review` ajoute l'agent `odoo-reviewer` comme second
