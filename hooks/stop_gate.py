@@ -73,7 +73,13 @@ def session_changed_code(root, env, session):
     names |= set(c.git(root, "diff", "--name-only", "HEAD").splitlines())
     names |= set(c.git(root, "ls-files", "--others", "--exclude-standard").splitlines())
     addons = env.get("ADDONS_DIR", "addons").rstrip("/") + "/"
-    return sorted(n for n in names if n.startswith(addons) or n.startswith("e2e/"))
+    code = {n for n in names if n.startswith(addons) or n.startswith("e2e/")}
+    before = session.get("dirty_at_start") or {}
+    if before and code:
+        now = c.dirty_files(root)
+        # unchanged since the session started: changed by someone else before it
+        code = {n for n in code if not (n in before and now.get(n) == before[n])}
+    return sorted(code)
 
 
 def main():

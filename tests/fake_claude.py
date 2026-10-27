@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stand-in for `claude -p` in loop tests.
 
-Maker (no --agent): FAKE_MAKER = fix | break | break-then-fix | none.
+Maker (no --agent): FAKE_MAKER = fix | fix-and-verify | break | break-then-fix | none.
 Reviewer (--agent): FAKE_REVIEWS = comma-separated verdicts returned in order.
 Every call is appended to FAKE_AGENT_CALLS as JSON.
 """
@@ -36,4 +36,11 @@ if mode != "none":
         thing.write_text(text + "\n# implemented by the maker\n")
     progress = Path("PROGRESS.md")
     progress.write_text(progress.read_text() + "\n- maker note\n")
+if mode == "fix-and-verify":
+    import subprocess
+    import re
+    feature_id = re.search(r"feature (F-\d+)", prompt).group(1)
+    subprocess.run([sys.executable, "harness/feature.py", "verify", feature_id],
+                   check=True, capture_output=True)
+    Path(os.environ["FAKE_AGENT_CALLS"] + ".self-verified").write_text(feature_id)
 print(json.dumps({"result": "done"}))
