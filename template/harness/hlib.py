@@ -1,5 +1,9 @@
-"""Shared helpers for the harness Python scripts. Standard library only."""
+"""Shared helpers for the harness Python scripts. Standard library only.
 
+    hlib.py modules     print the custom modules of the project, comma-separated
+"""
+
+import ast
 import datetime
 import hashlib
 import json
@@ -20,6 +24,10 @@ STATE_FILE = STATE_DIR / "state.json"
 
 STATES = ("not_started", "in_progress", "blocked", "passing")
 FEATURE_KEYS = {"id", "behavior", "verification", "state", "evidence"}
+# Optional: the Odoo task the feature belongs to (its code, e.g. T2003). A task is split
+# into one or more features, worked on the task's git branch.
+OPTIONAL_KEYS = {"task"}
+TASK_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*$")
 VERIFY_KINDS = ("unit", "integration", "e2e")
 ID_RE = re.compile(r"^F-\d{3,}$")
 
@@ -67,12 +75,108 @@ def version_tuple(version):
     return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
 
 
-def modules_in_scope(env):
-    return [m for m in env.get("MODULES", "").split(",") if m]
+def env_list(env, key):
+    return [p.strip().strip("/") for p in env.get(key, "").split(",") if p.strip().strip("/")]
 
 
-def addons_dir(env):
-    return REPO_ROOT / env.get("ADDONS_DIR", "addons")
+def custom_roots(env):
+    """Folders of the project's own modules (CUSTOM_ADDONS), the code the agent may edit."""
+    return [REPO_ROOT / p for p in env_list(env, "CUSTOM_ADDONS")]
+
+
+def custom_modules(env):
+    """{module name: module dir} for every custom module of the project."""
+    found = {}
+    for root in custom_roots(env):
+        if root.is_dir():
+            for manifest in sorted(root.glob("*/__manifest__.py")):
+                found.setdefault(manifest.parent.name, manifest.parent)
+    return found
+
+
+def read_manifest(module_dir):
+    try:
+        return ast.literal_eval((Path(module_dir) / "__manifest__.py").read_text())
+    except (OSError, ValueError, SyntaxError):
+        return {}
+
+
+def dependents(env, names):
+    """Custom modules that depend on any of names, directly or not (names excluded)."""
+    modules = custom_modules(env)
+    depends = {m: set(read_manifest(d).get("depends") or []) for m, d in modules.items()}
+    found, frontier = set(), set(names)
+    while frontier:
+        frontier = {m for m, deps in depends.items() if deps & frontier} - found - set(names)
+        found |= frontier
+    return sorted(found)
+
+
+def module_of(env, path):
+    """Name of the custom module that contains path (repo-relative or absolute), or None."""
+    path = Path(path)
+    path = path if path.is_absolute() else REPO_ROOT / path
+    for root in custom_roots(env):
+        try:
+            parts = path.resolve().relative_to(root.resolve()).parts
+        except ValueError:
+            continue
+        if len(parts) > 1 and (root / parts[0] / "__manifest__.py").is_file():
+            return parts[0]
+    return None
+
+
+def base_ref(env):
+    """The commit this branch started from: merge-base with origin/BASE_BRANCH or BASE_BRANCH."""
+    branch = env.get("BASE_BRANCH", "")
+    for ref in (f"origin/{branch}", branch) if branch else ():
+        if git("rev-parse", "--verify", "-q", ref):
+            return git("merge-base", "HEAD", ref) or None
+    return None
+
+
+def changed_files(since=None):
+    """Paths changed since a commit (default: HEAD), staged or not, plus untracked files."""
+    names = set(git("diff", "--name-only", since or "HEAD").splitlines())
+    names |= set(git("ls-files", "--others", "--exclude-standard").splitlines())
+    return {n for n in names if n}
+
+
+HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
+
+
+def changed_lines(since=None):
+    """{repo-relative path: set of changed line numbers, or None for a whole new file}."""
+    out = {}
+    current = None
+    for line in git("diff", "-U0", "--no-color", "--no-ext-diff", since or "HEAD").splitlines():
+        if line.startswith("+++ "):
+            current = line[6:] if line.startswith("+++ b/") else None
+            if current:
+                out.setdefault(current, set())
+            continue
+        match = HUNK_RE.match(line)
+        if match and current:
+            start, count = int(match.group(1)), int(match.group(2) or 1)
+            out[current].update(range(start, start + count))
+    for name in git("ls-files", "--others", "--exclude-standard").splitlines():
+        if name:
+            out[name] = None
+    return out
+
+
+def is_changed(lines, path, line):
+    """True when path:line is new or changed according to changed_lines()."""
+    if path not in lines:
+        return False
+    return lines[path] is None or line in lines[path] or (line <= 1 and bool(lines[path]))
+
+
+def changed_modules(env, since=None):
+    """Custom modules with changes on this branch (since `since`, or the base branch)."""
+    since = since or base_ref(env)
+    names = {module_of(env, f) for f in changed_files(since)}
+    return sorted(n for n in names if n)
 
 
 def now_iso():
@@ -130,9 +234,12 @@ def validate(data):
             problems.append(f"features[{i}] is not an object")
             continue
         fid = feat.get("id", f"features[{i}]")
-        if set(feat) != FEATURE_KEYS:
-            problems.append(f"{fid}: keys must be exactly {sorted(FEATURE_KEYS)}")
+        if not FEATURE_KEYS <= set(feat) <= FEATURE_KEYS | OPTIONAL_KEYS:
+            problems.append(f"{fid}: keys must be {sorted(FEATURE_KEYS)} (+ optional "
+                            f"{sorted(OPTIONAL_KEYS)})")
             continue
+        if "task" in feat and not (isinstance(feat["task"], str) and TASK_RE.match(feat["task"])):
+            problems.append(f"{fid}: task must be an Odoo task code such as T2003")
         if not isinstance(fid, str) or not ID_RE.match(fid):
             problems.append(f"{fid}: id must look like F-001")
         elif fid in seen:
@@ -177,6 +284,21 @@ def save_features(data):
     if problems:
         raise AssertionError("refusing to save an invalid feature list: " + "; ".join(problems))
     write_atomic(FEATURE_LIST, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def task_features(data, task):
+    return [f for f in data["features"] if f.get("task") == task]
+
+
+def commit_message(feat):
+    """Commit message of a verified feature: [T2003] F-001 behavior, or feat(F-001): ..."""
+    if feat.get("task"):
+        return f"[{feat['task']}] {feat['id']} {feat['behavior']}"
+    return f"feat({feat['id']}): {feat['behavior']}"
+
+
+def current_branch():
+    return git("symbolic-ref", "-q", "--short", "HEAD")
 
 
 def find_feature(data, fid):
@@ -252,3 +374,10 @@ def _append_to_section(lines, section, line):
     if nxt < len(lines) and lines[nxt].startswith("## "):
         lines.insert(nxt, "")
     return lines
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["modules"]:
+        print(",".join(custom_modules(load_env())))
+    else:
+        sys.exit("usage: hlib.py modules")

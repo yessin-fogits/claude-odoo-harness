@@ -26,15 +26,21 @@ def feature_summary(root):
         counts[f.get("state")] = counts.get(f.get("state"), 0) + 1
     lines = ["Features: " + (", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "none yet")]
     current = [f for f in feats if f.get("state") == "in_progress"]
+    branch = c.git(root, "symbolic-ref", "-q", "--short", "HEAD")
     if current:
         f = current[0]
-        lines.append(f"Feature in progress: {f['id']} — {f['behavior']}")
+        task = f" (Odoo task {f['task']})" if f.get("task") else ""
+        lines.append(f"Feature in progress: {f['id']} — {f['behavior']}{task}")
+        if f.get("task") and branch != f["task"]:
+            lines.append(f"  You are on branch '{branch}', not on the task branch "
+                         f"'{f['task']}': git checkout {f['task']} before working.")
         lines += [f"  verification: {v}" for v in f.get("verification", [])]
         lines.append(f"It becomes passing only through `harness/feature.py verify {f['id']}`.")
     else:
         todo = [f for f in feats if f.get("state") == "not_started"]
         if todo:
-            lines.append(f"No feature in progress. Next by order: {todo[0]['id']} — "
+            task = f" [{todo[0]['task']}]" if todo[0].get("task") else ""
+            lines.append(f"No feature in progress. Next by order: {todo[0]['id']}{task} — "
                          f"{todo[0]['behavior']} (`harness/feature.py start {todo[0]['id']}`).")
         elif not feats:
             lines.append("The feature list is empty: initialization step 4 (task breakdown) "

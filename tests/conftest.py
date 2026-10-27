@@ -15,7 +15,7 @@ import install_template  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tools"))
 
-from make_demo_project import adapt_fixture_module  # noqa: E402
+from make_demo_project import adapt_fixture_module, write_layout  # noqa: E402
 
 ODOO_VERSION = install_template.ODOO_VERSION
 IR_ACCESS = tuple(int(x) for x in ODOO_VERSION.split(".")) >= (20, 0)
@@ -69,16 +69,20 @@ class HarnessRepo:
 def hrepo(tmp_path):
     target = tmp_path / "client"
     target.mkdir()
-    install_template.main([str(target), "--modules", "demo_mod"])
-    shutil.copytree(TESTS / "fixtures" / "demo_mod", target / "addons" / "demo_mod")
-    adapt_fixture_module(target / "addons" / "demo_mod")
+    write_layout(target, client="client")
+    module = target / MODULE_DIR
+    shutil.copytree(TESTS / "fixtures" / "demo_mod", module,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    adapt_fixture_module(module)
     repo = HarnessRepo(target, tmp_path / "calls.jsonl")
-    repo.git("init", "-q")
+    repo.git("init", "-q", "-b", "staging")
+    install_template.main([str(target), "--enterprise-dir", ""])
     repo.commit("initial")
     return repo
 
 
 E2E_FILE = "e2e/test_F001_thing.py"
+MODULE_DIR = "extra-addons/client/demo_mod"
 
 
 def add_feature(repo, behavior="User creates a demo thing", e2e=E2E_FILE):
