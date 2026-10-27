@@ -183,12 +183,16 @@ def check_manifest(module_dir, odoo_version):
                 f"Add '{key}' to __manifest__.py.")
     version = str(manifest.get("version", ""))
     parts = version.split(".")
-    if "version" in manifest and (not version.startswith(odoo_version + ".") or len(parts) != 5
-                                  or not all(p.isdigit() for p in parts)):
-        bad(f"manifest version '{version}' is not {odoo_version}.x.y.z",
-            "Odoo uses the version to run migrations; the first part must match the server.",
-            f"Set 'version': '{odoo_version}.1.0.0' and bump x.y.z on each change "
-            "that needs a migration.")
+    other_series = (re.match(r"^\d{2}\.0\.", version + ".")
+                    and not version.startswith(odoo_version))
+    if "version" in manifest and (other_series or not all(p.isdigit() for p in parts)):
+        # Odoo prefixes a plain version ('1.0' -> '18.0.1.0'); a version of another series
+        # means the module was not ported to this Odoo version.
+        bad(f"manifest version '{version}' is not a version of Odoo {odoo_version}",
+            "Odoo uses the version to run migrations; a version from another Odoo series means "
+            "the module was not ported, and a non-numeric one cannot be compared.",
+            f"Port the module, then set 'version': '{odoo_version}.1.0.0' and bump it on "
+            "each change that needs a migration.")
     if not isinstance(manifest.get("depends", []), list):
         bad("'depends' must be a list", "Odoo expects a list of module names.",
             "Write 'depends': ['base', ...].")

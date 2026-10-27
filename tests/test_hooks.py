@@ -73,6 +73,17 @@ def test_session_start_injects_state(hrepo):
     assert (hrepo.path / ".harness/session.json").is_file()
 
 
+def test_session_start_names_the_task_branch(hrepo):
+    result = hrepo.feature("add", "--task", "T2003", "--behavior", "User sees the overview",
+                           "--verify", "e2e: e2e/test_F001_x.py")
+    assert result.returncode == 0, result.stderr
+    hrepo.commit("feature")
+    hrepo.feature("start", "F-001", "--no-branch")
+    ctx = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "Feature in progress: F-001 — User sees the overview (Odoo task T2003)" in ctx
+    assert "git checkout T2003 before working" in ctx
+
+
 def test_session_start_reports_broken_integrity(hrepo):
     add_feature(hrepo)
     data = json.loads((hrepo.path / "feature_list.json").read_text())

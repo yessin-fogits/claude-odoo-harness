@@ -10,7 +10,8 @@ addon folders, Odoo Enterprise, Dockerfile, base branch, GitLab project, deploym
 files) is detected by detect_project.py; the overrides replace what was detected.
 
 Deterministic and idempotent. Files have an owner:
-- state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md): never overwritten;
+- state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md, ARCHITECTURE.md):
+  never overwritten;
 - project (harness.env, e2e/conftest.py, .pylintrc...): created once, then the project's;
   --update keeps them and reports when the template changed;
 - harness (harness/*.py, *.sh, checks, docker files, harness/docker-compose.yml,
@@ -37,7 +38,7 @@ TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import detect_project  # noqa: E402
 
-STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "feature_list.json", "BOOTSTRAP.md"}
+STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "feature_list.json", "BOOTSTRAP.md", "ARCHITECTURE.md"}
 PROJECT_FILES = {".pylintrc", ".pre-commit-config.yaml", "e2e/conftest.py", "e2e/test_smoke.py",
                  "harness/harness.env", "harness/errors_project.py"}
 HARNESS_ENV = "harness/harness.env"

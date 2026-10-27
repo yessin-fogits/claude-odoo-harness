@@ -31,8 +31,20 @@ def test_manifest_version_and_missing_data_file(hrepo):
           ' "data": ["views/missing.xml"]}')
     result = run_static(hrepo)
     assert result.returncode == 1
-    assert f"is not {ODOO_VERSION}.x.y.z" in result.stderr
+    assert f"'16.0.1.0.0' is not a version of Odoo {ODOO_VERSION}" in result.stderr
     assert "'data' lists 'views/missing.xml', which does not exist" in result.stderr
+
+
+@pytest.mark.parametrize("version,ok", [
+    ("1.0", True), (ODOO_VERSION, True), (f"{ODOO_VERSION}.1.0.0", True), ("0.1.5", True),
+    ("16.0.1.0.0", False), ("1.0-beta", False),
+])
+def test_manifest_versions_odoo_accepts(hrepo, version, ok):
+    """Odoo prefixes plain versions with its series; only other series and text are wrong."""
+    write(hrepo, "extra-addons/client/demo_mod/__manifest__.py",
+          f'{{"name": "D", "version": "{version}", "license": "LGPL-3", "depends": ["base"]}}')
+    result = run_static(hrepo)
+    assert ("is not a version of Odoo" not in result.stderr) is ok, result.stderr
 
 
 def test_broken_xml_points_to_line(hrepo):
@@ -125,3 +137,20 @@ def test_catalog_unknown_text():
 
 def test_pylint_fix_fallback():
     assert "--help-msg=weird-rule" in errors.pylint_fix("weird-rule")
+
+
+def test_project_map_reads_modules_from_the_code(hrepo):
+    other = hrepo.path / "extra-addons/client/other_mod"
+    (other / "models").mkdir(parents=True)
+    (other / "__manifest__.py").write_text(
+        "{'name': 'Other', 'summary': 'Adds\\n   a   line', 'depends': ['demo_mod', 'sale']}")
+    (other / "models/x.py").write_text(
+        "from odoo import fields, models\n\n\n"
+        "class Order(models.Model):\n    _inherit = 'sale.order'\n\n\n"
+        "class Box(models.Model):\n    _name = 'other.box'\n    _inherit = ['mail.thread']\n")
+    result = hrepo.run(sys.executable, "harness/project_map.py")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "| `other_mod` | Other — Adds a line | other.box | mail.thread, sale.order | demo_mod | none |" in out
+    assert "    demo_mod --> other_mod" in out
+    assert "`sale`" in out and "Modules without tests: 1 of 2 (other_mod)" in out

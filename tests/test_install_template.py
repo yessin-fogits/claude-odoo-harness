@@ -48,6 +48,7 @@ def repo(tmp_path):
 def test_installs_all_template_files(repo):
     run_install(repo)
     for rel in ["CLAUDE.md", "BOOTSTRAP.md", "PROGRESS.md", "DECISIONS.md", "feature_list.json",
+                "ARCHITECTURE.md", "harness/project_map.py", "harness/gitlab.py",
                 "harness/docker-compose.yml", "harness/odoo.conf", ".claude/settings.json",
                 ".gitignore", "harness/init.sh", "harness/lib.sh", "harness/harness.env"]:
         assert (repo / rel).is_file(), rel
@@ -158,9 +159,11 @@ def test_rerun_is_idempotent(repo):
 def test_state_files_never_overwritten_even_with_force(repo):
     run_install(repo)
     (repo / "PROGRESS.md").write_text("my progress")
+    (repo / "ARCHITECTURE.md").write_text("my map")
     (repo / "feature_list.json").write_text('{"version": 1, "features": [{"id": "F-001"}]}')
     run_install(repo, "--force")
     assert (repo / "PROGRESS.md").read_text() == "my progress"
+    assert (repo / "ARCHITECTURE.md").read_text() == "my map"
     assert "F-001" in (repo / "feature_list.json").read_text()
 
 
