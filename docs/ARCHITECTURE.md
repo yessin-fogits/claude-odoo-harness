@@ -50,6 +50,13 @@ docker-compose.yml, odoo.conf, .pylintrc (pylint-odoo), .pre-commit-config.yaml
 .claude/settings.json  # permissions and the plugin enabled
 ```
 
+### Client workspace
+Developers may start Claude Code in the client folder (`~/Project/<client>`) instead of the repository (`~/Project/<client>/git`). The harness and its state stay in the repository. The workspace gets two generated files, not versioned:
+- `CLAUDE.md`: how to run the harness from the workspace (`git/harness/feature.py`, `git -C git`), then `@git/CLAUDE.md`.
+- `.claude/settings.json`: the repository's permissions rewritten with the `git/` prefix, and the plugin enabled.
+
+`init` and `update` write them (`install_template.py git --workspace .`); after a fresh clone, `--workspace-only` writes just these. The hooks find the harness in `git/` on their own, and SessionStart injects `git/CLAUDE.md` when the workspace does not import it.
+
 ### File formats
 - **PROGRESS.md** has five sections:
   - `## Current state`: last commit, test status and lint status. The Stop hook rewrites this section automatically.

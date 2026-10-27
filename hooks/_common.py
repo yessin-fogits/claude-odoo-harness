@@ -18,12 +18,43 @@ def read_input():
         return {}
 
 
-def project_dir(payload):
+WORKSPACE_REPO = "git"
+
+
+def launch_dir(payload):
+    """The folder Claude Code was started in."""
     return Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()).resolve()
+
+
+def harness_root(launch):
+    """The Odoo repository holding the harness, for a session started in `launch`.
+
+    Claude Code runs either in the repository itself or in the client workspace that
+    contains it (fogits layout: ~/Project/<client> with the repository in git/ and
+    Odoo Enterprise in enterprise/). Returns `launch` when no harness is found."""
+    if has_harness(launch):
+        return launch
+    if has_harness(launch / WORKSPACE_REPO):
+        return launch / WORKSPACE_REPO
+    try:
+        found = [d for d in launch.iterdir() if d.is_dir() and has_harness(d)]
+    except OSError:
+        found = []
+    return found[0] if len(found) == 1 else launch
+
+
+def project_dir(payload):
+    return harness_root(launch_dir(payload))
 
 
 def has_harness(root):
     return (root / "harness" / "feature.py").is_file() and (root / "feature_list.json").exists()
+
+
+def tool_path(payload, path):
+    """A file path from a tool call: relative paths are relative to the launch folder."""
+    path = Path(path)
+    return path if path.is_absolute() else launch_dir(payload) / path
 
 
 def emit(obj):

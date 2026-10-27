@@ -19,6 +19,8 @@
 
 - [x] Phase 7: full-project mode: project detection (addons_path, Dockerfile, enterprise, base branch, GitLab, deployment files) checked on qafila, ad-tunisie, evms and conforama-sh; test runtime on the project's image with its own database; verify scope = changed modules + dependents; older findings are debt (ratchet on changed lines); project rcfile for pylint; no-hardcoded-secrets check; guard for third-party/enterprise/deployment files and pushes; Odoo tasks with T<code> branches, [T<code>] commits and merge requests (harness/gitlab.py); discovery in init (ARCHITECTURE.md from harness/project_map.py, CLAUDE.md project section, open Odoo tasks through the Odoo MCP connector)
 
+- [x] Client workspace launch: Claude Code started in ~/Project/<client> finds the harness in git/ (hooks, guard, SessionStart context); init/update write the workspace CLAUDE.md and settings (installer --workspace, --workspace-only)
+
 ## In progress
 
 ## Known issues
