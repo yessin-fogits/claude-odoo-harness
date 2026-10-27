@@ -98,7 +98,7 @@ def test_unknown_error_asks_to_extend_the_catalog(hrepo):
     result = hrepo.verify(fake_odoo_log=log)
     assert result.returncode == 1
     assert "something nobody has seen" in result.stderr
-    assert "add a pattern for it in harness/errors.py" in result.stderr
+    assert "add a pattern for it in harness/errors_project.py" in result.stderr
 
 
 def test_e2e_timeout_is_explained(hrepo):

@@ -13,6 +13,8 @@
 - [x] Phase 4: tools/odoo-skill-extract (fetch_odoo.sh, extract.py, check_skill.py); branches 18.0, 19.0, 20.0; odoo skill per branch checked against the real Odoo source (20.0 first, adapted to 19.0, 18.0, 17.0); version-aware security checks; odoo-version-api and model-access project checks; CI jobs skill-check and branches
 - [x] Phase 5: add-harness-check skill, odoo-reviewer and odoo-explorer agents, init as a user-only skill, per-version plugin names, main branch with the marketplace and README (EN/FR), demo project builder and odoo-e2e CI job against real Odoo 17-20 (found and fixed: Odoo 20 listening on 127.0.0.1, non-unique e2e data, duplicate red pen for the test summary)
 
+- [x] Update and uninstall paths: unpinned plugin version, autoUpdate, installer --update/--show with file ownership, update skill, errors_project.py, README sections (collaborators, update, uninstall) in EN/FR
+
 ## In progress
 
 ## Known issues

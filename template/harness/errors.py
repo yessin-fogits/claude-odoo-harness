@@ -1,7 +1,8 @@
-"""Red-pen catalog: known failure patterns mapped to WHY and HOW TO FIX.
+"""Red-pen catalog of the harness: known failure patterns mapped to WHY and HOW TO FIX.
 
-When you fix a failure that printed "no catalog entry", add an entry here so the
-next agent gets the fix instruction directly. `{1}`, `{2}`... are regex groups.
+This file belongs to the harness and is replaced by harness updates. Add the
+patterns of this project to harness/errors_project.py, which updates never touch.
+`{1}`, `{2}`... are regex groups.
 """
 
 import re
@@ -126,10 +127,19 @@ def _expand(template, match):
     return re.sub(r"\{(\w+)\}", lambda m: groups.get(m.group(1), m.group(0)), template)
 
 
+def project_catalog():
+    """Entries of harness/errors_project.py (checked first); empty if the file is missing."""
+    try:
+        import errors_project
+    except ImportError:
+        return []
+    return list(getattr(errors_project, "PROJECT_CATALOG", []))
+
+
 def explain(text):
-    """Return [(entry_id, why, fix)] for each catalog entry matching text, in catalog order."""
+    """Return [(entry_id, why, fix)] for each entry matching text: project entries first."""
     found = []
-    for entry in CATALOG:
+    for entry in project_catalog() + CATALOG:
         match = re.search(entry.pattern, text)
         if match:
             found.append((entry.id, _expand(entry.why, match), _expand(entry.fix, match)))
@@ -143,4 +153,5 @@ def pylint_fix(symbol):
 
 
 UNKNOWN_FIX = ("No catalog entry for this error. Read the excerpt above and fix the first error. "
-               "Then add a pattern for it in harness/errors.py so the next agent gets the fix.")
+               "Then add a pattern for it in harness/errors_project.py so the next agent gets "
+               "the fix.")

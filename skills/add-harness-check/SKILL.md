@@ -13,13 +13,14 @@ layer 1 (`harness/static_checks.py`): after each edit of a module file, at every
 ## 1. Name the kind of mistake, not the instance
 
 "`sudo()` on a record id taken from request params" is a kind; "line 42 of
-controllers/main.py" is an instance. First look in `harness/checks/` and
-`harness/errors.py`: if an existing check covers the kind, extend it instead of adding one.
+controllers/main.py" is an instance. First look in `harness/checks/`,
+`harness/errors.py` and `harness/errors_project.py`: if an existing check covers the kind, extend it instead of adding one.
 
 Decide where it belongs:
 - visible in the source (a pattern in .py, .xml, .js, .csv): a check in `harness/checks/`;
 - visible only at runtime (a log line, a traceback, a Playwright error): an `Entry` in
-  `harness/errors.py` with its WHY and HOW TO FIX.
+  `harness/errors_project.py` with its WHY and HOW TO FIX (`harness/errors.py` belongs to
+  the harness and is replaced by updates).
 
 ## 2. Write the check
 
