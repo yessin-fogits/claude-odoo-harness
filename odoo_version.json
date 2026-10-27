@@ -1,4 +1,4 @@
 {
-  "odoo_version": "17.0",
+  "odoo_version": "20.0",
   "postgres_image": "postgres:16"
 }
