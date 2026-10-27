@@ -1,8 +1,8 @@
-# Front end: OWL 2 (Odoo 19.0)
+# Front end: OWL 2 (Odoo 18.0)
 
-Odoo 19.0 ships OWL 2 (see `version-facts.md` for the exact version and exports).
+Odoo 18.0 ships OWL 2 (see `version-facts.md` for the exact version and exports).
 Do not copy OWL 3 code from Odoo 20 (`useProps`, `signal`, `proxy`, plugins): it does not
-exist here. Patterns below come from Odoo 19.0's own `web` module.
+exist here. Patterns below come from Odoo 18.0's own `web` module.
 
 ## A component
 
