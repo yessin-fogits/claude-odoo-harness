@@ -1,7 +1,7 @@
 {
-  "name": "odoo-harness-19",
+  "name": "odoo-harness-20",
   "version": "0.1.0",
-  "description": "Claude Code harness for Odoo 19.0 projects: state files, WIP=1 feature workflow, 3-layer verification, automatic session hooks, Odoo 19.0 skill.",
+  "description": "Claude Code harness for Odoo 20.0 projects: state files, WIP=1 feature workflow, 3-layer verification, automatic session hooks, Odoo 20.0 skill.",
   "author": {
     "name": "yessin-fogits"
   },
