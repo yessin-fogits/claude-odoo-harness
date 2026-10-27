@@ -41,6 +41,28 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
    3. bootstrap contract (`BOOTSTRAP.md`);
    4. task breakdown (`feature_list.json`).
 
+## Autonomous loop
+
+`harness/loop.py run` works through `feature_list.json` on its own, with Claude Code
+headless, as a maker-checker graph:
+
+```
+select -> maker (claude -p) -> verify (harness/feature.py verify) -> [review] -> commit -> select
+             ^---- retry with the red-pen output (bounded attempts) ----|
+             attempts exhausted -> work saved in a git stash, feature blocked with the reason
+```
+
+- The maker never judges its own work: only `feature.py verify` can mark a feature
+  passing, and `--review` adds the `odoo-reviewer` agent as a second, independent checker.
+- Only verified work is committed. Failed work is kept in a named `git stash` and the
+  feature is blocked with the reason and the stash name in PROGRESS.md.
+- Budgets: `--max-features` (default 1, so a human reviews each feature), `--attempts`
+  (default 3), `--max-turns` and `--max-budget-usd` per agent call, `--timeout`.
+- `--branch loop/<name>` works on a new branch. Logs and agent outputs:
+  `.harness/loop/<run>/`; last summary: `harness/loop.py status`.
+- Requirements: a clean working tree, a healthy baseline (`harness/init.sh --check`), and
+  the `claude` CLI logged in with the plugin installed.
+
 ## Collaborators
 
 In the commands below, `<N>` is your Odoo major version (17, 18, 19 or 20).

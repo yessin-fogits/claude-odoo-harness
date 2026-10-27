@@ -15,6 +15,8 @@
 
 - [x] Update and uninstall paths: unpinned plugin version, autoUpdate, installer --update/--show with file ownership, update skill, errors_project.py, README sections (collaborators, update, uninstall) in EN/FR
 
+- [x] Phase 6: autonomous maker-checker loop (harness/loop.py run/status), bounded attempts and budgets, stash + block on failure, optional odoo-reviewer gate, events log; README section (EN/FR)
+
 ## In progress
 
 ## Known issues
@@ -23,5 +25,4 @@
 - The repository default branch is not main yet (repository settings cannot be changed from this environment); installs pin main explicitly.
 
 ## Next steps
-- [ ] Phase 6 (later): autonomous loops (course lectures 13-14), e.g. a headless `claude -p` loop over feature_list.json.
 - [ ] Try the plugin on a real client project and turn what goes wrong into checks.
