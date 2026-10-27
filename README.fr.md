@@ -21,6 +21,18 @@ Le harness est le système de travail autour du modèle. Il rend l'agent fiable 
 | `19.0` | 19.0 |
 | `20.0` | 20.0 |
 
+## Le skill Odoo
+
+Chaque branche fournit `skills/odoo/` pour sa version d'Odoo : ORM, vues, sécurité, OWL,
+contrôleurs, tests, migrations, et les changements depuis les versions précédentes. Il est
+écrit à partir du vrai code source `odoo/odoo`, et la CI le vérifie contre ce code :
+
+```
+tools/odoo-skill-extract/fetch_odoo.sh 20.0 /tmp/odoo-20.0
+python3 tools/odoo-skill-extract/extract.py /tmp/odoo-20.0 -o /tmp/facts.json
+python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
+```
+
 ## Installer dans un projet Odoo
 1. Ajouter ce plugin à Claude Code depuis la branche de votre version d'Odoo.
 2. Dans votre dépôt Odoo, lancer `/odoo-harness:init`. La commande suit les 4 étapes d'initialisation :
@@ -30,5 +42,5 @@ Le harness est le système de travail autour du modèle. Il rend l'agent fiable 
    4. découpage des tâches (`feature_list.json`).
 
 ## État
-Les phases 1 (harness de base), 2 (machine à états et vérification en 3 couches) et 3 (hooks de session automatiques) sont en place. Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le plan
+Les phases 1 à 4 sont en place : harness de base, machine à états et vérification en 3 couches, hooks de session automatiques, et le skill Odoo par version. Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le plan
 complet et [PROGRESS.md](PROGRESS.md) pour l'état actuel.

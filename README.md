@@ -21,6 +21,18 @@ A harness is the work system around the model. It makes an agent reliable on lon
 | `19.0` | 19.0 |
 | `20.0` | 20.0 |
 
+## The Odoo skill
+
+Each branch ships `skills/odoo/` for its Odoo version: ORM, views, security, OWL,
+controllers, tests, migrations, and the changes since the previous versions. It is written
+from the real `odoo/odoo` source and CI checks it against that source:
+
+```
+tools/odoo-skill-extract/fetch_odoo.sh 20.0 /tmp/odoo-20.0
+python3 tools/odoo-skill-extract/extract.py /tmp/odoo-20.0 -o /tmp/facts.json
+python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
+```
+
 ## Install in an Odoo project
 1. Add this plugin to Claude Code from the branch matching your Odoo version.
 2. In your Odoo repository, run `/odoo-harness:init`. It goes through the 4 initialization steps:
@@ -30,10 +42,15 @@ A harness is the work system around the model. It makes an agent reliable on lon
    4. task breakdown (`feature_list.json`).
 
 ## Status
-Phases 1 (core harness), 2 (state machine and 3-layer verification) and 3 (automatic session hooks) are in place. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
+Phases 1 to 4 are in place: core harness, state machine and 3-layer verification, automatic session hooks, and the Odoo skill per version. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan
 and [PROGRESS.md](PROGRESS.md) for the current state.
 
 ## Develop
+
+Shared changes go to `17.0`, then are merged forward: `17.0 → 18.0 → 19.0 → 20.0`.
+Only `odoo_version.json` and `skills/odoo/` differ between branches
+(run `git config merge.ours.driver true` once so merges keep them).
+
 ```
 pip install pytest shellcheck-py "pylint-odoo==10.0.12"
 python -m pytest -q
