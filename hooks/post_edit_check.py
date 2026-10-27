@@ -24,7 +24,7 @@ def main():
     path = tool_input.get("file_path")
     if not path:
         sys.exit(0)
-    path = Path(path) if Path(path).is_absolute() else root / path
+    path = c.tool_path(payload, path)
     roots = [(root / r).resolve() for r in c.custom_roots(c.load_env(root))]
     if not any(path.resolve().is_relative_to(r) for r in roots):
         sys.exit(0)
