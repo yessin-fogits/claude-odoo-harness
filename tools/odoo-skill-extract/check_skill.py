@@ -22,7 +22,7 @@ from pathlib import Path
 EXEMPT = {"version-notes.md", "version-facts.md"}
 FENCE_RE = re.compile(r"```[\w-]*\n(.*?)```", re.S)
 # the names of `from x import ...`: a parenthesized list may span lines, otherwise one line
-IMPORTED = r"(\([^)]*\)|[^\n]+)"
+IMPORTED = r"(\([^)]*\)|[\w ,]+)"
 
 
 def render_facts(facts):
