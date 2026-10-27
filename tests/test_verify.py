@@ -47,16 +47,27 @@ def test_parse_pytest_summary():
     assert verify.parse_pytest("no tests ran in 0.01s")["passed"] == 0
 
 
+MOD = "extra-addons/client/demo_mod"
+OTHER = "extra-addons/client/other_mod"
+
+
 @pytest.mark.parametrize("files,expected", [
-    ({"addons/demo_mod/models/x.py"}, (False, ["demo_mod"], [])),
-    ({"addons/demo_mod/models/x.py", "e2e/test_F001_x.py", "PROGRESS.md"},
-     (False, ["demo_mod"], [])),
-    ({"addons/a/x.py", "addons/b/y.py"}, (True, ["a", "b"], [])),
-    ({"addons/a/x.py", "e2e/conftest.py"}, (True, ["a"], ["e2e/conftest.py"])),
-    ({"addons/a/x.py", "docker-compose.yml"}, (True, ["a"], ["docker-compose.yml"])),
+    ({f"{MOD}/models/x.py"}, (False, ["demo_mod"], [])),
+    ({f"{MOD}/models/x.py", "e2e/test_F001_x.py", "PROGRESS.md"}, (False, ["demo_mod"], [])),
+    ({f"{MOD}/x.py", f"{OTHER}/y.py"}, (True, ["demo_mod", "other_mod"], [])),
+    ({f"{MOD}/x.py", "e2e/conftest.py"}, (True, ["demo_mod"], ["e2e/conftest.py"])),
+    ({f"{MOD}/x.py", "Dockerfile"}, (True, ["demo_mod"], ["Dockerfile"])),
+    ({f"{MOD}/x.py", "extra-addons/oca/web_x/models.py"},
+     (True, ["demo_mod"], ["extra-addons/oca/web_x/models.py"])),
 ])
-def test_cross_component(files, expected):
-    assert verify.cross_component({"ADDONS_DIR": "addons"}, files) == expected
+def test_cross_component(hrepo, monkeypatch, files, expected):
+    (hrepo.path / OTHER).mkdir()
+    (hrepo.path / OTHER / "__manifest__.py").write_text("{'name': 'o', 'depends': ['demo_mod']}")
+    monkeypatch.setattr(verify.hlib, "REPO_ROOT", hrepo.path)
+    env = {"CUSTOM_ADDONS": "extra-addons/client", "THIRD_PARTY_ADDONS": "extra-addons/oca"}
+    assert verify.cross_component(env, files) == expected
+    assert verify.hlib.dependents(env, ["demo_mod"]) == ["other_mod"]
+    assert verify.hlib.dependents(env, ["other_mod"]) == []
 
 
 # --- layers, through the real script with a fake docker compose -------------------
@@ -70,26 +81,74 @@ def test_baseline_runs_all_layers_and_full_e2e(hrepo):
 
 
 def test_static_failure_stops_before_runtime(hrepo):
-    (hrepo.path / "addons/demo_mod/models/thing.py").write_text("def broken(:\n")
+    (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text("def broken(:\n")
     result = hrepo.verify()
     assert result.returncode == 1
-    assert "✗ [L1 static] addons/demo_mod/models/thing.py:1: Python syntax error" in result.stderr
+    assert "✗ [L1 static] extra-addons/client/demo_mod/models/thing.py:1: Python syntax error" in result.stderr
     assert "odoo" not in hrepo.services_run()
 
 
+def touch(hrepo, rel=f"{MOD}/models/thing.py"):
+    path = hrepo.path / rel
+    path.write_text(path.read_text() + "\n# changed\n")
+
+
 def test_pylint_messages_fail_layer_one_with_fix(hrepo):
-    out = "addons/demo_mod/models/thing.py:9: [W8116(print-used)] Print used.\n"
+    touch(hrepo)
+    out = "extra-addons/client/demo_mod/models/thing.py:9: [W8116(print-used)] Print used.\n"
     result = hrepo.verify(fake_pylint_out=out)
     assert result.returncode == 1
-    assert "✗ [L1 lint] addons/demo_mod/models/thing.py:9: print-used" in result.stderr
+    assert "✗ [L1 lint] extra-addons/client/demo_mod/models/thing.py:9: print-used" in result.stderr
     assert "_logger" in result.stderr
 
 
-def test_zero_tests_is_a_failure(hrepo):
-    log = "x odoo.tests.result: 0 failed, 0 error(s) of 0 tests when loading database 'd'\n"
-    result = hrepo.verify(fake_odoo_log=log)
+ZERO_TESTS = "x odoo.tests.result: 0 failed, 0 error(s) of 0 tests when loading database 'd'\n"
+
+
+def test_zero_tests_is_a_failure_for_a_feature(hrepo):
+    result = hrepo.verify("--tags", "/demo_mod:TestThing", fake_odoo_log=ZERO_TESTS)
     assert result.returncode == 1
     assert "no Odoo test ran" in result.stderr
+
+
+def test_baseline_of_modules_without_tests_passes(hrepo):
+    """Legacy projects often have no tests: the baseline installs and updates every module."""
+    result = hrepo.verify(fake_odoo_log=ZERO_TESTS)
+    assert result.returncode == 0, result.stderr
+    assert "no Odoo test exists yet" in result.stdout
+
+
+def test_static_checks_only_cover_changed_modules(hrepo):
+    """Debt in modules this branch does not touch does not block; --all reports it."""
+    legacy = hrepo.path / "extra-addons/client/legacy_mod"
+    legacy.mkdir()
+    (legacy / "__manifest__.py").write_text("{'name': 'legacy', 'version': '1.0', 'depends': []}")
+    (legacy / "__init__.py").write_text("import pdb\n")
+    hrepo.commit("legacy module")
+    result = hrepo.verify("--only", "1")
+    assert result.returncode == 0, result.stderr
+    assert "no custom module changed" in result.stdout
+    debt = hrepo.run(sys.executable, "harness/static_checks.py", "--all")
+    assert debt.returncode == 1 and "legacy_mod/__init__.py:1" in debt.stderr
+    touch(hrepo, "extra-addons/client/legacy_mod/__init__.py")
+    result = hrepo.verify("--only", "1")
+    assert result.returncode == 1 and "no-debug-leftovers" in result.stderr
+
+
+def test_feature_tests_modules_that_depend_on_the_change(hrepo):
+    other = hrepo.path / OTHER
+    other.mkdir()
+    (other / "__manifest__.py").write_text("{'name': 'o', 'depends': ['demo_mod']}")
+    hrepo.commit("other module")
+    add_feature(hrepo)
+    hrepo.feature("start", "F-001")
+    touch(hrepo)
+    result = hrepo.feature("verify", "F-001")
+    assert result.returncode == 0, result.stderr
+    odoo = [c for c in hrepo.calls() if "--test-tags" in c][0]
+    assert odoo[odoo.index("-u") + 1] == "demo_mod,other_mod"
+    assert odoo[odoo.index("--test-tags") + 1] == "/demo_mod:TestThing,/demo_mod,/other_mod"
+    assert "modules depending on the change are tested too: other_mod" in result.stdout
 
 
 def test_unknown_error_asks_to_extend_the_catalog(hrepo):
@@ -126,8 +185,8 @@ def test_feature_runs_only_its_e2e_when_single_module(hrepo):
     add_feature(hrepo)
     hrepo.commit("add feature")
     hrepo.feature("start", "F-001")
-    (hrepo.path / "addons/demo_mod/models/thing.py").write_text(
-        (hrepo.path / "addons/demo_mod/models/thing.py").read_text() + "\n")
+    (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text(
+        (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() + "\n")
     assert hrepo.feature("verify", "F-001").returncode == 0
     e2e_call = [c for c in hrepo.calls() if "pytest" in c][0]
     assert e2e_call[e2e_call.index("pytest") + 1] == "e2e/test_F001_thing.py"
@@ -137,9 +196,9 @@ def test_cross_module_feature_runs_full_e2e(hrepo):
     add_feature(hrepo)
     hrepo.commit("add feature")
     hrepo.feature("start", "F-001")
-    other = hrepo.path / "addons/other_mod"
-    shutil.copytree(hrepo.path / "addons/demo_mod", other)
-    thing = hrepo.path / "addons/demo_mod/models/thing.py"
+    other = hrepo.path / "extra-addons/client/other_mod"
+    shutil.copytree(hrepo.path / "extra-addons/client/demo_mod", other)
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     thing.write_text(thing.read_text() + "\n")
     result = hrepo.feature("verify", "F-001")
     assert result.returncode == 0, result.stderr
@@ -167,11 +226,11 @@ def test_verify_sh_wrapper(hrepo):
 
 @pytest.mark.skipif(shutil.which("pylint") is None, reason="pylint-odoo not installed")
 def test_pylintrc_is_valid_and_finds_odoo_issues(hrepo):
-    thing = hrepo.path / "addons/demo_mod/models/thing.py"
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     thing.write_text(thing.read_text() + "\n    def act(self):\n        print('x')\n")
     result = subprocess.run(
         ["pylint", "--rcfile=.pylintrc", verify.PYLINT_DISABLE,
-         f"--msg-template={verify.PYLINT_TEMPLATE}", "addons/demo_mod"],
+         f"--msg-template={verify.PYLINT_TEMPLATE}", "extra-addons/client/demo_mod"],
         cwd=hrepo.path, capture_output=True, text=True)
     messages = [m.group("symbol") for m in map(verify.PYLINT_RE.match, result.stdout.splitlines())
                 if m]
@@ -182,7 +241,7 @@ def test_pylintrc_is_valid_and_finds_odoo_issues(hrepo):
 ODOO20_FAILED_LOG = """\
 2026-10-27 11:10:24,300 1 ERROR harness_test odoo.addons.demo_mod.tests.test_thing: FAIL: TestThing.test_create
 Traceback (most recent call last):
-  File "/mnt/extra-addons/demo_mod/tests/test_thing.py", line 7, in test_create
+  File "/mnt/extra-extra-addons/client/demo_mod/tests/test_thing.py", line 7, in test_create
     self.assertEqual(thing.name, "x")
 AssertionError: 'X' != 'x'
 2026-10-27 11:10:24,406 1 ERROR harness_test odoo.tests.result: 1 failed, 0 error(s) of 1 tests when loading database 'harness_test'
@@ -210,7 +269,7 @@ def test_cross_component_names_shared_files(hrepo):
 ODOO17_FAILED_LOG = """\
 2026-10-27 11:28:16,223 1 ERROR harness_test odoo.addons.demo_mod.tests.test_thing: FAIL: TestThing.test_create
 Traceback (most recent call last):
-  File "/mnt/extra-addons/demo_mod/tests/test_thing.py", line 7, in test_create
+  File "/mnt/extra-extra-addons/client/demo_mod/tests/test_thing.py", line 7, in test_create
     self.assertEqual(thing.name, "x")
 AssertionError: 'X' != 'x'
 2026-10-27 11:28:16,248 1 ERROR harness_test odoo.modules.loading: Module demo_mod: 1 failures, 0 errors of 1 tests

@@ -6,7 +6,7 @@ FAILED_LOG = """\
 2026-10-27 10:00:00,100 42 INFO harness_test odoo.modules.loading: loading demo_mod
 2026-10-27 10:00:01,000 42 ERROR harness_test odoo.addons.demo_mod.tests.test_thing: FAIL: TestThing.test_create
 Traceback (most recent call last):
-  File "/mnt/extra-addons/demo_mod/tests/test_thing.py", line 7, in test_create
+  File "/mnt/extra-extra-addons/client/demo_mod/tests/test_thing.py", line 7, in test_create
     self.assertEqual(thing.name, "x")
 AssertionError: 'y' != 'x'
 2026-10-27 10:00:01,100 42 INFO harness_test odoo.tests.result: 1 failed, 0 error(s) of 3 tests when loading database 'harness_test'
@@ -71,6 +71,8 @@ def test_verify_refuses_feature_not_in_progress(hrepo):
 def test_verify_success_sets_passing_with_evidence(hrepo):
     add_feature(hrepo)
     hrepo.feature("start", "F-001")
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
+    thing.write_text(thing.read_text() + "\n# the feature's change\n")
     result = hrepo.feature("verify", "F-001")
     assert result.returncode == 0, result.stdout + result.stderr
     feat = hrepo.features()[0]

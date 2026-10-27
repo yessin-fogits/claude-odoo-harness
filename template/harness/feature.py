@@ -2,14 +2,20 @@
 """Feature workflow. The only way to change feature_list.json.
 
   feature.py status                         list features and what to do next
-  feature.py add --behavior TEXT --verify "e2e: e2e/test_F001_x.py" [--verify ...] [--id F-001]
-  feature.py start ID [--reopen]            begin work (refused if another is in_progress)
+  feature.py add --behavior TEXT --verify "e2e: e2e/test_F001_x.py" [--verify ...]
+                 [--task T2003] [--id F-001]
+  feature.py start ID [--reopen] [--no-branch]
+                                            begin work (refused if another is in_progress);
+                                            a feature of an Odoo task is worked on the task's
+                                            branch (T2003), created from BASE_BRANCH
   feature.py block ID --reason TEXT         park a feature, the reason goes to PROGRESS.md
   feature.py verify ID                      run the 3 layers; on success -> passing + evidence
   feature.py check                          integrity check (pre-commit, CI)
 
 States: not_started -> in_progress -> passing, or blocked. WIP = 1.
 Only `verify` can set passing; it records evidence in harness/evidence/<ID>.json.
+When every feature of a task passes and is committed, `harness/gitlab.py mr <task>`
+pushes the task branch and opens its merge request.
 """
 
 import argparse
@@ -31,7 +37,8 @@ def today():
 
 
 def task_line(feat, done=False, suffix=""):
-    return f"- [{'x' if done else ' '}] {feat['id']} {feat['behavior']}{suffix}"
+    task = f"[{feat['task']}] " if feat.get("task") else ""
+    return f"- [{'x' if done else ' '}] {feat['id']} {task}{feat['behavior']}{suffix}"
 
 
 def in_progress(data):
@@ -47,7 +54,9 @@ def cmd_status(_args):
         return 0
     marks = {"not_started": " ", "in_progress": ">", "blocked": "!", "passing": "✓"}
     for feat in data["features"]:
-        print(f"[{marks[feat['state']]}] {feat['id']}  {feat['state']:<11}  {feat['behavior']}")
+        task = f"[{feat['task']}] " if feat.get("task") else ""
+        print(f"[{marks[feat['state']]}] {feat['id']}  {feat['state']:<11}  {task}"
+              f"{feat['behavior']}")
     current = in_progress(data)
     if current:
         feat = current[0]
@@ -77,13 +86,15 @@ def cmd_add(args):
                      "Omit --id to get the next free id.")
     feat = {"id": fid, "behavior": args.behavior.strip(), "verification": args.verify,
             "state": "not_started", "evidence": None}
+    if args.task:
+        feat["task"] = args.task.strip()
     problems = hlib.validate({"version": 1, "features": [feat]})
     if problems:
         raise RedPen("features", f"cannot add {fid}: " + "; ".join(problems),
                      "A feature needs one observable behavior and the tests that prove it, "
                      "including its own e2e test.",
-                     "Example: --behavior 'Salesperson applies a discount on a quotation line' "
-                     "--verify 'unit: /sale_discount:TestDiscount' "
+                     "Example: --task T2003 --behavior 'Salesperson applies a discount on a "
+                     "quotation line' --verify 'unit: /sale_discount:TestDiscount' "
                      f"--verify 'e2e: e2e/test_{fid.replace('-', '')}_discount.py'")
     data["features"].append(feat)
     hlib.save_features(data)
@@ -107,6 +118,8 @@ def cmd_start(args):
         raise RedPen("features", f"{feat['id']} is already passing",
                      "A passing feature is reopened only when it regressed.",
                      f"If it regressed: harness/feature.py start {feat['id']} --reopen")
+    if feat.get("task") and not args.no_branch:
+        switch_to_task_branch(feat["task"])
     feat["state"], feat["evidence"] = "in_progress", None
     hlib.save_features(data)
     state = hlib.load_state()
@@ -118,6 +131,39 @@ def cmd_start(args):
     for entry in feat["verification"]:
         print(f"  - {entry}")
     return 0
+
+
+def has_harness(ref):
+    return subprocess.run(["git", "cat-file", "-e", f"{ref}:harness/feature.py"],
+                          cwd=hlib.REPO_ROOT, capture_output=True).returncode == 0
+
+
+def switch_to_task_branch(task):
+    """Check out the task's branch, creating it from the base branch the first time."""
+    branch = hlib.current_branch()
+    if branch == task or not hlib.head_commit():
+        return
+    if hlib.working_tree_dirty():
+        raise RedPen("git", f"cannot switch to the branch of {task}: uncommitted changes on "
+                     f"'{branch or 'HEAD'}'",
+                     "Each Odoo task is worked on its own branch; switching now would carry "
+                     "unrelated changes into it.",
+                     "Commit the finished work (or stash it), then start the feature again.")
+    env = hlib.load_env()
+    base = env.get("BASE_BRANCH", "")
+    if hlib.git("rev-parse", "--verify", "-q", f"refs/heads/{task}"):
+        args = ["checkout", "-q", task]
+    else:
+        # Start from the base branch, but only from a commit that has the harness: until the
+        # harness install is merged upstream, the local base branch is the one that has it.
+        refs = [base, f"origin/{base}"] if base else []
+        start = next((r for r in refs if has_harness(r)), "HEAD")
+        args = ["checkout", "-q", "-b", task, start]
+    out = subprocess.run(["git", *args], cwd=hlib.REPO_ROOT, capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RedPen("git", f"git {' '.join(args)} failed", out.stderr.strip()[:300],
+                     "Fix the git state (see the message), then start the feature again.")
+    print(f"✓ on branch {task}" + (f" (new, from {args[-1]})" if "-b" in args else ""))
 
 
 def cmd_block(args):
@@ -184,7 +230,16 @@ def cmd_verify(args):
                            "Completed tasks")
     print(f"\n✓ {feat['id']} passing. Evidence: {feat['evidence']['file']}")
     print("Before moving on: update PROGRESS.md (Known issues, Next steps), append decisions "
-          "to DECISIONS.md, commit.")
+          f"to DECISIONS.md, commit with the message: {hlib.commit_message(feat)}")
+    if feat.get("task"):
+        left = [f["id"] for f in hlib.task_features(data, feat["task"])
+                if f["state"] != "passing"]
+        if left:
+            print(f"Task {feat['task']}: {', '.join(left)} still to do.")
+        else:
+            print(f"Task {feat['task']}: every feature passes. After the commit: "
+                  f"harness/gitlab.py mr {feat['task']} (pushes the branch, opens the merge "
+                  "request).")
     return 0
 
 
@@ -228,10 +283,13 @@ def parse_args(argv):
     add.add_argument("--verify", action="append", required=True,
                      help="'unit: <test-tags>', 'integration: <test-tags>' or 'e2e: <file>'")
     add.add_argument("--id")
+    add.add_argument("--task", help="code of the Odoo task this feature belongs to (T2003)")
     add.set_defaults(fn=cmd_add)
     start = sub.add_parser("start")
     start.add_argument("id")
     start.add_argument("--reopen", action="store_true", help="reopen a passing feature")
+    start.add_argument("--no-branch", action="store_true",
+                       help="stay on the current branch even if the feature has a task")
     start.set_defaults(fn=cmd_start)
     block = sub.add_parser("block")
     block.add_argument("id")

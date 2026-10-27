@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Three-layer completion validation. Run it through harness/verify.sh.
 
-  L1 static   static_checks.py + pylint-odoo (lint container)
-  L2 runtime  Odoo unit/integration tests on the test DB (odoo -u ... --test-tags)
+  L1 static   static_checks.py + pylint-odoo (lint container, the project's rcfile)
+              on the custom modules changed on this branch
+  L2 runtime  Odoo tests on the test DB: the changed modules and every custom module
+              that depends on them (odoo -u ... --test-tags); the baseline (no
+              feature) updates and tests every custom module
   L3 system   Playwright e2e against the restarted server, clean server log,
-              optional install on a fresh DB
+              optional install of the changed modules on a fresh DB
 
 Layers run in order and stop at the first failure. Without --e2e the whole e2e
 suite runs. With --feature, the whole suite also runs when the feature's changes
 touch more than one module or shared files (cross-component change).
+Pre-existing problems of modules this branch does not touch do not block: they are
+reported by `harness/static_checks.py --all` (debt), and fixed when a feature touches them.
 """
 
 import argparse
@@ -28,6 +33,8 @@ import static_checks  # noqa: E402
 PYLINT_TEMPLATE = "{path}:{line}: [{msg_id}({symbol})] {msg}"
 # OCA-only rules, not relevant for client projects (cannot be disabled in .pylintrc).
 PYLINT_DISABLE = "--disable=manifest-required-author,missing-readme"
+# The project's mandatory lint config first (OCA template), then the optional one.
+PYLINT_RCFILES = (".pylintrc-mandatory", ".pylintrc")
 PYLINT_RE = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+): \[(?P<id>\w+)\((?P<symbol>[\w-]+)\)\] "
                        r"(?P<msg>.*)$")
 ODOO_LOG_RE = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ \d+ (?P<level>[A-Z]+) ")
@@ -39,6 +46,7 @@ ODOO_SUMMARY_RE = re.compile(r"odoo\.tests\.result: |Module \w+: \d+ failures?, 
 PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|failed|errors?)\b")
 PYTEST_FAILED_RE = re.compile(r"^(FAILED|ERROR) (\S+)(?: - (.*))?$", re.M)
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
+TAG_MODULE_RE = re.compile(r"(?:^|[,\s])[-+]?/(\w+)")
 EXCERPT_LINES = 15
 
 
@@ -50,7 +58,9 @@ class LayerFailed(Exception):
 
 def compose_cmd():
     base = shlex.split(os.environ.get("HARNESS_COMPOSE", "docker compose"))
-    return base + ["--project-directory", str(hlib.REPO_ROOT), "--env-file", str(hlib.HARNESS_ENV)]
+    return base + ["--project-directory", str(hlib.REPO_ROOT),
+                   "-f", str(hlib.HARNESS_DIR / "docker-compose.yml"),
+                   "--env-file", str(hlib.HARNESS_ENV)]
 
 
 def run_logged(args, log_path):
@@ -95,16 +105,26 @@ def redpen_from_text(layer, what, text, log_path):
 
 # --- L1 static --------------------------------------------------------------
 
-def layer_static(env, run_dir):
-    findings = static_checks.run(env)
+def lint_rcfile():
+    return next((f for f in PYLINT_RCFILES if (hlib.REPO_ROOT / f).is_file()), None)
+
+
+def layer_static(env, names, run_dir):
+    modules = static_checks.module_dirs(env, names)
+    if not modules:
+        ok("L1 static: no custom module changed on this branch, nothing to check")
+        return {"status": "pass", "modules": [], "static_findings": 0, "lint_messages": 0}
+    findings = static_checks.run(env, modules=names)
     for finding in findings:
         print(finding.redpen(), file=sys.stderr)
-    modules = static_checks.module_dirs(env)
     lint_messages = []
+    rcfile = lint_rcfile()
     if modules:
         log = run_dir / "pylint.log"
-        rc, out = run_logged(["run", "--rm", "-T", "lint", "pylint", "--rcfile=.pylintrc",
-                              PYLINT_DISABLE, f"--msg-template={PYLINT_TEMPLATE}",
+        rc, out = run_logged(["run", "--rm", "-T", "lint", "pylint",
+                              *([f"--rcfile={rcfile}"] if rcfile else []), PYLINT_DISABLE,
+                              f"--valid-odoo-versions={env.get('ODOO_VERSION', '')}",
+                              f"--msg-template={PYLINT_TEMPLATE}",
                               *[rel(m) for m in modules]], log)
         lint_messages = [m.groupdict() for m in map(PYLINT_RE.match, out.splitlines()) if m]
         for msg in lint_messages:
@@ -118,6 +138,7 @@ def layer_static(env, run_dir):
                               "If the error is in .pylintrc, fix the config.")
             lint_messages.append({"symbol": "lint-tool-error"})
     result = {"status": "pass" if not findings and not lint_messages else "fail",
+              "modules": [m.name for m in modules], "rcfile": rcfile,
               "static_findings": len(findings), "lint_messages": len(lint_messages)}
     if result["status"] == "fail":
         raise LayerFailed(result)
@@ -160,12 +181,13 @@ def parse_odoo_tests(log_text):
     return tuple(totals)
 
 
-def layer_runtime(env, tags, run_dir):
-    modules = hlib.modules_in_scope(env)
+def layer_runtime(env, tags, modules, run_dir):
+    """Update `modules` and run the feature's tags plus every test of those modules."""
+    modules = sorted(set(modules) | {m for tag in tags for m in TAG_MODULE_RE.findall(tag)})
     if not modules:
-        ok("L2 runtime: no modules in scope (MODULES is empty), skipped")
+        ok("L2 runtime: no custom module yet, skipped")
         return {"status": "skipped"}
-    spec = ",".join(tags) if tags else ",".join(f"/{m}" for m in modules)
+    spec = ",".join(dict.fromkeys([*tags, *(f"/{m}" for m in modules)]))
     log = run_dir / "odoo-tests.log"
     step(f"L2 runtime: odoo -u {','.join(modules)} --test-tags {spec}")
     rc, out = run_logged(["run", "--rm", "-T", "odoo", "odoo", "-d", env["TEST_DB"],
@@ -183,6 +205,9 @@ def layer_runtime(env, tags, run_dir):
             redpen_from_text("L2 runtime", f"Odoo tests failed ({failed} failed, {errs} errors "
                              f"of {tests})", block, log)
         raise LayerFailed(result)
+    if tests == 0 and not tags:
+        ok(f"L2 runtime: {len(modules)} module(s) updated, no Odoo test exists yet in them")
+        return result
     if tests == 0:
         result["status"] = "fail"
         hlib.print_redpen("L2 runtime", f"no Odoo test ran for --test-tags {spec}",
@@ -207,24 +232,14 @@ def parse_pytest(out):
     return counts
 
 
-def changed_files(start_commit):
-    names = set()
-    if start_commit:
-        names |= set(hlib.git("diff", "--name-only", start_commit).splitlines())
-    for args in (("diff", "--name-only"), ("diff", "--name-only", "--cached"),
-                 ("ls-files", "--others", "--exclude-standard")):
-        names |= set(hlib.git(*args).splitlines())
-    return {n for n in names if n}
-
-
 def cross_component(env, files):
-    """(is_cross_component, touched_modules) for a set of changed paths."""
-    addons = Path(env.get("ADDONS_DIR", "addons")).parts
+    """(is_cross_component, touched_modules, shared_files) for a set of changed paths."""
     modules, shared = set(), []
     for name in files:
         parts = Path(name).parts
-        if parts[:len(addons)] == addons and len(parts) > len(addons) + 1:
-            modules.add(parts[len(addons)])
+        module = hlib.module_of(env, name)
+        if module:
+            modules.add(module)
         elif Path(name).suffix in DOC_SUFFIXES or name == "feature_list.json":
             continue
         elif parts[0] in (".harness",) or name.startswith("harness/evidence/"):
@@ -244,9 +259,9 @@ def server_log_errors(since, run_dir):
     return lines, log
 
 
-def fresh_install(env, run_dir):
+def fresh_install(env, names, run_dir):
     db = env["TEST_DB"] + "_fresh"
-    modules = ",".join(hlib.modules_in_scope(env))
+    modules = ",".join(names) or "base"
     drop = ["exec", "-T", "db", "psql", "-U", "odoo", "-d", "postgres", "-c",
             f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)']
     run_logged(drop, run_dir / "fresh-drop.log")
@@ -263,7 +278,7 @@ def fresh_install(env, run_dir):
     return True
 
 
-def layer_system(env, e2e_files, full, fresh, run_dir):
+def layer_system(env, e2e_files, full, fresh, modules, run_dir):
     targets = ["e2e"] if full else e2e_files
     missing = [f for f in targets if not (hlib.REPO_ROOT / f).exists()]
     result = {"status": "fail", "e2e_targets": targets, "full_suite": full}
@@ -308,7 +323,7 @@ def layer_system(env, e2e_files, full, fresh, run_dir):
                          "\n".join(log_errors), server_log)
         raise LayerFailed(result)
     if fresh:
-        result["fresh_install"] = fresh_install(env, run_dir)
+        result["fresh_install"] = fresh_install(env, modules, run_dir)
         if not result["fresh_install"]:
             raise LayerFailed(result)
     result["status"] = "pass"
@@ -344,9 +359,19 @@ def main(argv=None):
               "run_dir": rel(run_dir), "layers": {}, "result": "fail"}
 
     full = args.full_e2e or not args.e2e
+    start = hlib.load_state().get(args.feature, {}).get("start_commit") if args.feature else None
+    changed = hlib.changed_modules(env)
+    if start:
+        changed = sorted(set(changed) | set(hlib.changed_modules(env, start)))
+    if args.feature:
+        scope = sorted(set(changed) | set(hlib.dependents(env, changed)))
+    else:
+        scope = sorted(hlib.custom_modules(env))
+    report["changed_modules"] = changed
+    report["tested_modules"] = scope
     if args.feature and not full:
-        start = hlib.load_state().get(args.feature, {}).get("start_commit")
-        is_cross, touched, shared = cross_component(env, changed_files(start))
+        is_cross, touched, shared = cross_component(
+            env, hlib.changed_files(start or hlib.base_ref(env)))
         report["touched_modules"] = touched
         report["shared_files"] = shared
         if is_cross:
@@ -354,11 +379,14 @@ def main(argv=None):
             reason = (f"modules {', '.join(touched)}" if len(touched) > 1
                       else f"shared files {', '.join(shared[:5])}")
             step(f"cross-component change ({reason}): full e2e suite required")
+    if args.feature and scope != changed:
+        step(f"modules depending on the change are tested too: "
+             f"{', '.join(sorted(set(scope) - set(changed)))}")
 
-    layers = [(1, "static", lambda: layer_static(env, run_dir)),
-              (2, "runtime", lambda: layer_runtime(env, args.tags, run_dir)),
+    layers = [(1, "static", lambda: layer_static(env, changed, run_dir)),
+              (2, "runtime", lambda: layer_runtime(env, args.tags, scope, run_dir)),
               (3, "system", lambda: layer_system(env, args.e2e, full, args.fresh_install,
-                                                 run_dir))]
+                                                 scope, run_dir))]
     try:
         for number, name, fn in layers:
             if args.only and args.only != number:

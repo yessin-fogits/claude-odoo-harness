@@ -1,4 +1,7 @@
-# Odoo harness runtime. Use through harness/init.sh, which passes harness/harness.env.
+# Odoo harness test runtime: its own compose project, Postgres and port, so it never touches
+# the project's dev or deployment stacks. Use it through harness/init.sh and harness/verify.sh
+# (docker compose --project-directory <repo> -f harness/docker-compose.yml
+#  --env-file harness/harness.env). Paths are relative to the repository root.
 services:
   db:
     image: ${POSTGRES_IMAGE:-postgres:16}
@@ -15,7 +18,9 @@ services:
       retries: 20
 
   odoo:
+    # Built from the project's Dockerfile by harness/init.sh when ODOO_DOCKERFILE is set.
     image: ${ODOO_IMAGE:-odoo:17.0}
+    pull_policy: missing
     depends_on:
       db:
         condition: service_healthy
@@ -23,11 +28,13 @@ services:
       HOST: db
       USER: odoo
       PASSWORD: odoo
+      ODOO_RC: /etc/odoo/odoo.conf
     ports:
       - "127.0.0.1:${ODOO_PORT:-8069}:8069"
     volumes:
-      - ./${ADDONS_DIR:-addons}:/mnt/extra-addons
-      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./:/mnt/repo:ro
+      - ${ENTERPRISE_DIR:-./harness}:/mnt/enterprise:ro
+      - ./harness/odoo.conf:/etc/odoo/odoo.conf:ro
       - odoo-data:/var/lib/odoo
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]

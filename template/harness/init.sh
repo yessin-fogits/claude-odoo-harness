@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Initialization step 1: executable environment.
-# Brings the stack up, prepares the disposable test DB, installs the modules in
-# scope and runs the baseline verification. Safe to run again at any time.
+# Builds the test image (the project's Dockerfile), brings the harness stack up,
+# prepares the disposable test DB with demo data, installs every custom module of
+# the project and runs the baseline verification. Safe to run again at any time.
 #
 #   harness/init.sh            full initialization
 #   harness/init.sh --check    quick health check (no install, no tests)
@@ -36,6 +37,30 @@ require_docker() {
     fi
 }
 
+require_enterprise() {
+    [ -z "${ENTERPRISE_DIR:-}" ] && return 0
+    if [ ! -d "$REPO_ROOT/$ENTERPRISE_DIR" ] || [ -z "$(ls -A "$REPO_ROOT/$ENTERPRISE_DIR" 2>/dev/null)" ]; then
+        redpen env "Odoo Enterprise not found in $ENTERPRISE_DIR" \
+            "The project uses Enterprise modules (ENTERPRISE_DIR in harness/harness.env); without them the custom modules cannot install." \
+            "Clone odoo/enterprise branch $ODOO_VERSION into $ENTERPRISE_DIR (next to the repository, as the dev stack does), or empty ENTERPRISE_DIR if the project does not use Enterprise."
+        exit 1
+    fi
+}
+
+build_image() {
+    [ -z "${ODOO_DOCKERFILE:-}" ] && return 0
+    local log="$LOG_DIR/build.log"
+    step "building $ODOO_IMAGE from $ODOO_DOCKERFILE (log: ${log#"$REPO_ROOT"/})"
+    if ! docker build -f "$REPO_ROOT/$ODOO_DOCKERFILE" -t "$ODOO_IMAGE" "$REPO_ROOT" >"$log" 2>&1; then
+        tail -20 "$log" >&2
+        redpen env "the project image does not build from $ODOO_DOCKERFILE" \
+            "The harness tests with the project's own image, so the Python dependencies match production." \
+            "If the base image is in a private registry, run docker login <registry> first. Otherwise fix the Dockerfile (a human change), or set ODOO_DOCKERFILE= and ODOO_IMAGE=odoo:$ODOO_VERSION in harness/harness.env."
+        exit 1
+    fi
+    ok "image $ODOO_IMAGE built"
+}
+
 check() {
     local failed=0 running svc
     running="$(dc ps --status running --services 2>/dev/null)"
@@ -55,7 +80,7 @@ check() {
         else
             redpen env "test DB '$TEST_DB' does not exist" \
                 "The disposable test database was never created or was dropped." \
-                "Run harness/init.sh to create it and install the modules in scope."
+                "Run harness/init.sh to create it and install the custom modules."
             failed=1
         fi
     fi
@@ -89,7 +114,7 @@ install_modules() {
     if [ "$rc" -ne 0 ] || grep -qE ' (ERROR|CRITICAL) |^Traceback' "$log"; then
         grep -nE ' (ERROR|CRITICAL) |^Traceback' -A 12 "$log" | head -40 >&2
         redpen env "module install/update failed on '$TEST_DB'" \
-            "Odoo logged errors while loading the modules in scope (excerpt above, full log in ${log#"$REPO_ROOT"/})." \
+            "Odoo logged errors while loading the custom modules (excerpt above, full log in ${log#"$REPO_ROOT"/})." \
             "Fix the first error in the log (manifest, XML, Python import, missing dependency), then re-run harness/init.sh."
         return 1
     fi
@@ -129,6 +154,9 @@ if [ "$mode" = check ]; then
     check && ok "health check OK"
     exit $?
 fi
+
+require_enterprise
+build_image
 
 step "starting database"
 if ! dc up -d --wait db >/dev/null 2>&1; then

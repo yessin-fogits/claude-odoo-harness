@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """Layer 1 static checks that need no Odoo and no Docker (standard library only).
 
-    harness/static_checks.py              check all modules in scope
+    harness/static_checks.py              check the custom modules changed on this branch
+    harness/static_checks.py --all        check the whole project: every custom module and
+                                          the project files (debt report, used by discovery)
     harness/static_checks.py FILE...      check only these files (used after each edit)
 
 Checks: Python compiles, XML is well formed, manifests are consistent, security CSV
-headers, and the project checks in harness/checks/ (born from code reviews).
+headers, and the project checks in harness/checks/ (born from code reviews). With
+--all, also the project files outside the modules (configs, scripts, compose files:
+hard-coded secrets) and the lint configuration (Odoo version it validates).
 """
 
 import ast
 import csv
 import importlib.util
+import re
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -48,13 +54,51 @@ def rel(path):
         return str(path)
 
 
-def module_dirs(env):
-    root = hlib.addons_dir(env)
-    wanted = hlib.modules_in_scope(env)
-    if not root.is_dir():
+PROJECT_FILE_RE = re.compile(r"(\.(py|conf|cfg|ini|ya?ml|sh|env|json|toml)|Dockerfile[^/]*|"
+                             r"Jenkinsfile[^/]*)$")
+LINT_CONFIGS = (".pylintrc-mandatory", ".pylintrc")
+
+
+def module_dirs(env, names=None):
+    """Custom module dirs: all of them, or only `names` (unknown names are ignored)."""
+    found = hlib.custom_modules(env)
+    if names is None:
+        return [found[m] for m in sorted(found)]
+    return [found[m] for m in sorted(set(names)) if m in found]
+
+
+def project_files(env):
+    """Tracked files outside the addon folders that may hold configuration or secrets."""
+    try:
+        out = subprocess.run(["git", "ls-files"], cwd=hlib.REPO_ROOT, capture_output=True,
+                             text=True, check=True).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
         return []
-    found = sorted(p.parent for p in root.glob("*/__manifest__.py"))
-    return [d for d in found if not wanted or d.name in wanted]
+    addon_roots = [p + "/" for p in hlib.env_list(env, "CUSTOM_ADDONS")
+                   + hlib.env_list(env, "THIRD_PARTY_ADDONS")]
+    return [hlib.REPO_ROOT / f for f in out
+            if PROJECT_FILE_RE.search(f) and not f.startswith(("harness/", "e2e/", ".claude/"))
+            and not any(f.startswith(r) for r in addon_roots)
+            and (hlib.REPO_ROOT / f).is_file()]
+
+
+def check_lint_config(env):
+    version = env.get("ODOO_VERSION", "")
+    out = []
+    for name in LINT_CONFIGS:
+        path = hlib.REPO_ROOT / name
+        if not path.is_file():
+            continue
+        match = re.search(r"^\s*valid[-_]odoo[-_]versions\s*=\s*(.+)$", path.read_text(), re.M)
+        if match and version not in [v.strip() for v in match.group(1).split(",")]:
+            out.append(Finding(name, 1, f"lint config validates Odoo {match.group(1).strip()}, "
+                               f"the project runs Odoo {version}",
+                               "pylint-odoo then flags every manifest version of the project, so "
+                               "the lint is ignored or fails for the wrong reason (the harness "
+                               "passes --valid-odoo-versions itself).",
+                               f"Set valid-odoo-versions={version} in {name} (a human change "
+                               "shared with CI and pre-commit)."))
+    return out
 
 
 def check_python(path):
@@ -197,24 +241,33 @@ def module_files(module_dir):
                   if p.is_file() and "__pycache__" not in p.parts)
 
 
-def run(env, files=None):
-    """Run every layer 1 static check. files=None means all modules in scope."""
+def run(env, files=None, modules=None, whole_project=False):
+    """Run the layer 1 static checks on files, or on the files of `modules` (names; None
+    means every custom module). whole_project adds the project files and lint config."""
     version = env.get("ODOO_VERSION", "")
     findings = []
     if files is None:
         files = []
-        for mdir in module_dirs(env):
+        for mdir in module_dirs(env, modules):
             files += module_files(mdir)
     for path in files:
         findings += check_file(path, version)
-    findings += run_project_checks([Path(f) for f in files])
+    extra = project_files(env) if whole_project else []
+    findings += run_project_checks([Path(f) for f in files + extra])
+    if whole_project:
+        findings += check_lint_config(env)
     return findings
 
 
 def main(argv):
     env = hlib.load_env()
-    files = [Path(a) for a in argv if Path(a).is_file()] if argv else None
-    findings = run(env, files)
+    if argv == ["--all"]:
+        findings = run(env, whole_project=True)
+    elif argv:
+        findings = run(env, [Path(a) for a in argv if Path(a).is_file()])
+    else:
+        changed = hlib.changed_modules(env)
+        findings = run(env, modules=changed)
     for finding in findings:
         print(finding.redpen(), file=sys.stderr)
     if not findings:

@@ -25,10 +25,8 @@ def main():
     if not path:
         sys.exit(0)
     path = Path(path) if Path(path).is_absolute() else root / path
-    addons = (root / c.load_env(root).get("ADDONS_DIR", "addons")).resolve()
-    try:
-        path.resolve().relative_to(addons)
-    except ValueError:
+    roots = [(root / r).resolve() for r in c.custom_roots(c.load_env(root))]
+    if not any(path.resolve().is_relative_to(r) for r in roots):
         sys.exit(0)
     if path.suffix not in CHECKED_SUFFIXES or not path.is_file():
         sys.exit(0)

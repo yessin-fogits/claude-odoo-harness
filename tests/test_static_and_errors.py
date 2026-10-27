@@ -26,7 +26,7 @@ def test_fixture_module_is_clean(hrepo):
 
 
 def test_manifest_version_and_missing_data_file(hrepo):
-    write(hrepo, "addons/demo_mod/__manifest__.py",
+    write(hrepo, "extra-addons/client/demo_mod/__manifest__.py",
           '{"name": "D", "version": "16.0.1.0.0", "license": "LGPL-3", "depends": ["base"],'
           ' "data": ["views/missing.xml"]}')
     result = run_static(hrepo)
@@ -36,7 +36,7 @@ def test_manifest_version_and_missing_data_file(hrepo):
 
 
 def test_broken_xml_points_to_line(hrepo):
-    write(hrepo, "addons/demo_mod/views/thing_views.xml", "<odoo>\n<record>\n</odoo>\n")
+    write(hrepo, "extra-addons/client/demo_mod/views/thing_views.xml", "<odoo>\n<record>\n</odoo>\n")
     result = run_static(hrepo)
     assert "views/thing_views.xml:3: XML is not well formed" in result.stderr
 
@@ -45,12 +45,12 @@ ACCESS_CSV = "ir.access.csv" if IR_ACCESS else "ir.model.access.csv"
 
 
 def test_access_csv_header(hrepo):
-    write(hrepo, f"addons/demo_mod/security/{ACCESS_CSV}", "id,name,model\n")
+    write(hrepo, f"extra-addons/client/demo_mod/security/{ACCESS_CSV}", "id,name,model\n")
     assert f"wrong {ACCESS_CSV} header" in run_static(hrepo).stderr
 
 
 def test_access_csv_accepts_odoo_quoted_header(hrepo):
-    path = hrepo.path / f"addons/demo_mod/security/{ACCESS_CSV}"
+    path = hrepo.path / f"extra-addons/client/demo_mod/security/{ACCESS_CSV}"
     lines = path.read_text().splitlines()
     lines[0] = ",".join(f'"{c}"' for c in lines[0].split(","))
     path.write_text("\n".join(lines) + "\n")
@@ -63,18 +63,18 @@ def test_access_csv_accepts_odoo_quoted_header(hrepo):
 ])
 def test_security_csv_matches_version(hrepo, version, name, ok):
     for old in ("ir.model.access.csv", "ir.access.csv"):
-        (hrepo.path / f"addons/demo_mod/security/{old}").unlink(missing_ok=True)
+        (hrepo.path / f"extra-addons/client/demo_mod/security/{old}").unlink(missing_ok=True)
     content = ("id,name,model_id,group_id/id,operation,domain\n"
                "a,demo,demo.thing,base.group_user,crud,\n") if name == "ir.access.csv" else (
                "id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n"
                "a,demo,model_demo_thing,base.group_user,1,1,1,1\n")
-    path = write(hrepo, f"addons/demo_mod/security/{name}", content)
+    path = write(hrepo, f"extra-addons/client/demo_mod/security/{name}", content)
     result = hrepo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version=version)
     assert (result.returncode == 0) is ok, result.stderr
 
 
 def test_ir_access_operation_must_be_canonical(hrepo):
-    path = write(hrepo, "addons/demo_mod/security/ir.access.csv",
+    path = write(hrepo, "extra-addons/client/demo_mod/security/ir.access.csv",
                  "id,name,model_id,group_id/id,operation,domain\n"
                  "a,demo,demo.thing,base.group_user,ur,\n"
                  'b,demo,demo.thing,base.group_user,r,"[(\'user_id\', \'=\', user.id)]"\n')
@@ -84,22 +84,22 @@ def test_ir_access_operation_must_be_canonical(hrepo):
 
 
 def test_debug_leftovers_project_check(hrepo):
-    write(hrepo, "addons/demo_mod/models/thing.py", "import pdb\n")
-    write(hrepo, "addons/demo_mod/static/src/x.js", "  debugger;\n")
+    write(hrepo, "extra-addons/client/demo_mod/models/thing.py", "import pdb\n")
+    write(hrepo, "extra-addons/client/demo_mod/static/src/x.js", "  debugger;\n")
     result = run_static(hrepo)
     assert "[no-debug-leftovers] debug statement: import pdb" in result.stderr
     assert "x.js:1: [no-debug-leftovers]" in result.stderr
 
 
 def test_file_mode_checks_only_given_files(hrepo):
-    bad = write(hrepo, "addons/demo_mod/models/bad.py", "def x(:\n")
-    good = hrepo.path / "addons/demo_mod/models/thing.py"
+    bad = write(hrepo, "extra-addons/client/demo_mod/models/bad.py", "def x(:\n")
+    good = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     assert run_static(hrepo, str(good)).returncode == 0
     assert run_static(hrepo, str(bad)).returncode == 1
 
 
 def test_modules_outside_scope_are_ignored(hrepo):
-    write(hrepo, "addons/not_mine/__manifest__.py", "{broken")
+    write(hrepo, "vendor/not_mine/__manifest__.py", "{broken")
     assert run_static(hrepo).returncode == 0
 
 
