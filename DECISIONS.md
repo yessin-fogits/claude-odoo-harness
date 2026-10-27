@@ -26,3 +26,11 @@ Append-only. One line per decision: `- YYYY-MM-DD: decision (why)`.
 - 2026-10-27: Shared harness files stay identical on all branches by being version-aware (ODOO_VERSION): security CSV format (ir.access from 20.0), odoo-version-api rules with version ranges, model-access check. Only odoo_version.json and skills/odoo/ differ per branch (merge=ours in .gitattributes).
 - 2026-10-27: Every code example of a branch's skill must pass the harness odoo-version-api rules for that version (test), so the skill never teaches what the harness rejects.
 - 2026-10-27: The e2e login presses Enter in the password field instead of clicking the first submit button (Odoo 20.0's login page has several).
+- 2026-10-27: One marketplace on main, one plugin per Odoo version (odoo-harness-17 ... -20), each pinned to its branch with ref, so projects of different versions can use the harness on the same machine. plugin.json is per branch (entry name must equal manifest name).
+- 2026-10-27: Projects pin the marketplace to ref main (the repository default branch could not be changed from this environment).
+- 2026-10-27: init is a skill with disable-model-invocation (commands/ is the older plugin format); only the user starts initialization.
+- 2026-10-27: The review -> check loop is a skill (add-harness-check) plus a read-only odoo-reviewer agent that proposes checks for new kinds of mistakes.
+- 2026-10-27: CI runs the harness against real Odoo, PostgreSQL and Playwright in Docker on every version branch (tools/make_demo_project.py + odoo-e2e job), including an injected bug that must fail verification with a red-pen message and no unknown error.
+- 2026-10-27: Odoo listens on 0.0.0.0 inside the container (Odoo 20.0 defaults to 127.0.0.1); the host port is published on 127.0.0.1 only.
+- 2026-10-27: The e2e test DB persists between runs; e2e tests name what they create with the unique fixture.
+- 2026-10-27: Red pens always show a short excerpt of the failing record (the assertion message), and the Odoo test summary record is not reported as a separate error.

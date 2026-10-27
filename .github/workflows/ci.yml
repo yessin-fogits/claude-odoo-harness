@@ -83,11 +83,14 @@ jobs:
           )
           p.write_text(s)
           PY
-          if python3 harness/feature.py verify F-001 > verify.log 2>&1; then
-            cat verify.log; echo "verify passed although the code is broken"; exit 1
+          log="$RUNNER_TEMP/verify.log"
+          if python3 harness/feature.py verify F-001 > "$log" 2>&1; then
+            cat "$log"; echo "verify passed although the code is broken"; exit 1
           fi
-          cat verify.log
-          grep -q "WHY:" verify.log && grep -q "HOW TO FIX:" verify.log && grep -q "test_create" verify.log
+          cat "$log"
+          grep -q "WHY:" "$log" && grep -q "HOW TO FIX:" "$log" && grep -q "test_create" "$log"
+          grep -q "AssertionError" "$log"
+          if grep -q "No catalog entry" "$log"; then echo "a failure has no red-pen explanation"; exit 1; fi
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
       - name: Odoo server log
         if: failure()
@@ -99,3 +102,4 @@ jobs:
           name: harness-runs-${{ github.ref_name }}
           path: ${{ github.workspace }}/demo/.harness/
           if-no-files-found: ignore
+          include-hidden-files: true
