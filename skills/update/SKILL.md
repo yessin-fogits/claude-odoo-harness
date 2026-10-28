@@ -37,7 +37,9 @@ Show the user the report. What each action means:
   docker files, `harness/docker-compose.yml`, `harness/odoo.conf` rendered from
   `harness/harness.env`);
 - `merged`: the CLAUDE.md harness block, `.claude/settings.json`, `.gitignore` or new
-  settings appended to `harness/harness.env`;
+  settings appended to `harness/harness.env`. The `# This project` section below the block
+  is never changed; when CLAUDE.md had none, an empty one is added: fill its `TODO` lines as
+  the init skill describes ("Project description");
 - `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, feature_list.json,
   BOOTSTRAP.md, ARCHITECTURE.md) which updates never touch;
 - `kept*`: a project file (e2e/conftest.py, .pylintrc...) kept as is, although the template
