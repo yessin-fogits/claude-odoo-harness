@@ -83,6 +83,27 @@ jobs:
           python3 harness/feature.py check
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
           git add -A && git commit -q -m "[T0001] F-001 A user creates a demo thing and finds it in the list"
+      - name: User guide of the completed task T0001 (French PDF from the replayed e2e test)
+        run: |
+          python3 harness/guide.py capture T0001
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path(".harness/guide/T0001/content.json")
+          c = json.loads(p.read_text())
+          c["title"] = "T0001 : Demo Things"
+          c["summary"] = "La tâche ajoute le modèle **Demo Thing**."
+          for f in c["features"].values():
+              f["summary"] = "Créer une chose."
+              f["technical"] = "- Modèle `demo.thing`"
+              f["steps"] = {k: "Étape du parcours." for k in f["steps"]}
+          p.write_text(json.dumps(c, ensure_ascii=False))
+          PY
+          python3 -c "import json, sys; m = json.load(open('.harness/guide/T0001/steps.json')); sys.exit(len(m['features'][0]['tests'][0]['steps']) != 3)"
+          python3 harness/guide.py build T0001
+          head -c 5 docs/guides/T0001.pdf | grep -q "%PDF"
+          git add -A && git commit -q -m "[T0001] Guide utilisateur"
+          python3 harness/guide.py check
       - name: Project map and debt report (discovery tools)
         run: |
           python3 harness/project_map.py

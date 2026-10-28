@@ -67,6 +67,11 @@ The tests run on a disposable database with demo data. They cover the modules yo
 
 Only the e2e test is real verification. Unit tests passing is not enough to declare a feature done.
 
+In e2e tests, ask for the `guide` fixture and call `guide.step("<caption in French>")` after each screen a user sees (after its `expect`), with `highlight=<locator>` for the element to click or fill. It does nothing during verify; `harness/guide.py` replays the tests to take the screenshots of the task's user guide.
+
+# User guides
+`/odoo-harness-{{ODOO_MAJOR}}:guide T2003` writes the user guide of a completed task (every feature passing and committed): a PDF in French for developers, in `docs/guides/T2003.pdf`, with screenshots from the replayed e2e tests. `harness/guide.py check` lists the guides that a later change made stale.
+
 # Error messages
 Harness failures are printed as `✗ [layer] what`, `WHY:`, `HOW TO FIX:`. Read the HOW TO FIX line and apply it before trying anything else.
 
