@@ -177,6 +177,35 @@ def test_existing_claude_md_is_merged_not_replaced(repo):
     assert (repo / "CLAUDE.md").read_text().count("<!-- odoo-harness:start -->") == 1
 
 
+def test_claude_md_has_project_section(repo):
+    run_install(repo)
+    claude = (repo / "CLAUDE.md").read_text()
+    section = claude.split("<!-- odoo-harness:end -->", 1)[1]
+    for heading in ["# This project", "## Client and business", "## Odoo", "## Conventions",
+                    "## Risky to change"]:
+        assert heading in section
+    assert "TODO" in section and "{{" not in section
+
+
+def test_project_section_is_never_changed(repo):
+    run_install(repo)
+    claude = repo / "CLAUDE.md"
+    filled = claude.read_text().split("# This project", 1)[0] + "# This project\nClient: Acme.\n"
+    claude.write_text(filled)
+    run_install(repo, "--update")
+    assert claude.read_text() == filled
+
+
+def test_project_section_added_to_existing_claude_md(repo):
+    (repo / "CLAUDE.md").write_text("# Project notes\nKeep me.\n")
+    run_install(repo)
+    claude = (repo / "CLAUDE.md").read_text()
+    assert claude.startswith("# Project notes\nKeep me.\n")
+    assert claude.count("# This project") == 1
+    run_install(repo, "--update")
+    assert (repo / "CLAUDE.md").read_text() == claude
+
+
 def test_existing_settings_are_merged(repo):
     (repo / ".claude").mkdir()
     (repo / ".claude/settings.json").write_text(json.dumps(
