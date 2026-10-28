@@ -52,9 +52,12 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
      the GitLab project and the deployment files (read-only). You confirm it;
    - **discovers an existing project**: writes `ARCHITECTURE.md` (module map from
      `harness/project_map.py`, dependencies, risks and debt from
-     `harness/static_checks.py --all`) and a `# This project` section in `CLAUDE.md`, reads the
-     open tasks of the matching project in your Odoo through the Odoo MCP connector (read
+     `harness/static_checks.py --all`), reads the open tasks of the matching project in your Odoo through the Odoo MCP connector (read
      only) and proposes them as features;
+   - **describes the project** in a `# This project` section of `CLAUDE.md`, new or existing
+     project: the client and business context, Community or Enterprise, the Odoo apps in use,
+     the key modules, conventions and risky modules. Every session loads it; updates never
+     change it;
    - runs the 4 initialization steps: executable environment (the project's image, its own
      database with demo data and port, never your dev stack), verifiable test frame,
      bootstrap contract (`BOOTSTRAP.md`), task breakdown (`feature_list.json`).
