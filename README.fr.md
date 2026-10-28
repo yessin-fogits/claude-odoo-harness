@@ -54,9 +54,12 @@ python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
      Vous confirmez ;
    - **découvre un projet existant** : écrit `ARCHITECTURE.md` (carte des modules produite par
      `harness/project_map.py`, dépendances, risques et dette relevés par
-     `harness/static_checks.py --all`) et une section `# This project` dans `CLAUDE.md`, lit les
-     tâches ouvertes du projet correspondant dans votre Odoo via le connecteur MCP Odoo (en
+     `harness/static_checks.py --all`), lit les tâches ouvertes du projet correspondant dans votre Odoo via le connecteur MCP Odoo (en
      lecture seule) et les propose comme fonctionnalités ;
+   - **décrit le projet** dans une section `# This project` de `CLAUDE.md`, projet nouveau ou
+     existant : le client et le contexte métier, Community ou Enterprise, les applications
+     Odoo utilisées, les modules clés, les conventions et les modules à risque. Chaque session
+     la charge ; les mises à jour n'y touchent jamais ;
    - suit les 4 étapes d'initialisation : environnement exécutable (l'image du projet, sa
      propre base avec données de démo et son propre port, jamais votre stack de dev), cadre
      de test vérifiable, contrat d'amorçage (`BOOTSTRAP.md`), découpage des tâches
