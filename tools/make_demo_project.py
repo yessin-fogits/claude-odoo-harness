@@ -121,17 +121,23 @@ MAJOR = int(os.environ.get("ODOO_VERSION", "17.0").split(".")[0])
 URL = "/odoo/demo-things" if MAJOR >= 18 else "/web#action=demo_mod.demo_thing_action"
 
 
-def test_create_demo_thing(odoo_page, unique):
+def test_create_demo_thing(odoo_page, unique, guide):
     page = odoo_page
     name = f"Thing {unique}"
     page.goto(URL)
-    page.get_by_role("button", name="New").click()
-    page.locator(".o_field_widget[name=name] input").fill(name)
+    new = page.get_by_role("button", name="New")
+    expect(new).to_be_visible()
+    guide.step("Ouvrir la liste des Demo Things", highlight=new)
+    new.click()
+    field = page.locator(".o_field_widget[name=name] input")
+    field.fill(name)
+    guide.step("Saisir le nom de la chose", highlight=field)
     page.locator(".o_form_button_save").click()
     expect(page.locator(".o_form_button_save")).to_be_hidden()
 
     page.goto(URL)
     expect(page.locator(".o_data_row", has_text=name)).to_be_visible()
+    guide.step("La nouvelle chose apparaît dans la liste")
 '''
 
 

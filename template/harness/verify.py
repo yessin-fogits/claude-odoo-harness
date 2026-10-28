@@ -50,6 +50,8 @@ PYTEST_FAILED_RE = re.compile(r"^(FAILED|ERROR) (\S+)(?: - (.*))?$", re.M)
 DOC_SUFFIXES = {".md", ".rst", ".txt"}
 TAG_MODULE_RE = re.compile(r"(?:^|[,\s])[-+]?/(\w+)")
 EXCERPT_LINES = 15
+# pytest plugins of the harness, as seen from the e2e container (repository in /work).
+E2E_PLUGINS = "/work/harness/e2e_plugins"
 
 
 class LayerFailed(Exception):
@@ -319,10 +321,12 @@ def layer_system(env, e2e_files, full, fresh, modules, run_dir):
     artifacts = run_dir / "e2e"
     log = run_dir / "e2e.log"
     step(f"L3 system: playwright {' '.join(targets)}")
-    rc, out = run_logged(["run", "--rm", "-T", "e2e", "pytest", *targets,
+    # harness_guide (harness/e2e_plugins/) gives the tests their `guide` fixture.
+    rc, out = run_logged(["run", "--rm", "-T", f"--env=PYTHONPATH={E2E_PLUGINS}", "e2e",
+                          "pytest", *targets,
                           "--base-url", "http://odoo:8069", "--output", rel(artifacts),
                           "--tracing", "retain-on-failure", "--screenshot", "only-on-failure",
-                          "-p", "no:cacheprovider", "-q"], log)
+                          "-p", "harness_guide", "-p", "no:cacheprovider", "-q"], log)
     counts = parse_pytest(out)
     result.update(counts, artifacts=rel(artifacts), log=rel(log))
     if rc != 0 or counts["failed"] or counts["errors"] or not counts["passed"]:
