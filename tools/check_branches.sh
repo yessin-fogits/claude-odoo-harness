@@ -6,7 +6,7 @@
 #
 # Usage: tools/check_branches.sh [--warn]
 #   --warn  report the branches still to forward-port to, but exit 0.
-#           Used on pull requests: a PR that changes a shared file always differs
+#           Used on pull requests and work branches: a PR that changes a shared file always differs
 #           from every version branch (its own base included) until it is merged
 #           and forward-ported, so a failing check there would be red by design.
 set -uo pipefail

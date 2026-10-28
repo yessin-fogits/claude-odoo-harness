@@ -37,9 +37,9 @@ jobs:
 
   branches:
     # Shared harness files are identical on all version branches.
-    # On a pull request the change is not merged nor forward-ported yet, so the
-    # check only warns; on a push to a version branch it fails until every
-    # branch has the change.
+    # Only a push to a version branch fails until every branch has the change.
+    # Pull requests and work branches are not merged nor forward-ported yet,
+    # so there the check only warns.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,12 +48,12 @@ jobs:
       - name: Run tools/check_branches.sh
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
-            tools/check_branches.sh --warn
-          else
-            tools/check_branches.sh
-          fi
+          case "$EVENT:$REF" in
+            push:17.0|push:18.0|push:19.0|push:20.0) tools/check_branches.sh ;;
+            *) tools/check_branches.sh --warn ;;
+          esac
 
   odoo-e2e:
     # The harness on a demo project against real Odoo + PostgreSQL + Playwright (Docker).
