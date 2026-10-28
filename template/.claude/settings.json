@@ -4,6 +4,7 @@
       "Bash(harness/init.sh:*)",
       "Bash(harness/verify.sh:*)",
       "Bash(harness/feature.py:*)",
+      "Bash(harness/guide.py:*)",
       "Bash(docker compose ps:*)",
       "Bash(docker compose logs:*)",
       "Bash(git status:*)",

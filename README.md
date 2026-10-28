@@ -88,6 +88,24 @@ GitLab token with the `api` scope in `GITLAB_TOKEN` (environment, or the git-ign
 file of the repository); never commit it. The autonomous loop opens it by itself when it
 finishes a task (`--no-mr` to turn that off).
 
+## User guide of a completed task
+`/odoo-harness-<N>:guide T2003` writes a user guide for the developers, in French, as a PDF
+committed in the project: `docs/guides/T2003.pdf`. It runs only on a completed task: every
+feature passing with valid evidence and committed, and no uncommitted change in the modules
+or `e2e/`. Otherwise `harness/guide.py` refuses with a red-pen message.
+
+```
+harness/guide.py capture T2003   # gate, then replay the task's e2e tests: one screenshot per guide.step()
+harness/guide.py build T2003     # Claude's French text + screenshots -> docs/guides/T2003.pdf
+harness/guide.py check           # guides made stale by a feature reopened or verified again
+```
+The screenshots come from the features' own Playwright tests, so the guide only shows
+behavior a test proved. In an e2e test, ask for the `guide` fixture and call
+`guide.step("Saisir le taux", highlight=page.get_by_label("Rate"))` after each screen: it does
+nothing during verify, and outlines the element in the guide. A test without steps gives
+one screenshot of its final screen. The Odoo screens stay in the tests' language (the
+locators use the English labels); the text of the guide is French.
+
 ## Autonomous loop
 
 `harness/loop.py run` works through `feature_list.json` on its own, with Claude Code
