@@ -93,6 +93,25 @@ un jeton GitLab avec le scope `api` dans `GITLAB_TOKEN` (environnement, ou fichi
 dépôt, ignoré par git) ; ne le committez jamais. La boucle autonome l'ouvre d'elle-même quand
 elle termine une tâche (`--no-mr` pour le désactiver).
 
+## Guide utilisateur d'une tâche terminée
+`/odoo-harness-<N>:guide T2003` écrit un guide utilisateur pour les développeurs, en français,
+en PDF commité dans le projet : `docs/guides/T2003.pdf`. Il ne s'exécute que sur une tâche
+terminée : toutes les fonctionnalités en `passing` avec des preuves valides et commitées, sans
+modification non commitée dans les modules ni dans `e2e/`. Sinon `harness/guide.py` refuse
+avec un message stylo rouge.
+
+```
+harness/guide.py capture T2003   # contrôle, puis rejoue les tests e2e de la tâche : une capture par guide.step()
+harness/guide.py build T2003     # texte français de Claude + captures -> docs/guides/T2003.pdf
+harness/guide.py check           # guides périmés : fonctionnalité rouverte ou revérifiée
+```
+Les captures viennent des tests Playwright des fonctionnalités : le guide ne montre que ce
+qu'un test a prouvé. Dans un test e2e, demandez la fixture `guide` et appelez
+`guide.step("Saisir le taux", highlight=page.get_by_label("Rate"))` après chaque écran : sans
+effet pendant verify, l'élément est encadré dans le guide. Un test sans étapes donne une
+capture de son écran final. Les écrans d'Odoo restent dans la langue des tests (les
+sélecteurs utilisent les libellés anglais) ; le texte du guide est en français.
+
 ## Boucle autonome
 
 `harness/loop.py run` avance seul dans `feature_list.json`, avec Claude Code sans

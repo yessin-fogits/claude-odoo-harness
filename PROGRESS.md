@@ -21,6 +21,8 @@
 
 - [x] Client workspace launch: Claude Code started in ~/Project/<client> finds the harness in git/ (hooks, guard, SessionStart context); init/update write the workspace CLAUDE.md and settings (installer --workspace, --workspace-only)
 
+- [x] User guide of a completed task: /guide skill, harness/guide.py (gate, e2e replay, French PDF, stale check), harness_guide pytest plugin, odoo-e2e CI step
+
 ## In progress
 
 ## Known issues
