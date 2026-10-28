@@ -19,7 +19,8 @@ Deterministic and idempotent. Files have an owner:
   --update keeps them and reports when the template changed;
 - harness (harness/*.py, *.sh, checks, docker files, harness/docker-compose.yml,
   harness/odoo.conf): replaced by --update, rendered from harness.env;
-- merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time.
+- merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time. The
+  `# This project` section of CLAUDE.md is the project's: added when missing, never changed.
 
 The workspace is the folder Claude Code is started in when it is not the repository
 itself: the fogits client folder ~/Project/<client>, with the repository in git/ and
@@ -57,6 +58,7 @@ CLAUDE_MD = "CLAUDE.md"
 SETTINGS = ".claude/settings.json"
 GITIGNORE_FRAGMENT = "gitignore"
 BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?", re.S)
+PROJECT_SECTION_RE = re.compile(r"^# This project\s*$", re.M)
 
 DB_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 ENV_KEY_RE = re.compile(r"^([A-Z_]+)=(.*)$")
@@ -240,8 +242,13 @@ def install(target, ctx, force=False, update=False):
     return report
 
 
-def merge_claude_md(dest, block, name=CLAUDE_MD):
+def merge_claude_md(dest, content, name=CLAUDE_MD):
+    """Replace the harness block; add the project section only when it is missing."""
+    match = BLOCK_RE.search(content)
+    block, section = match.group(0), content[match.end():].strip("\n")
     current = dest.read_text()
+    if section and not PROJECT_SECTION_RE.search(current):
+        block = block.rstrip("\n") + "\n\n" + section + "\n"
     if BLOCK_RE.search(current):
         new = BLOCK_RE.sub(lambda _: block, current, count=1)
     else:

@@ -74,3 +74,23 @@ Harness failures are printed as `✗ [layer] what`, `WHY:`, `HOW TO FIX:`. Read 
 Turn it into a check: add a file in `harness/checks/` that detects it with a WHY / HOW TO FIX message (copy the shape of `harness/checks/no_debug_leftovers.py`), then append a line to `DECISIONS.md`.
 When a failure prints "No catalog entry", add its pattern to `harness/errors_project.py` once it is fixed.
 <!-- odoo-harness:end -->
+
+# This project
+<!-- Written by /odoo-harness-{{ODOO_MAJOR}}:init, then owned by the project: updates never change it.
+     Replace every TODO line. Keep it short: the module map belongs in ARCHITECTURE.md. -->
+
+## Client and business
+- Client: TODO who they are (company, sector, country) and who uses Odoo there.
+- Business context: TODO what the project does for them, in two lines, and the main business flows it supports.
+
+## Odoo
+- Version: Odoo {{ODOO_VERSION}}, TODO Community or Enterprise; localization and languages.
+- Odoo apps in use: TODO (for example sale, purchase, stock, account, mrp, hr).
+- Custom modules: `{{CUSTOM_ADDONS}}`. TODO the key modules, one line each, and where a new module goes.
+
+## Conventions
+- TODO module name prefix, manifest author and version scheme, translations, other project rules.
+- Commit messages: `[T<code>] F-<id> <behavior>`; task branches start from `{{BASE_BRANCH}}`.
+
+## Risky to change
+- TODO modules with many dependents or no tests, and why.

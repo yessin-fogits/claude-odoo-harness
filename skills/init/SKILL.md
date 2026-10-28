@@ -70,11 +70,9 @@ The goal: the next session, human or agent, understands the project from the rep
    and debt. Debt includes modules without tests, findings of `--all` (group them; list
    hard-coded secrets first, without their values), version problems, and unfinished
    branches. Facts come from the tools and the code, never from memory.
-4. **CLAUDE.md.** Below the harness block (`<!-- odoo-harness:end -->`), write a
-   `# This project` section: what the project is (two lines), the conventions to follow
-   (naming, manifest, version bump, translations, commit message `[T<code>] ...`), where new
-   modules go, and the modules that are risky to change (many dependents, no tests).
-   Keep it short: details belong in ARCHITECTURE.md.
+4. **CLAUDE.md.** Fill the `# This project` section from what you read (see "Project
+   description" below): the key modules, the conventions you saw, the risky modules (many
+   dependents, no tests). Keep it short: details belong in ARCHITECTURE.md.
 5. **Open tasks from Odoo.** Use the Odoo MCP connector of this client (its tools are named
    `mcp__Odoo_<client>__*`; pick the one matching the project).
    - Find the `project.project` that matches the repository (the GitLab project name, the
@@ -91,6 +89,23 @@ The goal: the next session, human or agent, understands the project from the rep
    a feature (with its task code if there is one). Record the others under "Known issues" in
    `PROGRESS.md`. Hard-coded secrets are always reported to the user: they must be revoked
    by a human.
+
+## Project description (both paths)
+The installer puts a `# This project` section below the harness block of `CLAUDE.md` (it adds
+one when the file has none, and never changes it afterwards). Every session loads it, so it is
+how the agent knows which client and which business it works for. Replace every `TODO` line:
+- **Client and business**: the client (company, sector, country, who uses Odoo) and what the
+  project does for them in two lines, with the main business flows. Take it from the
+  description of the matching `project.project` in Odoo when the connector is available, and
+  from the user; never invent it. Ask the user, in one question, for what you cannot find.
+- **Odoo**: Community or Enterprise, localization and languages (from the config and the
+  manifests), the Odoo apps in use (the `depends` of the custom modules), the key custom
+  modules and where a new module goes.
+- **Conventions** and **Risky to change**: from discovery for an existing project. For a new
+  project, write the conventions the user wants and leave "Risky to change" as `none yet`.
+If the file had a project description under another heading, merge it into this section
+instead of keeping two. Show the section to the user; initialization does not finish while a
+`TODO` line is left in it.
 
 ## Step 1: executable environment
 Run `harness/init.sh`. It builds the project image, starts the harness stack (its own
@@ -130,6 +145,7 @@ in `BOOTSTRAP.md`.
 ## Finish
 - Append the initialization decisions to `DECISIONS.md` (one dated line each): the layout
   confirmed, the debt left as known issues, anything the user decided.
+- Check that the `# This project` section of `CLAUDE.md` has no `TODO` line left.
 - Update `PROGRESS.md`: "Next steps" lists the first task and its first feature.
 - Commit on the current branch: `chore: install odoo-harness`. Tell the user that the harness
   install must reach the base branch (`staging`) through a merge request before task branches
