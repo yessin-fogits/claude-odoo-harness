@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# odoo-harness: the harness command (engine/cli.py). Works through symlinks, such as the
+# ~/.local/bin/odoo-harness shim written by `odoo-harness link`.
+src="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+exec python3 "$(dirname "$src")/../engine/cli.py" "$@"

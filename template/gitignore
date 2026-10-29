@@ -1,0 +1,4 @@
+# odoo-harness
+.harness/
+__pycache__/
+.env

@@ -1,0 +1,16 @@
+{
+  "name": "odoo-harness",
+  "description": "Claude Code harness for Odoo 17.0 to 20.0 projects, installed once per machine: the odoo-harness command (state files, WIP=1 feature workflow, 3-layer verification), automatic session hooks, and an Odoo skill per version.",
+  "author": {
+    "name": "yessin-fogits"
+  },
+  "homepage": "https://github.com/yessin-fogits/claude-odoo-harness",
+  "repository": "https://github.com/yessin-fogits/claude-odoo-harness",
+  "license": "MIT",
+  "keywords": [
+    "odoo",
+    "harness",
+    "claude-code",
+    "agents"
+  ]
+}

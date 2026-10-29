@@ -2,41 +2,144 @@ name: ci
 on:
   push:
   pull_request:
+# One plugin serves every Odoo version (versions.json): each job runs once per version.
 jobs:
-  marketplace:
-    # Every plugin of the marketplace points to an existing version branch.
+  tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
+    env:
+      HARNESS_TEST_ODOO_VERSION: ${{ matrix.odoo }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          fetch-depth: 0
-      - name: Check the marketplace entries
+          python-version: "3.12"
+      - run: pip install pytest shellcheck-py actionlint-py "pylint-odoo==10.0.12"
+      - run: actionlint .github/workflows/ci.yml
+      - run: python -m pytest -q
+
+  skill-check:
+    # The guide of each version in the odoo skill must match the real Odoo source of it.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch the Odoo source of the version
+        env:
+          VERSION: ${{ matrix.odoo }}
         run: |
+          tools/odoo-skill-extract/fetch_odoo.sh "$VERSION" "$RUNNER_TEMP/odoo"
+          python tools/odoo-skill-extract/extract.py "$RUNNER_TEMP/odoo" -o "$RUNNER_TEMP/facts.json"
+      - name: Check the guide against the facts
+        env:
+          VERSION: ${{ matrix.odoo }}
+        run: python tools/odoo-skill-extract/check_skill.py "$RUNNER_TEMP/facts.json" "skills/odoo/versions/$VERSION"
+
+  odoo-e2e:
+    # The harness on a demo project against real Odoo + PostgreSQL + Playwright (Docker),
+    # driven by the odoo-harness command as a developer runs it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Put odoo-harness on the PATH
+        working-directory: ${{ github.workspace }}
+        run: echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
+      - name: Build the demo project
+        working-directory: ${{ github.workspace }}
+        env:
+          VERSION: ${{ matrix.odoo }}
+        run: python tools/make_demo_project.py demo --odoo-version "$VERSION"
+      - name: "Initialization step 1: odoo-harness init (baseline verification)"
+        run: odoo-harness init
+      - name: Feature F-001 (task T0001) reaches passing on its task branch
+        run: |
+          git config user.name ci && git config user.email ci@example.com
+          odoo-harness feature start F-001
+          test "$(git symbolic-ref --short HEAD)" = T0001
+          # the feature's change: L1 lints the changed module with the project's rcfile
+          echo "# F-001" >> extra-addons/demo/demo_mod/models/thing.py
+          odoo-harness feature verify F-001
+          odoo-harness feature check
+          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
+          git add -A && git commit -q -m "[T0001] F-001 A user creates a demo thing and finds it in the list"
+      - name: User guide of the completed task T0001 (French PDF from the replayed e2e test)
+        run: |
+          odoo-harness guide capture T0001
           python3 - <<'PY'
-          import json, subprocess, sys
-          data = json.load(open(".claude-plugin/marketplace.json"))
-          problems = []
-          for entry in data["plugins"]:
-              source = entry["source"]
-              if source.get("source") != "url" or not source.get("url", "").startswith("https://"):
-                  problems.append(
-                      f"{entry['name']}: source must be {{\"source\": \"url\", \"url\": \"https://...\"}}\n"
-                      "  WHY: github sources are cloned over SSH when the user has an SSH key, and the\n"
-                      "  install fails with 'Permission denied (publickey)' if GitHub does not accept it\n"
-                      "  HOW TO FIX: use the url source with https://github.com/<owner>/<repo>.git and ref")
-              ref = source["ref"]
-              major = ref.split(".")[0]
-              if entry["name"] != f"odoo-harness-{major}":
-                  problems.append(f"{entry['name']}: name does not match branch {ref}")
-              try:
-                  manifest = subprocess.run(["git", "show", f"origin/{ref}:.claude-plugin/plugin.json"],
-                                            capture_output=True, text=True, check=True).stdout
-              except subprocess.CalledProcessError:
-                  problems.append(f"{entry['name']}: branch {ref} or its plugin.json is missing")
-                  continue
-              if json.loads(manifest)["name"] != entry["name"]:
-                  problems.append(f"{entry['name']}: plugin.json on {ref} has another name")
-          for p in problems:
-              print("✗", p)
-          sys.exit(1 if problems else 0)
+          import json
+          from pathlib import Path
+          p = Path(".harness/guide/T0001/content.json")
+          c = json.loads(p.read_text())
+          c["title"] = "T0001 : Demo Things"
+          c["summary"] = "La tâche ajoute le modèle **Demo Thing**."
+          for f in c["features"].values():
+              f["summary"] = "Créer une chose."
+              f["technical"] = "- Modèle `demo.thing`"
+              f["steps"] = {k: "Étape du parcours." for k in f["steps"]}
+          p.write_text(json.dumps(c, ensure_ascii=False))
           PY
+          python3 -c "import json, sys; m = json.load(open('.harness/guide/T0001/steps.json')); sys.exit(len(m['features'][0]['tests'][0]['steps']) != 3)"
+          odoo-harness guide build T0001
+          head -c 5 docs/guides/T0001.pdf | grep -q "%PDF"
+          git add -A && git commit -q -m "[T0001] Guide utilisateur"
+          odoo-harness guide check
+      - name: Project map and debt report (discovery tools)
+        run: |
+          odoo-harness map
+          odoo-harness static --all || true
+      - name: An injected bug fails verification with a red-pen message
+        run: |
+          odoo-harness feature start F-001 --reopen
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("extra-addons/demo/demo_mod/models/thing.py")
+          s = p.read_text().replace("from odoo import fields, models", "from odoo import api, fields, models")
+          s += (
+              "\n    @api.model_create_multi\n"
+              "    def create(self, vals_list):\n"
+              "        for vals in vals_list:\n"
+              "            vals['name'] = (vals.get('name') or '').upper()\n"
+              "        return super().create(vals_list)\n"
+          )
+          p.write_text(s)
+          PY
+          log="$RUNNER_TEMP/verify.log"
+          if odoo-harness feature verify F-001 > "$log" 2>&1; then
+            cat "$log"; echo "verify passed although the code is broken"; exit 1
+          fi
+          cat "$log"
+          grep -q "WHY:" "$log" && grep -q "HOW TO FIX:" "$log" && grep -q "test_create" "$log"
+          grep -q "AssertionError" "$log"
+          if grep -q "No catalog entry" "$log"; then echo "a failure has no red-pen explanation"; exit 1; fi
+          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
+      - name: Odoo server log
+        if: failure()
+        run: odoo-harness compose logs --no-color --tail 300 odoo
+      - name: Upload the harness runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-runs-${{ matrix.odoo }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/demo/.harness/
+          if-no-files-found: ignore
+          include-hidden-files: true

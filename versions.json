@@ -1,0 +1,6 @@
+{
+  "17.0": {"postgres_image": "postgres:16"},
+  "18.0": {"postgres_image": "postgres:16"},
+  "19.0": {"postgres_image": "postgres:16"},
+  "20.0": {"postgres_image": "postgres:16"}
+}

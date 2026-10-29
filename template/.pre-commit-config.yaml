@@ -1,0 +1,15 @@
+# Fast harness checks before each commit. Full verification: odoo-harness verify
+repos:
+  - repo: local
+    hooks:
+      - id: harness-feature-list
+        name: feature list integrity (passing needs evidence)
+        entry: odoo-harness feature check
+        language: system
+        pass_filenames: false
+        files: ^(feature_list\.json|harness/evidence/)
+      - id: harness-static
+        name: harness static checks (layer 1, no docker)
+        entry: odoo-harness static
+        language: system
+        types_or: [python, xml, csv]

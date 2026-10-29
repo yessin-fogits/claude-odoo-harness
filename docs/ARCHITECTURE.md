@@ -16,15 +16,67 @@ The user's notes add these requirements:
 - Every new agent mistake found in a review becomes an automated check.
 - The project ships an Odoo skill built from the `odoo/odoo` source for version 20 and adapted to each version.
 
+## Install once per machine
+A developer works on many Odoo projects, so the harness is split as gstack splits its own
+tools: **the engine is installed once per machine, the repository holds no copy of it.** But
+unlike gstack, which keeps project state in `~/.gstack/projects/`, the state stays in the
+repository: the feature list, the evidence and PROGRESS.md are the team's shared record.
+
+| Where | What | Updated by |
+|---|---|---|
+| The plugin (`claude plugin install odoo-harness@odoo-harness`, user scope) | hooks, skills, agents, the engine (`engine/`: feature, verify, init, loop, gitlab, guide, static checks, generic checks, red-pen catalog, Docker files) and the `odoo-harness` command (`bin/`) | the plugin update, for every project at once |
+| The repository | state (`PROGRESS.md`, `DECISIONS.md`, `feature_list.json`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`), project config (`harness/harness.env`, `harness/errors_project.py`, project checks in `harness/checks/`, `e2e/`, `.pylintrc`), the `CLAUDE.md` block and `.claude/settings.json` | the project |
+| `~/.odoo-harness/` | `current`, a symlink to the installed plugin, refreshed at each session start; the `odoo-harness` shim in `~/.local/bin` points through it | the session start hook |
+
+- **One command.** `odoo-harness <init|verify|feature|loop|gitlab|guide|map|static>` replaces
+  `harness/<script>`. It finds the repository from the current folder (the repository itself,
+  or `git/` in a client workspace) and runs the engine on it. Claude's Bash tool gets the
+  plugin's `bin/` on its PATH from the session start hook (`CLAUDE_ENV_FILE`); humans use the
+  shim; the command puts its own `bin/` first on the PATH of every child process, so
+  `loop.py`'s headless sessions reach the same engine.
+- **Docker.** The compose file is the engine's. Its build contexts and the engine mount
+  (`/opt/odoo-harness`, read-only, in the lint and e2e containers) come from `HARNESS_HOME`,
+  which every compose call exports through one function. `odoo.conf` is rendered from
+  `harness/harness.env` into `.harness/odoo.conf` before each compose call.
+- **Engine version.** `engine/VERSION`, not `plugin.json` (a `version` there would change how
+  Claude Code detects updates). `harness/harness.env` pins a minimum, `HARNESS_VERSION`:
+  the engine refuses to run on a project pinned to a newer engine, so a teammate with an old
+  plugin cannot verify. It is a minimum, not an exact match, so auto-updates never block
+  anyone. Every evidence file records the engine version that produced it. `engine/VERSION`
+  is bumped with every change that can alter a verdict or a command; otherwise two different
+  engines would carry the same number and the pin could not tell them apart.
+- **Activation by marker.** The hooks run in every session, so each one first checks for
+  `harness/harness.env` and `feature_list.json` in the launch folder or `git/`, and exits
+  otherwise. In an Odoo repository without the harness (`__manifest__.py` one level down in
+  the folder or `git/`, never a recursive scan), the session start hook offers `init` once.
+- **Client workspace.** Started in `~/Project/<client>`, the hooks find `git/` and inject the
+  repository's `CLAUDE.md`: nothing is generated in the workspace.
+- **Permissions.** A user-scope plugin cannot ship permission rules. `init` asks the user
+  once per machine whether to add `Bash(odoo-harness:*)` to `~/.claude/settings.json`; the
+  repository's `.claude/settings.json` keeps its deny rules and enables the plugin for
+  teammates.
+- **The engine is protected.** Edits under the plugin folder and `~/.odoo-harness/` are denied
+  like `feature_list.json`: the judge cannot be rewritten by the agent it judges.
+- **Migration of a project with the old vendored harness.** While `harness/feature.py` is
+  still in the repository, the new hooks stand down and tell the user to run
+  `/odoo-harness:update`. The update deletes the vendored engine files, writes
+  `HARNESS_VERSION`, rewrites the permission and pre-commit entries, removes
+  `odoo-harness-<N>@odoo-harness` from the repository and workspace settings, and keeps state
+  and config. The old plugin then sees no `harness/feature.py` and goes quiet by itself.
+
 ## Decisions
-- **Distribution**: a Claude Code plugin (hooks, skills, subagents, one `/odoo-harness:init` command) plus a template that `init` copies into the Odoo repo. Per-project state lives in the repo, which is the system of record.
-- **Versions**: one branch per Odoo version: `17.0`, `18.0`, `19.0` and `20.0`.
-  - Harness mechanics are identical on every branch. Changes land on `17.0` and are forward-ported.
-  - A CI check fails if the shared files differ between branches.
-  - Only the Odoo skill, the docker image tag and version-specific flags differ.
-  - `main` holds the README, the docs and the marketplace manifest.
+- **Distribution**: one Claude Code plugin, `odoo-harness`, installed once per machine (user
+  scope). See "Install once per machine" below. Per-project state lives in the repo, which is
+  the system of record.
+- **Versions**: one plugin for every Odoo version (17.0 to 20.0); the version is data.
+  - `versions.json` lists the supported versions and their PostgreSQL image.
+  - The project's version is `ODOO_VERSION` in `harness/harness.env`, detected by `init`.
+  - The `odoo` skill holds one guide per version: `skills/odoo/versions/<version>/`.
+  - CI runs the tests, the skill check and the e2e demo for each version (a matrix).
+  - The old `17.0`...`20.0` branches are frozen: they serve the deprecated
+    `odoo-harness-<N>` plugins until every project is migrated.
 - **Runtime**: Docker Compose with these services:
-  - `odoo`, using the image tag of the branch version.
+  - `odoo`, using the image of the project's version.
   - `db`, running Postgres.
   - `e2e`, running Playwright for Python against `odoo:8069`.
   - Tests use a disposable DB, so the agent never touches real data.
@@ -37,18 +89,27 @@ CLAUDE.md            # Work Rules, Feature List Rules, Definition of Done, Valid
 BOOTSTRAP.md         # bootstrap contract (init step 3)
 PROGRESS.md          # Current state | Completed | In progress | Known issues | Next steps
 DECISIONS.md         # "YYYY-MM-DD: decision (why)", append-only
-feature_list.json    # minimal format, state changed only by the harness
+ARCHITECTURE.md      # map of the project: modules, dependencies, risks and debt
+feature_list.json    # minimal format, state changed only by `odoo-harness feature`
 harness/
-  init.sh            # executable environment: compose up, create test DB, install modules, baseline verify
-  verify.sh          # runs the 3 validation layers; called by feature.py
-  feature.py         # state machine CLI: add | start | block | verify | status
+  harness.env        # the project's harness settings, HARNESS_VERSION (engine pin)
   checks/            # project checks born from code reviews (one file per mistake type)
-  errors.yaml        # red-pen catalog: error pattern → why + how to fix
-  evidence/          # per-feature evidence summaries (JSON committed; traces gitignored)
+  errors_project.py  # the project's red pens
+  evidence/          # per-feature evidence (JSON committed; traces gitignored)
 e2e/                 # Playwright (pytest-playwright) tests, one file per feature: test_<feature_id>_*.py
-docker-compose.yml, odoo.conf, .pylintrc (pylint-odoo), .pre-commit-config.yaml
-.claude/settings.json  # permissions and the plugin enabled
+.pylintrc (pylint-odoo), .pre-commit-config.yaml
+.claude/settings.json  # deny rules, the odoo-harness command allowed, the plugin enabled
+.harness/            # not versioned: odoo.conf rendered from harness.env, logs, session state
 ```
+No engine file is copied: `odoo-harness` (the plugin) runs on this repository.
+
+### Client workspace
+Developers may start Claude Code in the client folder (`~/Project/<client>`) instead of the
+repository (`~/Project/<client>/git`). Nothing is generated there: `odoo-harness` and the
+hooks find the harness in `git/` on their own, and SessionStart injects `git/CLAUDE.md` when
+the workspace does not import it. The permission prompts are avoided by `Bash(odoo-harness:*)`
+in the user settings (offered once per machine by `init`). `update --workspace .` removes the
+files the old harness generated there.
 
 ### File formats
 - **PROGRESS.md** has five sections:
@@ -68,7 +129,7 @@ docker-compose.yml, odoo.conf, .pylintrc (pylint-odoo), .pre-commit-config.yaml
   `state` is one of `not_started`, `in_progress`, `blocked` or `passing`.
 
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
-1. **Executable environment**: `docker-compose.yml` and `harness/init.sh`. Odoo starts, the test DB is created and the custom modules install cleanly.
+1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly.
 2. **Verifiable test frame**: `verify.sh` runs pylint-odoo, the `odoo-bin --test-enable` unit and integration tests, and the Playwright e2e tests. A sample passing test exists at each level.
 3. **Bootstrap contract**: `BOOTSTRAP.md` defines what "ready" means:
    - the start, verify and reset commands;
@@ -84,7 +145,7 @@ docker-compose.yml, odoo.conf, .pylintrc (pylint-odoo), .pre-commit-config.yaml
   - Do less, but finish.
   - Never edit Odoo core or enterprise code.
 - `# Feature List Rules`
-  - Change state only through `harness/feature.py`.
+  - Change state only through `odoo-harness feature`.
   - Never edit `feature_list.json` by hand.
   - Never mark a feature `passing` yourself. Only `feature.py verify` can do it.
   - New work goes into the list through `feature.py add`.
@@ -110,7 +171,7 @@ docker-compose.yml, odoo.conf, .pylintrc (pylint-odoo), .pre-commit-config.yaml
 - A `passing` feature goes back to `in_progress` if a later verify shows a regression.
 - Enforcement:
   - The PreToolUse hook denies `Edit` and `Write` on `feature_list.json`.
-  - It also denies `Bash` commands that write to that file other than `harness/feature.py`.
+  - It also denies `Bash` commands that write to that file other than `odoo-harness feature`.
   - A pre-commit check rejects a `passing` state that has no matching evidence file.
 
 ## Three-layer completion validation (`verify.sh`)
@@ -131,7 +192,7 @@ Every failure is printed as:
 ```
 ✗ [L2 runtime] sale_discount: test_discount_applied FAILED
 WHY: field 'discount_rate' computed without @api.depends → value never recomputed
-HOW TO FIX: add @api.depends('order_line.price_unit') on _compute_discount_rate; re-run harness/feature.py verify F-001
+HOW TO FIX: add @api.depends('order_line.price_unit') on _compute_discount_rate; re-run odoo-harness feature verify F-001
 REF: skills/odoo/references/orm.md#computed-fields
 ```
 `errors.yaml` maps known patterns to the WHY and HOW TO FIX lines. Patterns include pylint-odoo codes, `External ID not found`, `Field … does not exist`, `AccessError`, `ParseError` in views, and Playwright timeouts. Unknown errors print the raw failure and ask the agent to add a pattern.
@@ -173,18 +234,23 @@ When a code review finds a new type of agent mistake:
 - `tools/odoo-skill-extract/` is a script that pulls facts from the source: field classes, decorators, view RNG files, test base classes, the OWL version and deprecation warnings. It checks the references against the real code and produces the version diff.
 - Per-version adaptation: on each branch (`19.0`, `18.0`, `17.0`), run the extractor on that Odoo branch. Then adjust the references, for example `<list>` versus `<tree>` before 18 and the API removals and renames. `version-notes.md` and the extractor's diff document each change.
 
-## Plugin repo layout
+## Plugin repo layout (branch `main`)
 ```
-.claude-plugin/{plugin.json, marketplace.json}
-commands/init.md                 # the only command: 4-step initialization
-hooks/{hooks.json, session_start.py, pre_tool_guard.py, post_edit_check.py, stop_gate.py}
-skills/odoo/ (SKILL.md + references/)   skills/add-harness-check/   skills/feature-breakdown/
-agents/{odoo-explorer.md, odoo-reviewer.md}   # reviewer looks for new mistake types and proposes checks
-template/                        # files copied into the target repo (see the tree above)
-tools/odoo-skill-extract/
-examples/demo-odoo-project/      # CI fixture
-tests/                           # pytest for hooks, feature.py, verify parsing, red-pen catalog
-docs/en/, docs/fr/, README.md, README.fr.md
+.claude-plugin/{plugin.json, marketplace.json}   # odoo-harness, plus the deprecated per-version plugins
+bin/odoo-harness                 # the command (-> engine/cli.py)
+engine/                          # the engine, run on the repository in $HARNESS_REPO
+  cli.py VERSION hlib.py feature.py verify.py init.sh lib.sh loop.py gitlab.py guide.py
+  guide_pdf.py project_map.py static_checks.py errors.py checks/ e2e_plugins/ docker/
+  docker-compose.yml odoo.conf
+hooks/{hooks.json, _common.py, session_start.py, pre_tool_guard.py, post_edit_check.py, stop_gate.py}
+skills/{init, update, guide, add-harness-check}/   skills/odoo/ (SKILL.md + versions/<version>/)
+agents/{odoo-explorer.md, odoo-reviewer.md}
+scripts/{detect_project.py, install_template.py}
+template/                        # the project files init writes (state, config, CLAUDE.md block)
+versions.json                    # supported Odoo versions and their settings
+tools/{odoo-skill-extract/, make_demo_project.py}
+tests/                           # pytest, run once per Odoo version (HARNESS_TEST_ODOO_VERSION)
+docs/, README.md, README.fr.md
 ```
 
 ## Phases (do less, but finish: each phase ends verified)
@@ -193,18 +259,20 @@ docs/en/, docs/fr/, README.md, README.fr.md
 3. **Automatic hooks**: SessionStart, PreToolUse, PostToolUse and Stop.
 4. **Odoo 20 skill**: the extractor and references, then adapted to the `19.0`, `18.0` and `17.0` branches.
 5. **Review → check loop**: the `add-harness-check` skill, the reviewer subagent, and CI across the branches.
-6. **Autonomous loops** (course lectures 13–14): `harness/loop.py`, a maker-checker graph with bounded attempts and budgets.
+6. **Autonomous loops** (course lectures 13–14): `odoo-harness loop`, a maker-checker graph with bounded attempts and budgets.
 7. **Full-project mode** (fogits projects): detection of the project layout, the project's own image and a separate test database, verify scope = changed modules + dependents, older findings as debt, Odoo tasks with `T<code>` branches and merge requests, discovery (`ARCHITECTURE.md`, open tasks through the Odoo MCP connector).
+8. **Install once per machine**: one `odoo-harness` plugin for every Odoo version, the engine out of the repositories (the `odoo-harness` command), the version as data, CI per version, migration of the vendored projects.
 
 ## Verification of the harness project itself
-- `pytest tests/` covers:
+- `pytest tests/`, once per supported Odoo version (`HARNESS_TEST_ODOO_VERSION`), covers:
+  - the `odoo-harness` command (repository lookup, legacy refusal, version pin, link, PATH);
   - every hook, fed with sample hook JSON payloads;
-  - the `feature.py` transitions (WIP = 1 refusal, `passing` only via verify);
+  - the feature transitions (WIP = 1 refusal, `passing` only via verify);
+  - the installer and the migration from the vendored harness;
   - the red-pen formatting.
-- The CI job on each branch:
-  1. Runs `init` on `examples/demo-odoo-project`, then `docker compose up`.
-  2. Runs `harness/init.sh`.
-  3. Runs `feature.py start F-001` and `verify F-001`, which must reach `passing` with evidence.
+- The CI `odoo-e2e` job, for each version:
+  1. Builds a demo project (`tools/make_demo_project.py --odoo-version`).
+  2. Runs `odoo-harness init`.
+  3. Runs `odoo-harness feature start F-001` and `verify F-001`, which must reach `passing` with evidence.
   4. Injects a deliberate bug and asserts that verify fails with a red-pen message.
-  5. Asserts that a direct edit of `feature_list.json` is denied by the hook.
-- Cross-branch CI: the shared harness files are identical on all version branches.
+- The CI `skill-check` job checks each version's guide against that version's Odoo source.

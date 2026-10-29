@@ -1,0 +1,13 @@
+# pylint-odoo configuration used by odoo-harness verify (layer 1).
+# The OCA-only rules manifest-required-author and missing-readme are disabled on the
+# command line by odoo-harness verify (an rc-file "enable" always overrides "disable").
+[MASTER]
+load-plugins=pylint_odoo
+score=n
+
+[ODOOLINT]
+valid-odoo-versions={{ODOO_VERSION}}
+
+[MESSAGES CONTROL]
+disable=all
+enable=odoolint
