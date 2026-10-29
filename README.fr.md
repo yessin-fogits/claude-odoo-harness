@@ -3,118 +3,120 @@
 Un harness [Claude Code](https://claude.com/claude-code) pour les projets Odoo, basé sur
 [Learn Harness Engineering](https://walkinglabs.github.io/learn-harness-engineering/fr/).
 
-Le harness est le système de travail autour du modèle. Il rend l'agent fiable sur un projet
-Odoo complet, nouveau ou déjà développé (modules spécifiques, modules OCA, Odoo Enterprise,
-Docker, GitLab) :
-- **L'état vit dans le dépôt** : `PROGRESS.md`, `DECISIONS.md` et `feature_list.json`.
-- **WIP = 1** : une fonctionnalité à la fois. La suivante ne commence qu'après la vérification e2e.
-- **Le harness contrôle les états** : l'agent ne peut pas passer lui-même son travail en `passing`.
-- **Trois couches de vérification** : analyse statique (pylint-odoo), tests Odoo, puis e2e Playwright.
-- **Annotations au stylo rouge** : chaque échec dit ce qui a échoué, POURQUOI et COMMENT corriger.
-- **Sessions automatiques** : des hooks chargent le contexte au début et vérifient l'état propre à la fin.
-- **Tâches Odoo → fonctionnalités → merge request** : chaque tâche Odoo (`T2003`) est découpée en
-  fonctionnalités, traitée sur sa propre branche, et livrée en merge request quand toutes ses
-  fonctionnalités passent.
-
 > 🇬🇧 [English version](README.md)
 
-## Branches = versions d'Odoo
-| Branche | Odoo |
+Le harness est le système de travail autour du modèle. Il rend Claude fiable sur les
+projets Odoo longs : l'état vit dans le dépôt, une seule fonctionnalité est faite à la
+fois, et seul le harness peut déclarer une fonctionnalité terminée, après une vraie
+vérification.
+
+## Installation
+
+**Une fois par machine**, un seul plugin pour toutes les versions d'Odoo (17.0 à 20.0) :
+
+```
+/plugin marketplace add yessin-fogits/claude-odoo-harness@main
+/plugin install odoo-harness@odoo-harness
+```
+
+Installez-le au niveau utilisateur (le choix par défaut) : tous les projets de la machine en
+profitent, et une mise à jour du plugin les atteint tous d'un coup. Ensuite, **une fois par
+projet**, lancez Claude Code à la racine du dépôt Odoo, ou dans son espace client
+(organisation fogits : `~/Project/<client>`, avec le dépôt dans `git/` et Odoo Enterprise dans
+`enterprise/`), puis `/odoo-harness:init`. Dans un dépôt Odoo sans harness, la première
+session le propose une fois.
+
+Le harness couvre **tout le projet**, nouveau ou déjà développé :
+
+- **Détection** : modules spécifiques, modules tiers (OCA), Enterprise, version et image
+  d'Odoo, branche de base, projet GitLab et fichiers de déploiement sont lus dans le projet
+  lui-même (`odoo-stag.conf`, `Dockerfile`, git). Vous les confirmez.
+- **Découverte d'un projet existant** : `ARCHITECTURE.md` (carte des modules, dépendances,
+  risques et dette), une section projet dans `CLAUDE.md`, et les tâches ouvertes du projet
+  dans votre Odoo (lues via le connecteur MCP Odoo) proposées comme fonctionnalités.
+
+Puis les 4 étapes d'initialisation :
+
+1. **Environnement exécutable** : l'image du projet, sa propre base PostgreSQL, son port et
+   une base de test jetable avec données de démo (jamais votre stack de dev), tous les
+   modules spécifiques installés (`odoo-harness init`).
+2. **Cadre de test vérifiable** : un test qui passe à chaque niveau (unitaire, intégration, e2e).
+3. **Document de contrat d'amorçage** : `BOOTSTRAP.md`, relu par un humain.
+4. **Découpage des tâches** : de petites fonctionnalités dans `feature_list.json`, relues par un humain.
+
+`init` propose aussi, une fois par machine, d'autoriser la commande `odoo-harness` dans vos
+réglages utilisateur, pour que les sessions de n'importe quel espace client ne demandent pas
+la permission à chaque commande. Prérequis : Docker avec le plugin compose, Python 3.10+, git.
+
+Aucune clé SSH n'est nécessaire : le plugin est cloné en HTTPS depuis ce dépôt public.
+
+## Comment c'est réparti
+
+Le moteur est installé une fois par machine ; le dépôt n'en garde aucune copie. Le dépôt
+reste la référence de l'équipe : la liste des fonctionnalités, les preuves et PROGRESS.md
+sont versionnés avec le code.
+
+| Où | Quoi |
 |---|---|
-| `17.0` | 17.0 |
-| `18.0` | 18.0 |
-| `19.0` | 19.0 |
-| `20.0` | 20.0 |
+| Le plugin (une fois par machine) | la commande `odoo-harness` et son moteur (cycle des fonctionnalités, vérification en 3 couches, environnement de test, boucle, GitLab, guides, catalogue des stylos rouges, vérifications du harness, fichiers Docker), les hooks, skills et agents |
+| Le dépôt Odoo | l'état (`PROGRESS.md`, `DECISIONS.md`, `feature_list.json`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`) et la configuration du projet (`harness/harness.env`, ses propres vérifications et stylos rouges, `e2e/`) |
+| `~/.odoo-harness/` | `current`, un lien vers le plugin installé ; le raccourci `~/.local/bin/odoo-harness` passe par lui |
 
-## Le skill Odoo
+`harness/harness.env` fixe `HARNESS_VERSION`, le moteur le plus ancien que le projet
+accepte : un collègue dont le plugin est plus ancien doit le mettre à jour avant que
+`odoo-harness` ne s'exécute, pour que tout le monde vérifie avec les mêmes règles. Chaque
+preuve enregistre la version du moteur qui l'a produite.
 
-Chaque branche fournit `skills/odoo/` pour sa version d'Odoo : ORM, vues, sécurité, OWL,
-contrôleurs, tests, migrations, et les changements depuis les versions précédentes. Il est
-écrit à partir du vrai code source `odoo/odoo`, et la CI le vérifie contre ce code :
+## Ce que vous obtenez dans le dépôt Odoo
 
-```
-tools/odoo-skill-extract/fetch_odoo.sh 20.0 /tmp/odoo-20.0
-python3 tools/odoo-skill-extract/extract.py /tmp/odoo-20.0 -o /tmp/facts.json
-python3 tools/odoo-skill-extract/check_skill.py /tmp/facts.json skills/odoo
-```
+| Fichier | Rôle |
+|---|---|
+| `CLAUDE.md` | Règles de travail (WIP = 1, faire moins mais terminer), règles de la liste de fonctionnalités, définition de « terminé », hiérarchie de validation |
+| `PROGRESS.md` | État actuel (réécrit automatiquement), terminé / en cours, problèmes connus, prochaines étapes |
+| `DECISIONS.md` | `- date : décision` |
+| `ARCHITECTURE.md` | Carte du projet : modules, modèles, dépendances, risques et dette |
+| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, et la `task` Odoo (`T2003`) ; modifié uniquement par `odoo-harness feature` |
+| `harness/harness.env` | Les réglages du harness pour le projet : version et image d'Odoo, dossiers de modules, base de test et port, branche de base, projet GitLab, chemins protégés, `HARNESS_VERSION` |
+| `harness/checks/` | Vérifications du projet ; chaque nouveau type d'erreur trouvé en revue en devient une |
+| `harness/errors_project.py` | Les stylos rouges du projet : chaque échec affiche POURQUOI et COMMENT CORRIGER |
+| `harness/evidence/` | Une preuve par fonctionnalité qui passe |
 
-## Installer dans un projet Odoo
-1. Ajouter la marketplace (`/plugin marketplace add yessin-fogits/claude-odoo-harness@main`) et installer `odoo-harness-<N>@odoo-harness` pour votre version d'Odoo.
-2. Lancer Claude Code dans le dossier du client (organisation fogits : `~/Project/<client>`,
-   avec le dépôt git dans `git/` et Odoo Enterprise dans `enterprise/`), ou dans le dépôt
-   lui-même, puis `/odoo-harness-<N>:init`. Le harness est installé dans le dépôt (`git/`) et
-   versionné avec lui ; le dossier du client reçoit un `CLAUDE.md` qui importe
-   `git/CLAUDE.md` et un `.claude/settings.json` qui active le plugin (non versionnés). Après
-   le clone d'un projet qui a déjà le harness, `/odoo-harness-<N>:update` écrit seulement ces
-   deux fichiers. La commande :
-   - **détecte le projet** : `addons_path` de `odoo-stag.conf` / `odoo-main.conf`, modules
-     spécifiques (`extra-addons/<client>`), modules tiers (`extra-addons/oca`, en lecture
-     seule), Enterprise, la version et l'image d'Odoo depuis le `Dockerfile`, la branche de
-     base (`staging`), le projet GitLab et les fichiers de déploiement (en lecture seule).
-     Vous confirmez ;
-   - **découvre un projet existant** : écrit `ARCHITECTURE.md` (carte des modules produite par
-     `harness/project_map.py`, dépendances, risques et dette relevés par
-     `harness/static_checks.py --all`), lit les tâches ouvertes du projet correspondant dans votre Odoo via le connecteur MCP Odoo (en
-     lecture seule) et les propose comme fonctionnalités ;
-   - **décrit le projet** dans une section `# This project` de `CLAUDE.md`, projet nouveau ou
-     existant : le client et le contexte métier, Community ou Enterprise, les applications
-     Odoo utilisées, les modules clés, les conventions et les modules à risque. Chaque session
-     la charge ; les mises à jour n'y touchent jamais ;
-   - suit les 4 étapes d'initialisation : environnement exécutable (l'image du projet, sa
-     propre base avec données de démo et son propre port, jamais votre stack de dev), cadre
-     de test vérifiable, contrat d'amorçage (`BOOTSTRAP.md`), découpage des tâches
-     (`feature_list.json`).
+## La commande `odoo-harness`
 
-Aucune clé SSH n'est nécessaire : les plugins sont clonés en HTTPS. Si une installation échoue
-avec `Permission denied (publickey)`, lancez `/plugin marketplace update odoo-harness` et réinstallez.
+Lancez-la depuis le dépôt ou son espace client ; elle trouve le dépôt toute seule.
 
-## Ce que le harness vérifie, et ce qu'il ne touche pas
-- Il teste les modules modifiés par une branche **et tous les modules spécifiques qui en
-  dépendent** ; toute la suite e2e tourne quand plus d'un module change.
-- Les problèmes déjà présents ne bloquent pas une fonctionnalité : le lint et les
-  vérifications du projet ne bloquent que sur les lignes modifiées par la branche.
-  `harness/static_checks.py --all` liste le reste comme dette. Les erreurs bloquantes
-  (syntaxe, XML, manifeste) bloquent toujours.
-- pylint-odoo tourne avec le `.pylintrc-mandatory` du projet, à la version d'Odoo du projet.
-- Jamais modifiés par l'agent : le cœur d'Odoo et Enterprise, les modules tiers, les fichiers
-  de déploiement (Dockerfile, fichiers compose, `odoo-*.conf`, `.gitlab-ci.yml`), les bases
-  autres que la base de test, `staging` et `main` (pas de push direct), et les secrets
-  (vérification `no-hardcoded-secrets`).
+| Commande | Rôle |
+|---|---|
+| `odoo-harness init [--check \| --reset]` | L'environnement de test : l'image du projet, sa propre base PostgreSQL et son port, les modules spécifiques installés sur une base jetable, la vérification de référence |
+| `odoo-harness feature add \| start \| block \| verify \| check \| status` | Le cycle des fonctionnalités. `start` est refusé si une autre fonctionnalité est en cours et bascule sur la branche de la tâche ; `verify` est le seul chemin vers `passing` |
+| `odoo-harness verify` | Trois couches sur les modules modifiés et tous ceux qui en dépendent : vérifications statiques + pylint-odoo (le rcfile du projet), tests Odoo, e2e Playwright avec un log serveur propre. Les problèmes plus anciens sont de la dette, pas des blocages |
+| `odoo-harness gitlab mr T2003` | Quand toutes les fonctionnalités de la tâche passent, pousse la branche de la tâche et ouvre sa merge request vers `staging` |
+| `odoo-harness guide capture \| build \| check` | Le guide utilisateur en français d'une tâche terminée, à partir des tests e2e rejoués |
+| `odoo-harness static [--all]`, `odoo-harness map` | Les vérifications statiques (`--all` : le rapport de dette), la carte du projet |
+| `odoo-harness compose ...` | `docker compose` sur la stack du harness (`compose logs odoo`, `compose ps`) |
+| `odoo-harness loop run \| status` | La boucle autonome (ci-dessous) |
+| `odoo-harness where`, `odoo-harness link` | Le dépôt, le moteur et leurs versions ; recrée le raccourci |
 
-## Tâches Odoo et merge requests
-```
-harness/feature.py add --task T2003 --behavior "..." --verify "unit: ..." --verify "e2e: ..."
-harness/feature.py start F-001      # bascule sur la branche T2003 (créée depuis staging)
-harness/feature.py verify F-001     # passing + preuves ; commit "[T2003] F-001 ..."
-harness/gitlab.py mr T2003          # quand toutes les fonctionnalités de T2003 passent : push + merge request
-```
-La merge request vise `staging` et liste les fonctionnalités avec leurs preuves. Elle demande
-un jeton GitLab avec le scope `api` dans `GITLAB_TOKEN` (environnement, ou fichier `.env` du
-dépôt, ignoré par git) ; ne le committez jamais. La boucle autonome l'ouvre d'elle-même quand
-elle termine une tâche (`--no-mr` pour le désactiver).
+## Ce que le plugin ajoute à Claude Code
 
-## Guide utilisateur d'une tâche terminée
-`/odoo-harness-<N>:guide T2003` écrit un guide utilisateur pour les développeurs, en français,
-en PDF commité dans le projet : `docs/guides/T2003.pdf`. Il ne s'exécute que sur une tâche
-terminée : toutes les fonctionnalités en `passing` avec des preuves valides et commitées, sans
-modification non commitée dans les modules ni dans `e2e/`. Sinon `harness/guide.py` refuse
-avec un message stylo rouge.
-
-```
-harness/guide.py capture T2003   # contrôle, puis rejoue les tests e2e de la tâche : une capture par guide.step()
-harness/guide.py build T2003     # texte français de Claude + captures -> docs/guides/T2003.pdf
-harness/guide.py check           # guides périmés : fonctionnalité rouverte ou revérifiée
-```
-Les captures viennent des tests Playwright des fonctionnalités : le guide ne montre que ce
-qu'un test a prouvé. Dans un test e2e, demandez la fixture `guide` et appelez
-`guide.step("Saisir le taux", highlight=page.get_by_label("Rate"))` après chaque écran : sans
-effet pendant verify, l'élément est encadré dans le guide. Un test sans étapes donne une
-capture de son écran final. Les écrans d'Odoo restent dans la langue des tests (les
-sélecteurs utilisent les libellés anglais) ; le texte du guide est en français.
+- **Sessions automatiques** (hooks) : contexte chargé au début de session (avec la version
+  d'Odoo du projet et son guide) ; modifications de la liste de fonctionnalités, des preuves,
+  du moteur du harness, du cœur Odoo/Enterprise, des modules tiers,
+  des fichiers de déploiement et des bases autres que la base de test refusées, et pas de
+  push vers `staging`/`main` ; vérifications statiques après chaque modification ; contrôle
+  de l'état propre à la fin de chaque tour.
+- **Skills** : `init`, `update` (rafraîchir les fichiers du harness du projet, ou migrer un
+  projet depuis l'ancien harness copié), `add-harness-check`, `guide`, et `odoo` : la
+  référence Odoo avec un guide par version (ORM, vues, sécurité, OWL, contrôleurs, tests,
+  migrations, notes de version), écrite à partir du vrai code `odoo/odoo` et vérifiée contre
+  lui en CI. Le contexte de session indique le guide de la version du projet.
+- **Agents** : `odoo-reviewer` (grille d'évaluation + checklist Odoo, propose de nouvelles
+  vérifications) et `odoo-explorer` (trouve les définitions parentes dans le code Odoo de
+  votre version).
 
 ## Boucle autonome
 
-`harness/loop.py run` avance seul dans `feature_list.json`, avec Claude Code sans
+`odoo-harness loop run` avance seul dans `feature_list.json`, avec Claude Code sans
 interface, sous forme de graphe producteur-vérificateur :
 
 ```mermaid
@@ -122,7 +124,7 @@ flowchart TD
     P["preflight<br/>arbre propre, liste valide, environnement sain"] --> S["select<br/>une fonctionnalité à traiter ?"]
     S -->|"plus aucune"| E(["fin du run"])
     S -->|"F-xxx"| M["maker<br/>claude -p implémente la fonctionnalité"]
-    M --> V["verify<br/>harness/feature.py verify"]
+    M --> V["verify<br/>odoo-harness feature verify"]
     V -->|"échec"| A{"essais restants ?"}
     V -->|"succès, avec --review"| R["review<br/>agent odoo-reviewer"]
     V -->|"succès, sans --review"| C["commit<br/>feat(F-xxx): ..."]
@@ -141,7 +143,7 @@ Chaque étape :
 1. **preflight** : l'arbre de travail est propre, `feature.py check` passe et l'environnement est sain.
 2. **select** : la fonctionnalité en cours, sinon la première `not_started`.
 3. **maker** : une session Claude Code sans interface (`claude -p`) implémente la fonctionnalité.
-4. **verify** : `harness/feature.py verify` lance les 3 couches ; c'est le seul juge du « fini ».
+4. **verify** : `odoo-harness feature verify` lance les 3 couches ; c'est le seul juge du « fini ».
 5. **review** (avec `--review`) : l'agent `odoo-reviewer`, dans un contexte neuf, doit répondre Accept.
 6. **commit** du travail vérifié, ou **shelve** quand les essais sont épuisés.
 
@@ -153,71 +155,97 @@ Chaque étape :
 - Budgets : `--max-features` (1 par défaut, pour qu'un humain relise chaque fonctionnalité),
   `--attempts` (3 par défaut), `--max-turns` et `--max-budget-usd` par appel d'agent, `--timeout`.
 - `--branch loop/<nom>` travaille sur une nouvelle branche. Journaux et sorties des agents :
-  `.harness/loop/<run>/` ; dernier résumé : `harness/loop.py status`.
-- Prérequis : un arbre de travail propre, une base saine (`harness/init.sh --check`), et la
+  `.harness/loop/<run>/` ; dernier résumé : `odoo-harness loop status`.
+- Prérequis : un arbre de travail propre, une base saine (`odoo-harness init --check`), et la
   commande `claude` connectée avec le plugin installé.
 
 ## Collaborateurs
 
-Dans les commandes ci-dessous, `<N>` est la version majeure d'Odoo (17, 18, 19 ou 20).
-
-
-Le skill init active le plugin dans le `.claude/settings.json` du projet, mais Claude Code
-ne télécharge pas un plugin à partir des seuls réglages du projet. Chaque personne
-l'installe une fois :
+Chaque personne installe le plugin une fois sur sa machine :
 
 ```
-claude plugin install odoo-harness-<N>@odoo-harness --scope project
+claude plugin install odoo-harness@odoo-harness
 ```
+
+Le `.claude/settings.json` du dépôt active le plugin et sa marketplace : Claude Code le
+propose à quiconque ouvre le dépôt sans l'avoir. Un clone neuf n'a besoin de rien d'autre :
+les fichiers du harness sont versionnés, et rien n'est généré dans l'espace client.
 
 ## Mise à jour
 
-**Le plugin** (skills, agents, hooks). Les projets installés par le skill init activent la
-mise à jour automatique de la marketplace `odoo-harness` : Claude Code met le plugin à jour
-en arrière-plan et vous demande de lancer `/reload-plugins`. Pour mettre à jour tout de suite :
+**Le plugin** (moteur, hooks, skills, agents). La marketplace `odoo-harness` se met à jour
+automatiquement : Claude Code met le plugin à jour en arrière-plan, pour tous les projets à la
+fois, et vous demande de lancer `/reload-plugins`. Pour mettre à jour tout de suite :
 
 ```
-claude plugin update odoo-harness-<N>@odoo-harness
+claude plugin update odoo-harness@odoo-harness
 ```
 
-ou `/plugin` → **Installed** → `odoo-harness-<N>` → **Update now**. Pour arrêter les mises
-à jour automatiques : `/plugin` → **Marketplaces** → `odoo-harness` → **Disable auto-update**.
+ou `/plugin` → **Installed** → `odoo-harness` → **Update now**. Pour arrêter les mises à jour
+automatiques : `/plugin` → **Marketplaces** → `odoo-harness` → **Disable auto-update**.
 
-**Les fichiers du harness dans votre dépôt Odoo** (scripts du harness, vérifications,
-catalogue stylo rouge, bloc CLAUDE.md). Après une mise à jour du plugin, lancez
-`/odoo-harness-<N>:update`. Il remplace les fichiers du harness, conserve l'état du projet
-(PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md, ARCHITECTURE.md) et sa
-configuration (harness/harness.env, e2e/conftest.py, harness/errors_project.py), régénère
-`harness/docker-compose.yml` et `harness/odoo.conf` depuis `harness/harness.env`, montre
-comment les modèles des fichiers conservés ont changé, lance les vérifications et enregistre
-la mise à jour. Committez le résultat. Un harness installé avant le mode projet complet
-(`MODULES`, `ADDONS_DIR`) est migré par la même commande.
+**Les fichiers du harness d'un projet** (le bloc CLAUDE.md, les réglages, la version fixée).
+Lancez `/odoo-harness:update` dans le projet quand le plugin a changé ses modèles, ou pour
+relever le `HARNESS_VERSION` du projet. Il garde l'état du projet (PROGRESS.md, DECISIONS.md,
+feature_list.json, BOOTSTRAP.md) et sa configuration (harness/harness.env, e2e/conftest.py,
+harness/errors_project.py, harness/checks/), montre comment les modèles des fichiers gardés
+ont changé, lance les vérifications et note la mise à jour. Commitez le résultat.
 
-**Une autre version d'Odoo.** Passer un projet à la version suivante d'Odoo est une
-migration, pas une mise à jour : installez le plugin de la nouvelle version, changez
-`ODOO_VERSION` et `ODOO_IMAGE` dans `harness/harness.env` et le plugin activé dans
-`.claude/settings.json`, puis suivez `references/migrations.md` du nouveau skill `odoo`.
+**Un projet installé avant la 2.0** (un plugin par version d'Odoo, le moteur copié dans
+`harness/`). Installez `odoo-harness`, puis lancez `/odoo-harness:update` dans le projet : il
+supprime le moteur copié, réécrit les entrées de permissions et de pre-commit, retire l'ancien
+plugin des réglages du dépôt et de l'espace client, écrit `HARNESS_VERSION`, et garde l'état.
+D'ici là, l'ancien plugin `odoo-harness-<N>` continue de piloter le projet et le nouveau ne
+s'en mêle pas. Les anciens plugins restent dans la marketplace, marqués obsolètes, jusqu'à la
+migration de tous les projets ; désinstallez le vôtre ensuite :
+`claude plugin uninstall odoo-harness-<N>@odoo-harness`.
+
+**Une autre version d'Odoo.** Passer un projet d'une version d'Odoo à la suivante est une
+migration, pas une mise à jour : changez `ODOO_VERSION` et `ODOO_IMAGE` dans
+`harness/harness.env`, puis suivez `references/migrations.md` du guide de la nouvelle version
+dans le skill `odoo`.
 
 ## Désinstallation
 
-- Le désactiver pour vous dans un projet : `claude plugin disable odoo-harness-<N>@odoo-harness --scope local`
-- Désinstaller le plugin : `claude plugin uninstall odoo-harness-<N>@odoo-harness`
-  (`--scope project` le retire du `.claude/settings.json` du projet pour tout le monde)
+- Le désactiver pour vous dans un projet : `claude plugin disable odoo-harness@odoo-harness --scope local`
+- Désinstaller le plugin : `claude plugin uninstall odoo-harness@odoo-harness`, puis supprimer
+  `~/.odoo-harness/` et `~/.local/bin/odoo-harness`
 - Retirer la marketplace et tous les plugins installés depuis elle : `claude plugin marketplace remove odoo-harness`
 
-Désinstaller le plugin ne modifie pas votre dépôt Odoo. Pour en retirer le harness :
+Désinstaller le plugin ne touche pas à vos dépôts Odoo. Pour retirer le harness de l'un d'eux :
 
 1. Supprimez le bloc entre `<!-- odoo-harness:start -->` et `<!-- odoo-harness:end -->` dans `CLAUDE.md`.
-2. Dans `.claude/settings.json`, retirez `odoo-harness-<N>@odoo-harness` de `enabledPlugins`,
-   `odoo-harness` de `extraKnownMarketplaces`, et les règles de permission du harness dont vous ne voulez plus.
-3. Arrêtez les conteneurs du harness :
-   `docker compose --project-directory . -f harness/docker-compose.yml --env-file harness/harness.env down`
-   (ajoutez `-v` seulement pour supprimer les volumes de la base de test).
-4. Supprimez `harness/`, `.harness/`, et les fichiers ajoutés par le harness que vous ne gardez
-   pas : `e2e/`, et `.pylintrc` / `.pre-commit-config.yaml` si c'est le harness qui les a créés.
-5. Gardez ou archivez `PROGRESS.md`, `DECISIONS.md`, `feature_list.json`, `BOOTSTRAP.md` et
-   `ARCHITECTURE.md` : c'est l'historique et la carte du projet.
+2. Dans `.claude/settings.json`, retirez `odoo-harness@odoo-harness` de `enabledPlugins`,
+   `odoo-harness` de `extraKnownMarketplaces`, et les règles de permissions du harness dont
+   vous ne voulez plus.
+3. Arrêtez les conteneurs : `odoo-harness compose down` (ajoutez `-v` seulement pour supprimer
+   les volumes de la base de test), avant de désinstaller le plugin.
+4. Supprimez `harness/`, `.harness/`, et les fichiers ajoutés par le harness que vous ne
+   gardez pas : `e2e/`, `.pylintrc`, `.pre-commit-config.yaml`.
+5. Gardez ou archivez `PROGRESS.md`, `DECISIONS.md`, `feature_list.json` et `BOOTSTRAP.md` :
+   c'est l'historique du projet.
 
-## État
-Les phases 1 à 7 sont en place : harness de base, machine à états et vérification en 3 couches, hooks de session automatiques, le skill Odoo par version, la boucle revue → vérification, la boucle autonome, et le mode projet complet (détection, découverte, tâches Odoo, merge requests). Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour le plan
-complet et [PROGRESS.md](PROGRESS.md) pour l'état actuel.
+## Comment c'est vérifié
+
+À chaque push, pour chaque version d'Odoo (17.0 à 20.0) :
+- la suite de tests (la commande `odoo-harness`, les hooks, la machine à états, les couches de
+  vérification, les règles de version, l'installateur et la migration) ;
+- `skill-check` : le guide de la version dans le skill `odoo` contre les faits extraits du
+  code `odoo/odoo` correspondant ;
+- `odoo-e2e` : un projet de démo contre un vrai Odoo, PostgreSQL et Playwright dans Docker,
+  piloté par `odoo-harness` ; une fonctionnalité passe à `passing`, puis un bug injecté doit
+  faire échouer la vérification avec un message au stylo rouge.
+
+## Maintenance
+
+Tout vit sur `main`. Ce qui dépend de la version est une donnée : `versions.json` (les
+versions prises en charge et leur image PostgreSQL) et `skills/odoo/versions/<version>/`. Pour
+prendre en charge une nouvelle version d'Odoo, ajoutez-la à `versions.json`, écrivez son guide
+(lancez `tools/odoo-skill-extract/` sur son code), et ajoutez-la à la matrice de la CI. Les
+branches `17.0`...`20.0` sont figées : elles ne servent que les anciens plugins par version.
+
+Augmentez `engine/VERSION` dès qu'un changement peut modifier un verdict ou une commande du
+moteur (couches de vérification, vérifications, stylos rouges, règles des fonctionnalités).
+C'est la seule version du moteur : `plugin.json` n'en a volontairement pas. Le prochain
+`/odoo-harness:update` d'un projet relève son `HARNESS_VERSION` à cette valeur.
+Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour la conception.

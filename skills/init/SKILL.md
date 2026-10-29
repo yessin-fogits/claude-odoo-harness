@@ -23,9 +23,10 @@ Arguments given: `$ARGUMENTS`
    - otherwise `git/` is the root of a git repository (fogits workspace): `REPO` is `git`
      and the workspace is `.`;
    - otherwise ask the user which folder holds the Odoo repository.
-   With a workspace, every command below runs from the workspace with `REPO` as the path
-   (`git/harness/init.sh`, `python3 git/harness/project_map.py`, `git -C git log`), and the
-   paths the harness prints are relative to `REPO`.
+   `odoo-harness` finds `REPO` from the workspace by itself; run git as `git -C git ...`.
+   The paths the harness prints are relative to `REPO`.
+   If `REPO/harness/feature.py` exists, the project has the old vendored harness: stop and
+   run the `update` skill instead (it migrates the project).
 1. Detect the layout:
    ```
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/detect_project.py" REPO
@@ -36,28 +37,36 @@ Arguments given: `$ARGUMENTS`
    - custom addon folders (the project's code, the only code you will change);
    - third-party addon folders (OCA and vendors, read-only);
    - the Odoo Enterprise checkout (default `../enterprise`) and the base branch (`staging`).
-   Fix anything wrong with the installer options below. If the project runs another Odoo
-   version than this plugin, stop and tell the user which plugin to install
-   (`odoo-harness-<major>@odoo-harness`).
+   - the Odoo version (from the Dockerfile; ask when it was not detected).
+   Fix anything wrong with the installer options below. If the project runs an Odoo version
+   the harness does not support (`versions.json`), stop and tell the user.
 3. Install:
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO [--workspace .] \
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO [--odoo-version 18.0] \
      [--custom-addons a,b] [--third-party-addons x] [--enterprise-dir ../enterprise] \
      [--dockerfile Dockerfile] [--base-branch staging]
    ```
-   Pass `--workspace .` when Claude Code runs in the workspace: it writes the workspace's
-   `CLAUDE.md` (it imports `REPO/CLAUDE.md`) and `.claude/settings.json` (the same
-   permissions and the plugin enabled). They are not versioned; each developer gets them
-   from this skill or from `update`.
+   It writes the project's state and configuration only (no copy of the engine: the
+   `odoo-harness` command of this plugin runs it). Nothing is written in the workspace.
    Show the report (created / merged / kept). Files reported `kept` were not touched.
+   Then check the command works: `odoo-harness where` (it prints the repository, the engine
+   and the Odoo version). If `odoo-harness` is not found, use
+   `"${CLAUDE_PLUGIN_ROOT}/bin/odoo-harness"` for this session and tell the user that a new
+   session puts it on the PATH.
+3b. **Once per machine**, if `~/.claude/settings.json` does not allow it yet: ask the user
+   whether to allow the `odoo-harness` command in their user settings, so sessions started in
+   any client workspace do not ask for permission at each harness command. Only on a yes:
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" --allow-command
+   ```
 4. Decide which path applies: **existing project** when the custom folders already hold
    modules or the git history has feature work, otherwise **new project**. Tell the user.
 
 ## Discovery (existing project only)
 The goal: the next session, human or agent, understands the project from the repository alone.
 
-1. **Facts.** Run `python3 harness/project_map.py` (modules, models defined and extended,
-   dependencies between custom modules, tests) and `python3 harness/static_checks.py --all`
+1. **Facts.** Run `odoo-harness map` (modules, models defined and extended,
+   dependencies between custom modules, tests) and `odoo-harness static --all`
    (debt over the whole project). Do not fix anything now.
 2. **Reading.** For each custom module, read its manifest, models and main views, and write
    one plain sentence: what it does for the user. With many modules, use the `odoo-explorer`
@@ -66,7 +75,7 @@ The goal: the next session, human or agent, understands the project from the rep
    messages (`git log --oneline -30`), branch names (`git branch -r`).
 3. **ARCHITECTURE.md.** Fill every section of `ARCHITECTURE.md`: the project, runtime and
    deployment (Dockerfile, compose files, configs, CI, git flow), one line per module, then the
-   facts from `harness/project_map.py`, the dependency graph and what to watch, and the risks
+   facts from `odoo-harness map`, the dependency graph and what to watch, and the risks
    and debt. Debt includes modules without tests, findings of `--all` (group them; list
    hard-coded secrets first, without their values), version problems, and unfinished
    branches. Facts come from the tools and the code, never from memory.
@@ -108,7 +117,7 @@ instead of keeping two. Show the section to the user; initialization does not fi
 `TODO` line is left in it.
 
 ## Step 1: executable environment
-Run `harness/init.sh`. It builds the project image, starts the harness stack (its own
+Run `odoo-harness init`. It builds the project image, starts the harness stack (its own
 database and port, never the dev stack), installs every custom module on a fresh test
 database with demo data, then runs the baseline verification. It must end with
 `✓ baseline OK`.
@@ -123,7 +132,7 @@ Every level of the validation hierarchy needs at least one test that passes in t
 - level 3 e2e: a Playwright test in `e2e/` (`e2e/test_smoke.py` is installed).
 If a level has no test yet, write the smallest meaningful one in the most central custom module
 (for example: its main model can be created, its main menu opens). Existing modules without
-tests are debt, not a blocker. Then `harness/init.sh` must reach `✓ baseline OK`.
+tests are debt, not a blocker. Then `odoo-harness init` must reach `✓ baseline OK`.
 
 ## Step 3: bootstrap contract
 Open `BOOTSTRAP.md` and check every value against what you observed (image, addon folders,
@@ -139,7 +148,7 @@ observable by a user and checkable by an e2e test, with:
 - `behavior`: one sentence, what a user can do or see;
 - `verification`: the unit/integration test and the e2e test that prove it.
 Present the list to the user, grouped by task. After approval, add each feature with
-`harness/feature.py add --task <code> ...` (never by editing `feature_list.json`). Tick box 4
+`odoo-harness feature add --task <code> ...` (never by editing `feature_list.json`). Tick box 4
 in `BOOTSTRAP.md`.
 
 ## Finish

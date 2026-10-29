@@ -155,6 +155,6 @@ def test_invalid_json_gives_red_pen(hrepo):
 
 def test_status_points_to_next_action(hrepo):
     add_feature(hrepo)
-    assert "Next: harness/feature.py start F-001" in hrepo.feature("status").stdout
+    assert "Next: odoo-harness feature start F-001" in hrepo.feature("status").stdout
     hrepo.feature("start", "F-001")
-    assert "harness/feature.py verify F-001" in hrepo.feature("status").stdout
+    assert "odoo-harness feature verify F-001" in hrepo.feature("status").stdout

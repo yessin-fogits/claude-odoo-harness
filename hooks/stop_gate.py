@@ -27,7 +27,7 @@ AUTO_NOTE = "<!-- Rewritten automatically by the harness at the end of each sess
 def test_status(root):
     report = c.load_json(root / ".harness" / "last-verify.json", None)
     if not report:
-        return "not run yet (harness/verify.sh or harness/feature.py verify)"
+        return "not run yet (odoo-harness verify or odoo-harness feature verify)"
     layers = report.get("layers", {})
     details = []
     for name in ("static", "runtime", "system"):
@@ -85,15 +85,15 @@ def session_changed_code(root, env, session):
 def main():
     payload = c.read_input()
     root = c.project_dir(payload)
-    if not c.has_harness(root):
+    if not c.active(root):
         sys.exit(0)
     env = c.load_env(root)
     progress_path = root / "PROGRESS.md"
     progress = progress_path.read_text() if progress_path.is_file() else "# Progress\n"
 
-    static_rc, static_out = c.run(root, [sys.executable, "harness/static_checks.py"], timeout=60)
+    static_rc, static_out = c.run(root, c.engine("static_checks.py"), timeout=60)
     static_count = static_out.count("\n✗ [") + static_out.startswith("✗ [")
-    check_rc, check_out = c.run(root, [sys.executable, "harness/feature.py", "check"], timeout=30)
+    check_rc, check_out = c.run(root, c.engine("feature.py", "check"), timeout=30)
 
     dirty = [ln for ln in c.git(root, "status", "--porcelain").splitlines() if ln.strip()]
     last_commit = c.git(root, "log", "-1", "--format=%h %s (%cr)") or "(none yet)"

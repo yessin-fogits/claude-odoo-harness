@@ -5,9 +5,9 @@ import sys
 
 import pytest
 
-from conftest import ODOO_VERSION, ROOT, add_feature
+from conftest import CLI, ODOO_VERSION, ROOT, add_feature
 
-HARNESS = ROOT / "template" / "harness"
+HARNESS = ROOT / "engine"
 
 
 def load(name):
@@ -128,7 +128,7 @@ def test_static_checks_only_cover_changed_modules(hrepo):
     result = hrepo.verify("--only", "1")
     assert result.returncode == 0, result.stderr
     assert "no custom module changed" in result.stdout
-    debt = hrepo.run(sys.executable, "harness/static_checks.py", "--all")
+    debt = hrepo.run(CLI, "static", "--all")
     assert debt.returncode == 1 and "legacy_mod/__init__.py:1" in debt.stderr
     touch(hrepo, "extra-addons/client/legacy_mod/__init__.py")
     result = hrepo.verify("--only", "1")
@@ -218,7 +218,7 @@ def test_missing_feature_e2e_file_is_reported(hrepo):
 
 
 def test_verify_sh_wrapper(hrepo):
-    result = hrepo.run("harness/verify.sh", "--only", "1")
+    result = hrepo.run(CLI, "verify", "--only", "1")
     assert result.returncode == 0, result.stderr
 
 
@@ -304,10 +304,10 @@ def test_older_findings_in_a_touched_module_are_debt_not_blockers(hrepo):
     result = hrepo.verify("--only", "1", fake_pylint_out=lint.splitlines()[0] + "\n")
     assert result.returncode == 0, result.stderr
     # the hooks' command line follows the same rule; --all still lists everything
-    assert hrepo.run(sys.executable, "harness/static_checks.py").returncode == 0
-    assert hrepo.run(sys.executable, "harness/static_checks.py", "--all").returncode == 1
+    assert hrepo.run(CLI, "static").returncode == 0
+    assert hrepo.run(CLI, "static", "--all").returncode == 1
     thing.write_text(thing.read_text() + "breakpoint()\n")
-    result = hrepo.run(sys.executable, "harness/static_checks.py")
+    result = hrepo.run(CLI, "static")
     assert result.returncode == 1 and "no-debug-leftovers" in result.stderr
 
 
@@ -321,5 +321,5 @@ def test_project_rcfile_and_odoo_version_are_passed_to_pylint(hrepo):
     assert "--rcfile=.pylintrc-mandatory" in lint
     assert f"--valid-odoo-versions={ODOO_VERSION}" in lint
     assert any("unknown-option-value" in a for a in lint)
-    debt = hrepo.run(sys.executable, "harness/static_checks.py", "--all")
+    debt = hrepo.run(CLI, "static", "--all")
     assert "lint config validates Odoo 11.0" in debt.stderr

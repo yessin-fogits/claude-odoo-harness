@@ -1,7 +1,8 @@
 """Shared helpers for the odoo-harness hooks.
 
-Hooks are thin: they read the hook JSON on stdin, find the project's harness and
-call its scripts. In a project without the harness they do nothing.
+Hooks are thin: they read the hook JSON on stdin, find the project's harness and call the
+engine of this plugin on it. The plugin is installed once per machine, so the hooks run in
+every session: in a folder without the harness they do nothing, after a cheap file check.
 """
 
 import json
@@ -19,6 +20,8 @@ def read_input():
 
 
 WORKSPACE_REPO = "git"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+ENGINE_DIR = PLUGIN_ROOT / "engine"
 
 
 def launch_dir(payload):
@@ -48,7 +51,26 @@ def project_dir(payload):
 
 
 def has_harness(root):
-    return (root / "harness" / "feature.py").is_file() and (root / "feature_list.json").exists()
+    """The marker of a repository with the harness: its settings and its feature list."""
+    return (root / "harness" / "harness.env").is_file() and (root / "feature_list.json").exists()
+
+
+def is_legacy(root):
+    """A repository that still carries the engine copy of the old vendored harness (< 2.0).
+    The old per-version plugin drives it until /odoo-harness:update migrates it."""
+    return (root / "harness" / "feature.py").is_file()
+
+
+def active(root):
+    """True when this plugin drives the repository: the harness is there, without the old
+    vendored engine (that one is still driven by the old plugin until it is migrated)."""
+    return has_harness(root) and not is_legacy(root)
+
+
+def engine(script, *args):
+    """The command line of an engine script; run it with run(root, ...)."""
+    interpreter = ["bash"] if script.endswith(".sh") else [sys.executable]
+    return [*interpreter, str(ENGINE_DIR / script), *map(str, args)]
 
 
 def tool_path(payload, path):
@@ -85,10 +107,15 @@ def env_paths(env, key):
 
 
 def run(root, args, timeout=60):
-    """Run a project command; returns (rc, combined output). Never raises."""
+    """Run a project command; returns (rc, combined output). Never raises.
+
+    The engine finds the repository through HARNESS_REPO (see engine/cli.py)."""
+    env = {**os.environ, "HARNESS_REPO": str(root),
+           "PATH": os.pathsep.join([str(PLUGIN_ROOT / "bin"), os.environ.get("PATH", "")])}
     try:
-        proc = subprocess.run(args, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, timeout=timeout, errors="replace")
+        proc = subprocess.run(args, cwd=root, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, timeout=timeout,
+                              errors="replace")
         return proc.returncode, proc.stdout.strip()
     except subprocess.TimeoutExpired:
         return 124, f"timed out after {timeout}s: {' '.join(map(str, args))}"

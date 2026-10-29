@@ -1,0 +1,92 @@
+{
+  "name": "odoo-harness",
+  "description": "Claude Code harness for Odoo projects: one plugin for Odoo 17.0 to 20.0, installed once per machine.",
+  "owner": {
+    "name": "yessin-fogits"
+  },
+  "plugins": [
+    {
+      "name": "odoo-harness",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",
+        "ref": "main"
+      },
+      "description": "Harness for Odoo 17.0 to 20.0 projects, installed once per machine: the odoo-harness command (state files, WIP=1 features, 3-layer verification with pylint-odoo, Odoo tests and Playwright), automatic session hooks, an Odoo skill per version.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-17",
+        "odoo-18",
+        "odoo-19",
+        "odoo-20",
+        "harness",
+        "testing"
+      ]
+    },
+    {
+      "name": "odoo-harness-17",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",
+        "ref": "17.0"
+      },
+      "description": "Deprecated: use odoo-harness (one plugin for every Odoo version, installed once per machine). Kept so projects still on the vendored harness keep working until /odoo-harness:update migrates them. Odoo 17.0.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-17",
+        "testing",
+        "deprecated"
+      ]
+    },
+    {
+      "name": "odoo-harness-18",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",
+        "ref": "18.0"
+      },
+      "description": "Deprecated: use odoo-harness (one plugin for every Odoo version, installed once per machine). Kept so projects still on the vendored harness keep working until /odoo-harness:update migrates them. Odoo 18.0.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-18",
+        "testing",
+        "deprecated"
+      ]
+    },
+    {
+      "name": "odoo-harness-19",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",
+        "ref": "19.0"
+      },
+      "description": "Deprecated: use odoo-harness (one plugin for every Odoo version, installed once per machine). Kept so projects still on the vendored harness keep working until /odoo-harness:update migrates them. Odoo 19.0.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-19",
+        "testing",
+        "deprecated"
+      ]
+    },
+    {
+      "name": "odoo-harness-20",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",
+        "ref": "20.0"
+      },
+      "description": "Deprecated: use odoo-harness (one plugin for every Odoo version, installed once per machine). Kept so projects still on the vendored harness keep working until /odoo-harness:update migrates them. Odoo 20.0.",
+      "category": "development",
+      "tags": [
+        "odoo",
+        "odoo-20",
+        "testing",
+        "deprecated"
+      ]
+    }
+  ]
+}

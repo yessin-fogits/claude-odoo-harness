@@ -14,16 +14,16 @@ step with screenshots, and the technical details they need to find it in the cod
 written in French. It is a PDF committed in the project repository: `docs/guides/<task>.pdf`.
 
 `REPO` below is the repository: `.` when Claude Code runs in it, `git` when it runs in the
-client workspace (`~/Project/<client>`, with the repository in `git/`). Run the commands
-with the `REPO` path (`git/harness/guide.py`).
+client workspace (`~/Project/<client>`, with the repository in `git/`). `odoo-harness` finds
+it from either folder; file paths below are relative to `REPO`.
 
-If $ARGUMENTS is empty or is not a task code, run `harness/feature.py status`, ask which
+If $ARGUMENTS is empty or is not a task code, run `odoo-harness feature status`, ask which
 task, and stop.
 
 ## 1. Capture: the gate and the screenshots
 
 ```
-harness/guide.py capture <task>
+odoo-harness guide capture <task>
 ```
 
 It refuses a task that is not completed (a feature not passing, invalid evidence, a feature
@@ -72,7 +72,7 @@ Rules:
 ## 4. Build the PDF
 
 ```
-harness/guide.py build <task>
+odoo-harness guide build <task>
 ```
 
 It writes `docs/guides/<task>.pdf` and records the guide in `docs/guides/guides.json`.
@@ -84,5 +84,5 @@ Commit the two files with the message `build` printed (`[<task>] Guide utilisate
 Then tell the user, in their language: the PDF path, how many features and screenshots
 it has, and any test that had no `guide.step()`.
 
-`harness/guide.py check` lists the guides made stale by a later change (a feature
+`odoo-harness guide check` lists the guides made stale by a later change (a feature
 verified again or reopened). A stale guide is regenerated with this skill.

@@ -12,22 +12,20 @@ caller needs to write correct inheritance for the project's Odoo version.
 1. **The project**: custom modules are in the `CUSTOM_ADDONS` folders of
    `harness/harness.env`, third-party addons (OCA) in `THIRD_PARTY_ADDONS`, Odoo Enterprise
    in `ENTERPRISE_DIR` (outside the repository, usually `../enterprise`): search them with
-   Grep and Read directly. `python3 harness/project_map.py` lists the custom modules with
+   Grep and Read directly. `odoo-harness map` lists the custom modules with
    the models they define and extend and their dependencies; `ARCHITECTURE.md` describes them.
 2. **The Odoo source of the project's version**: it is inside the `odoo` container.
    Find its path once:
 
    ```
-   docker compose --project-directory . -f harness/docker-compose.yml \
-     --env-file harness/harness.env run --rm -T --entrypoint python3 odoo \
+   odoo-harness compose run --rm -T --entrypoint python3 odoo \
      -c "import odoo, os; print(os.path.dirname(odoo.__file__))"
    ```
 
    Then search it with the same container, for example:
 
    ```
-   docker compose --project-directory . -f harness/docker-compose.yml \
-     --env-file harness/harness.env run --rm -T --entrypoint grep odoo \
+   odoo-harness compose run --rm -T --entrypoint grep odoo \
      -rn 'id="view_order_form"' <odoo path>/addons/sale/views/
    ```
 

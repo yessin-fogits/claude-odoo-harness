@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from conftest import TESTS, add_feature
+from conftest import CLI, TESTS, add_feature
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def loop_repo(hrepo, tmp_path):
 
 
 def loop(repo, *args, **fake):
-    return repo.run(sys.executable, "harness/loop.py", "run", *args, **fake)
+    return repo.run(CLI, "loop", "run", *args, **fake)
 
 
 def with_feature(repo, *behaviors):
@@ -121,9 +121,9 @@ def test_works_on_a_new_branch(loop_repo):
 
 
 def test_status(loop_repo):
-    assert "No loop run yet" in loop_repo.run(sys.executable, "harness/loop.py", "status").stdout
+    assert "No loop run yet" in loop_repo.run(CLI, "loop", "status").stdout
     loop(loop_repo, fake_maker="fix")
-    assert '"stopped"' in loop_repo.run(sys.executable, "harness/loop.py", "status").stdout
+    assert '"stopped"' in loop_repo.run(CLI, "loop", "status").stdout
 
 
 def test_maker_that_verifies_itself_is_verified_again(loop_repo):

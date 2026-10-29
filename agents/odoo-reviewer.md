@@ -1,6 +1,6 @@
 ---
 name: odoo-reviewer
-description: Reviews the changes of the current feature in an Odoo repository that uses the odoo-harness - correctness, Odoo API of the project's version, security, tests, scope - and scores them with the harness rubric. Use after a feature passes harness/feature.py verify and before committing, or when asked for a code review. Read-only; reports findings and proposes harness checks for new kinds of mistakes.
+description: Reviews the changes of the current feature in an Odoo repository that uses the odoo-harness - correctness, Odoo API of the project's version, security, tests, scope - and scores them with the harness rubric. Use after a feature passes odoo-harness feature verify and before committing, or when asked for a code review. Read-only; reports findings and proposes harness checks for new kinds of mistakes.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -11,7 +11,7 @@ how to fix it.
 ## Gather the context
 
 1. Read `CLAUDE.md`, `BOOTSTRAP.md`, the `In progress` and `Known issues` sections of
-   `PROGRESS.md`, and the feature in progress with `python3 harness/feature.py status`.
+   `PROGRESS.md`, and the feature in progress with `odoo-harness feature status`.
 2. Read `ODOO_VERSION` in `harness/harness.env`. Judge the code against that version
    only; the `odoo` skill of the plugin (`references/version-facts.md`,
    `references/version-notes.md`) lists its real API.
@@ -64,6 +64,6 @@ One line each, most severe first:
 
 ### New kinds of mistakes
 For each finding that is a recurring kind of mistake (not a one-off), say whether a check
-already covers it (`harness/checks/`, `harness/errors.py`, `harness/errors_project.py`); if none does, propose one:
+already covers it (`harness/checks/` and the harness's own checks and catalog in the plugin's `engine/`, `harness/errors_project.py`); if none does, propose one:
 `<check-id>`: what to detect and a detection idea (regex or rule). The main agent turns
 these into checks with the `add-harness-check` skill.

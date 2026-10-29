@@ -2,9 +2,16 @@ name: ci
 on:
   push:
   pull_request:
+# One plugin serves every Odoo version (versions.json): each job runs once per version.
 jobs:
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
+    env:
+      HARNESS_TEST_ODOO_VERSION: ${{ matrix.odoo }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,50 +22,37 @@ jobs:
       - run: python -m pytest -q
 
   skill-check:
-    # The odoo skill of this branch must match the real Odoo source of its version.
+    # The guide of each version in the odoo skill must match the real Odoo source of it.
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Fetch the Odoo source of this branch's version
-        run: |
-          version=$(python -c "import json; print(json.load(open('odoo_version.json'))['odoo_version'])")
-          tools/odoo-skill-extract/fetch_odoo.sh "$version" "$RUNNER_TEMP/odoo"
-          python tools/odoo-skill-extract/extract.py "$RUNNER_TEMP/odoo" -o "$RUNNER_TEMP/facts.json"
-      - name: Check the skill against the facts
-        run: |
-          if [ -f skills/odoo/SKILL.md ]; then
-            python tools/odoo-skill-extract/check_skill.py "$RUNNER_TEMP/facts.json" skills/odoo
-          else
-            echo "no odoo skill on this branch"
-          fi
-
-  branches:
-    # Shared harness files are identical on all version branches.
-    # Only a push to a version branch fails until every branch has the change.
-    # Pull requests and work branches are not merged nor forward-ported yet,
-    # so there the check only warns.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run tools/check_branches.sh
+      - name: Fetch the Odoo source of the version
         env:
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref_name }}
+          VERSION: ${{ matrix.odoo }}
         run: |
-          case "$EVENT:$REF" in
-            push:17.0|push:18.0|push:19.0|push:20.0) tools/check_branches.sh ;;
-            *) tools/check_branches.sh --warn ;;
-          esac
+          tools/odoo-skill-extract/fetch_odoo.sh "$VERSION" "$RUNNER_TEMP/odoo"
+          python tools/odoo-skill-extract/extract.py "$RUNNER_TEMP/odoo" -o "$RUNNER_TEMP/facts.json"
+      - name: Check the guide against the facts
+        env:
+          VERSION: ${{ matrix.odoo }}
+        run: python tools/odoo-skill-extract/check_skill.py "$RUNNER_TEMP/facts.json" "skills/odoo/versions/$VERSION"
 
   odoo-e2e:
-    # The harness on a demo project against real Odoo + PostgreSQL + Playwright (Docker).
+    # The harness on a demo project against real Odoo + PostgreSQL + Playwright (Docker),
+    # driven by the odoo-harness command as a developer runs it.
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0", "19.0", "20.0"]
     defaults:
       run:
         working-directory: ${{ github.workspace }}/demo
@@ -67,25 +61,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Put odoo-harness on the PATH
+        working-directory: ${{ github.workspace }}
+        run: echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
       - name: Build the demo project
         working-directory: ${{ github.workspace }}
-        run: python tools/make_demo_project.py demo
-      - name: "Initialization step 1: harness/init.sh (baseline verification)"
-        run: harness/init.sh
+        env:
+          VERSION: ${{ matrix.odoo }}
+        run: python tools/make_demo_project.py demo --odoo-version "$VERSION"
+      - name: "Initialization step 1: odoo-harness init (baseline verification)"
+        run: odoo-harness init
       - name: Feature F-001 (task T0001) reaches passing on its task branch
         run: |
           git config user.name ci && git config user.email ci@example.com
-          python3 harness/feature.py start F-001
+          odoo-harness feature start F-001
           test "$(git symbolic-ref --short HEAD)" = T0001
           # the feature's change: L1 lints the changed module with the project's rcfile
           echo "# F-001" >> extra-addons/demo/demo_mod/models/thing.py
-          python3 harness/feature.py verify F-001
-          python3 harness/feature.py check
+          odoo-harness feature verify F-001
+          odoo-harness feature check
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
           git add -A && git commit -q -m "[T0001] F-001 A user creates a demo thing and finds it in the list"
       - name: User guide of the completed task T0001 (French PDF from the replayed e2e test)
         run: |
-          python3 harness/guide.py capture T0001
+          odoo-harness guide capture T0001
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -100,17 +99,17 @@ jobs:
           p.write_text(json.dumps(c, ensure_ascii=False))
           PY
           python3 -c "import json, sys; m = json.load(open('.harness/guide/T0001/steps.json')); sys.exit(len(m['features'][0]['tests'][0]['steps']) != 3)"
-          python3 harness/guide.py build T0001
+          odoo-harness guide build T0001
           head -c 5 docs/guides/T0001.pdf | grep -q "%PDF"
           git add -A && git commit -q -m "[T0001] Guide utilisateur"
-          python3 harness/guide.py check
+          odoo-harness guide check
       - name: Project map and debt report (discovery tools)
         run: |
-          python3 harness/project_map.py
-          python3 harness/static_checks.py --all || true
+          odoo-harness map
+          odoo-harness static --all || true
       - name: An injected bug fails verification with a red-pen message
         run: |
-          python3 harness/feature.py start F-001 --reopen
+          odoo-harness feature start F-001 --reopen
           python3 - <<'PY'
           from pathlib import Path
           p = Path("extra-addons/demo/demo_mod/models/thing.py")
@@ -125,7 +124,7 @@ jobs:
           p.write_text(s)
           PY
           log="$RUNNER_TEMP/verify.log"
-          if python3 harness/feature.py verify F-001 > "$log" 2>&1; then
+          if odoo-harness feature verify F-001 > "$log" 2>&1; then
             cat "$log"; echo "verify passed although the code is broken"; exit 1
           fi
           cat "$log"
@@ -135,12 +134,12 @@ jobs:
           python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
       - name: Odoo server log
         if: failure()
-        run: docker compose --project-directory . -f harness/docker-compose.yml --env-file harness/harness.env logs --no-color --tail 300 odoo
+        run: odoo-harness compose logs --no-color --tail 300 odoo
       - name: Upload the harness runs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: harness-runs-${{ github.run_id }}-${{ github.run_attempt }}
+          name: harness-runs-${{ matrix.odoo }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ github.workspace }}/demo/.harness/
           if-no-files-found: ignore
           include-hidden-files: true

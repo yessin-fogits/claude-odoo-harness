@@ -1,6 +1,9 @@
 import json
+import os
+import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +17,9 @@ def hook(repo_or_dir, name, payload):
     env = dict(getattr(repo_or_dir, "env", {}))
     env["CLAUDE_PROJECT_DIR"] = str(path)
     env.setdefault("PATH", "/usr/bin:/bin")
+    # never the real ~/.odoo-harness and ~/.local/bin (conftest.harness_home)
+    for key in ("ODOO_HARNESS_HOME", "ODOO_HARNESS_BIN"):
+        env[key] = os.environ[key]
     result = subprocess.run([sys.executable, str(HOOKS / f"{name}.py")], input=json.dumps(payload),
                             capture_output=True, text=True, cwd=path, env=env)
     assert result.returncode == 0, result.stderr
@@ -110,7 +116,7 @@ def test_compaction_keeps_the_session_snapshot(hrepo):
 def test_guard_denies_feature_list_edits(hrepo, tool, field):
     out = pre(hrepo, tool, **{field: str(hrepo.path / "feature_list.json")})
     assert denied(out)
-    assert "harness/feature.py" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "odoo-harness feature" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_guard_denies_evidence_edits(hrepo):
@@ -305,3 +311,81 @@ def test_stop_ignores_changes_made_before_the_session(hrepo):
     thing.write_text(thing.read_text() + "\n# changed during the session\n")
     out = stop(hrepo)
     assert out["decision"] == "block" and "extra-addons/client/demo_mod/models/thing.py" in out["reason"]
+
+
+# --- one plugin, installed once per machine -------------------------------------------
+
+def test_session_start_names_the_version_and_its_guide(hrepo):
+    from conftest import ODOO_VERSION
+    context = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    guide = ROOT / "skills" / "odoo" / "versions" / ODOO_VERSION / "GUIDE.md"
+    assert f"Odoo version: {ODOO_VERSION}." in context and str(guide) in context
+
+
+def test_session_start_puts_the_command_on_the_bash_path(hrepo, tmp_path):
+    env_file = tmp_path / "claude.env"
+    hrepo.env["CLAUDE_ENV_FILE"] = str(env_file)
+    start_session(hrepo)
+    assert f'export PATH="{ROOT / "bin"}:$PATH"' in env_file.read_text()
+
+
+def test_session_start_refreshes_the_stable_path(tmp_path):
+    hook(tmp_path, "session_start", {"hook_event_name": "SessionStart", "source": "startup"})
+    current = Path(os.environ["ODOO_HARNESS_HOME"]) / "current"
+    shim = Path(os.environ["ODOO_HARNESS_BIN"]) / "odoo-harness"
+    assert current.resolve() == ROOT
+    assert shim.resolve() == (ROOT / "bin" / "odoo-harness").resolve()
+
+
+def test_session_start_warns_when_the_engine_is_older_than_the_pin(hrepo):
+    env = hrepo.path / "harness/harness.env"
+    env.write_text(re.sub(r"^HARNESS_VERSION=.*$", "HARNESS_VERSION=99.0.0", env.read_text(),
+                          flags=re.M))
+    context = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "needs odoo-harness 99.0.0" in context and "claude plugin update" in context
+
+
+def odoo_repo(path):
+    module = path / "addons" / "my_mod"
+    module.mkdir(parents=True)
+    (module / "__manifest__.py").write_text("{'name': 'x'}")
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    return path
+
+
+def test_session_start_offers_init_once_in_an_odoo_repository(tmp_path):
+    repo = odoo_repo(tmp_path / "proj")
+    first = hook(repo, "session_start", {"hook_event_name": "SessionStart", "source": "startup"})
+    assert "/odoo-harness:init" in first["hookSpecificOutput"]["additionalContext"]
+    again = hook(repo, "session_start", {"hook_event_name": "SessionStart", "source": "startup"})
+    assert again is None
+
+
+def test_session_start_offers_nothing_outside_odoo(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "app.py").write_text("")
+    assert hook(tmp_path, "session_start", {"hook_event_name": "SessionStart"}) is None
+
+
+def make_legacy(repo):
+    (repo.path / "harness/feature.py").write_text("# old vendored copy\n")
+
+
+def test_hooks_stand_down_on_an_unmigrated_repository(hrepo):
+    make_legacy(hrepo)
+    context = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "/odoo-harness:update" in context and "## Features" not in context
+    # the old per-version plugin still guards it; this one does not answer twice
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "feature_list.json")) is None
+    assert stop(hrepo) is None
+
+
+@pytest.mark.parametrize("target", ["engine/verify.py", "hooks/stop_gate.py", "skills/odoo/SKILL.md"])
+def test_guard_denies_edits_of_the_engine(hrepo, target):
+    out = pre(hrepo, "Edit", file_path=str(ROOT / target))
+    assert denied(out) and "harness engine" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_guard_denies_edits_through_the_stable_path(hrepo):
+    home = Path(os.environ["ODOO_HARNESS_HOME"])
+    assert denied(pre(hrepo, "Write", file_path=str(home / "current" / "engine" / "hlib.py")))

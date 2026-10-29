@@ -1,52 +1,72 @@
 #!/usr/bin/env python3
-"""Install or update the odoo-harness template in an Odoo repository.
+"""Install or update the odoo-harness files of an Odoo repository.
 
     install_template.py TARGET [overrides]          first install (layout detected)
-    install_template.py TARGET --update             update the harness files
+    install_template.py TARGET --update             update the project's harness files, and
+                                                    migrate a project from the old vendored
+                                                    harness (before 2.0)
     install_template.py TARGET --show FILE          print a rendered template file
-    install_template.py TARGET --workspace DIR      also write the workspace files in DIR
-    install_template.py TARGET --workspace DIR --workspace-only
-                                                    only the workspace files (fresh clone)
+    install_template.py TARGET --workspace DIR      also clean the files the old harness
+                                                    generated in the client workspace DIR
+    install_template.py --allow-command             allow `odoo-harness` in the user's Claude
+                                                    Code settings (once per machine)
 
 TARGET is the root of an Odoo project repository. Its layout (custom and third-party
-addon folders, Odoo Enterprise, Dockerfile, base branch, GitLab project, deployment
-files) is detected by detect_project.py; the overrides replace what was detected.
+addon folders, Odoo Enterprise, Dockerfile, Odoo version, base branch, GitLab project,
+deployment files) is detected by detect_project.py; the overrides replace what was detected.
+
+The engine is not copied: it is installed once per machine with the plugin (engine/, run
+through the `odoo-harness` command). The repository gets only its state and configuration.
 
 Deterministic and idempotent. Files have an owner:
 - state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md, ARCHITECTURE.md):
   never overwritten;
 - project (harness.env, e2e/conftest.py, .pylintrc...): created once, then the project's;
-  --update keeps them and reports when the template changed;
-- harness (harness/*.py, *.sh, checks, docker files, harness/docker-compose.yml,
-  harness/odoo.conf): replaced by --update, rendered from harness.env;
+  --update keeps them and reports when the template changed. HARNESS_VERSION in harness.env
+  is raised to the installed engine's version by --update;
 - merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time. The
   `# This project` section of CLAUDE.md is the project's: added when missing, never changed.
 
 The workspace is the folder Claude Code is started in when it is not the repository
-itself: the fogits client folder ~/Project/<client>, with the repository in git/ and
-Odoo Enterprise in enterprise/. It gets a CLAUDE.md that imports the repository's
-CLAUDE.md and a .claude/settings.json with the same permissions, rooted at the
-repository, and the plugin enabled. Both are merged every time and are not versioned:
-the harness itself stays in the repository.
+itself: the fogits client folder ~/Project/<client>, with the repository in git/. Nothing is
+generated there any more: the hooks find git/ and load its CLAUDE.md themselves.
 """
 
 import argparse
 import datetime
 import json
+import os
 import re
 import shutil
-import stat
 import sys
 from pathlib import Path
 
-# The Odoo version this branch of the harness targets: the only per-branch file.
-_BRANCH = json.loads((Path(__file__).resolve().parent.parent / "odoo_version.json").read_text())
-ODOO_VERSION = _BRANCH["odoo_version"]
-POSTGRES_IMAGE = _BRANCH["postgres_image"]
+# The Odoo versions the harness supports, with their settings. The project's version is
+# data: detected from its Dockerfile, or given with --odoo-version.
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+VERSIONS = json.loads((PLUGIN_ROOT / "versions.json").read_text())
+ENGINE_VERSION = (PLUGIN_ROOT / "engine" / "VERSION").read_text().strip()
 DEFAULT_MARKETPLACE_REPO = "yessin-fogits/claude-odoo-harness"
+PLUGIN_ID = "odoo-harness@odoo-harness"
+# Plugins of the old one-plugin-per-version layout, and their permission rules.
+LEGACY_PLUGIN_RE = re.compile(r"^odoo-harness-\d+@odoo-harness$")
+LEGACY_RULE_RE = re.compile(r"^Bash\((?:\S+/)?harness/\w+\.(?:py|sh)[:)]|"
+                            r"^Bash\(python3? (?:\S+/)?harness/\w+\.py[:)]")
+# The engine files the old harness copied into harness/ (removed by --update).
+LEGACY_ENGINE_FILES = [f"harness/{name}" for name in (
+    "feature.py", "verify.py", "verify.sh", "init.sh", "lib.sh", "loop.py", "gitlab.py",
+    "guide.py", "guide_pdf.py", "project_map.py", "static_checks.py", "errors.py", "hlib.py",
+    "docker-compose.yml", "odoo.conf", "checks/model_access.py",
+    "checks/no_debug_leftovers.py", "checks/no_hardcoded_secrets.py",
+    "checks/odoo_version_api.py", "docker/e2e.Dockerfile", "docker/lint.Dockerfile",
+    "e2e_plugins/harness_guide.py")]
+# Entries of the old .pre-commit-config.yaml that ran the vendored scripts.
+LEGACY_PRECOMMIT = {"entry: python3 harness/feature.py check": "entry: odoo-harness feature check",
+                    "entry: python3 harness/static_checks.py": "entry: odoo-harness static"}
+WORKSPACE_BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?",
+                                re.S)
 
-TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "template"
-WORKSPACE_TEMPLATE = Path(__file__).resolve().parent.parent / "workspace" / "CLAUDE.md"
+TEMPLATE_DIR = PLUGIN_ROOT / "template"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import detect_project  # noqa: E402
 
@@ -67,7 +87,9 @@ ENV_KEY_RE = re.compile(r"^([A-Z_]+)=(.*)$")
 def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("target", type=Path, help="root of the Odoo repository")
+    p.add_argument("target", type=Path, nargs="?", help="root of the Odoo repository")
+    p.add_argument("--odoo-version", help=f"Odoo version of the project ({', '.join(VERSIONS)}; "
+                   "default: detected from its Dockerfile)")
     p.add_argument("--custom-addons", help="comma-separated folders of the project's modules")
     p.add_argument("--third-party-addons", help="comma-separated read-only addon folders (OCA...)")
     p.add_argument("--enterprise-dir", help="Odoo Enterprise checkout, relative to target "
@@ -79,17 +101,21 @@ def parse_args(argv):
     p.add_argument("--port", type=int, help="host port of the harness Odoo (default: 18069)")
     p.add_argument("--project-name", help="docker compose project name")
     p.add_argument("--marketplace-repo", default=DEFAULT_MARKETPLACE_REPO)
-    p.add_argument("--workspace", type=Path, help="folder Claude Code is started in, when it "
-                   "contains the repository (~/Project/<client> for TARGET ~/Project/<client>/git)")
-    p.add_argument("--workspace-only", action="store_true",
-                   help="only write the workspace files (an already installed harness)")
+    p.add_argument("--workspace", type=Path, help="client workspace containing the repository "
+                   "(~/Project/<client> for TARGET ~/Project/<client>/git): remove the files the "
+                   "old harness generated there")
+    p.add_argument("--allow-command", action="store_true",
+                   help="add Bash(odoo-harness:*) to the user's Claude Code settings and exit")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--force", action="store_true",
                       help="overwrite every existing file except state files")
     mode.add_argument("--update", action="store_true",
                       help="update the harness files, keep project and state files")
     mode.add_argument("--show", metavar="FILE", help="print the rendered template of FILE")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.target is None and not args.allow_command:
+        p.error("TARGET is required")
+    return args
 
 
 def read_env(path):
@@ -117,21 +143,23 @@ def clean_paths(raw, what, allow_outside=False):
 def build_context(args):
     target = args.target.resolve()
     existing = read_env(target / HARNESS_ENV)
-    if args.update:
-        if not existing:
-            raise SystemExit(f"{target / HARNESS_ENV} not found: --update needs an installed "
-                             "harness (run the init skill first)")
-        if existing.get("ODOO_VERSION") != ODOO_VERSION:
-            raise SystemExit(
-                f"this project targets Odoo {existing.get('ODOO_VERSION')} and this plugin "
-                f"Odoo {ODOO_VERSION}: that is a version migration, not an update. Update with "
-                f"the odoo-harness plugin of Odoo {existing.get('ODOO_VERSION')}.")
+    if args.update and not existing:
+        raise SystemExit(f"{target / HARNESS_ENV} not found: --update needs an installed "
+                         "harness (run the init skill first)")
     found = detect_project.detect(target)
-    if not existing and found["odoo_version"] and found["odoo_version"] != ODOO_VERSION:
+    version = existing.get("ODOO_VERSION")
+    if version and args.odoo_version and args.odoo_version != version:
         raise SystemExit(
-            f"this project runs Odoo {found['odoo_version']} ({found['dockerfile']}) and this "
-            f"plugin is for Odoo {ODOO_VERSION}: install odoo-harness-"
-            f"{found['odoo_version'].split('.')[0]}@odoo-harness instead.")
+            f"this project targets Odoo {version}: moving it to {args.odoo_version} is a "
+            "version migration, not an update. Change ODOO_VERSION and ODOO_IMAGE in "
+            "harness/harness.env and follow references/migrations.md of the odoo skill.")
+    version = version or args.odoo_version or found["odoo_version"]
+    if not version:
+        raise SystemExit("the Odoo version of this project was not detected (no Dockerfile "
+                         f"FROM odoo:<version>): pass --odoo-version ({', '.join(VERSIONS)})")
+    if version not in VERSIONS:
+        raise SystemExit(f"Odoo {version} is not supported by the harness "
+                         f"(supported: {', '.join(VERSIONS)})")
 
     def pick(arg, key, detected):
         """Command line, then the installed harness.env, then detection."""
@@ -156,21 +184,21 @@ def build_context(args):
     image = existing.get("ODOO_IMAGE", "")
     if not image or (dockerfile and image.startswith("odoo:")):
         # never build the project's Dockerfile into an official image name
-        image = f"{name}-odoo:local" if dockerfile else f"odoo:{ODOO_VERSION}"
-    mounts = [f"/mnt/repo/{p}" for p in (custom + "," + third).split(",") if p]
-    if enterprise:
-        mounts.append("/mnt/enterprise")
-    major = int(ODOO_VERSION.split(".")[0])
+        image = f"{name}-odoo:local" if dockerfile else f"odoo:{version}"
+    pinned = existing.get("HARNESS_VERSION", "")
+    if args.update and version_tuple(pinned) > version_tuple(ENGINE_VERSION):
+        raise SystemExit(f"this project needs odoo-harness {pinned} and the plugin is "
+                         f"{ENGINE_VERSION}: update the plugin first (claude plugin update "
+                         f"{PLUGIN_ID})")
     return target, {
-        "ODOO_VERSION": ODOO_VERSION,
+        "HARNESS_VERSION": ENGINE_VERSION,
+        "ODOO_VERSION": version,
         "ODOO_IMAGE": image,
         "ODOO_DOCKERFILE": dockerfile,
-        "POSTGRES_IMAGE": existing.get("POSTGRES_IMAGE", POSTGRES_IMAGE),
+        "POSTGRES_IMAGE": existing.get("POSTGRES_IMAGE", VERSIONS[version]["postgres_image"]),
         "CUSTOM_ADDONS": custom,
         "THIRD_PARTY_ADDONS": third,
         "ENTERPRISE_DIR": enterprise,
-        "ADDONS_PATH": ",".join(mounts),
-        "DEMO_OPTION": "with_demo = True" if major >= 19 else "without_demo = False",
         "TEST_DB": test_db,
         "ODOO_PORT": pick(args.port, "ODOO_PORT", "18069"),
         "BASE_BRANCH": pick(args.base_branch, "BASE_BRANCH", found["base_branch"]),
@@ -179,11 +207,20 @@ def build_context(args):
         "PROTECTED_PATHS": pick(None, "PROTECTED_PATHS", ",".join(found["deployment_files"])),
         "PROJECT_NAME": name,
         "MARKETPLACE_REPO": args.marketplace_repo,
-        "PLUGIN_ID": f"odoo-harness-{major}@odoo-harness",
-        "ODOO_MAJOR": str(major),
+        "PLUGIN_ID": PLUGIN_ID,
         "DATE": datetime.date.today().isoformat(),
         "DETECTED": detect_project.summary(found),
     }
+
+
+def version_tuple(version):
+    """'2.0.1' -> (2, 0, 1); '' -> ()."""
+    parts = []
+    for part in str(version or "").split("."):
+        if not part.isdigit():
+            break
+        parts.append(int(part))
+    return tuple(parts)
 
 
 def render(text, ctx):
@@ -234,8 +271,6 @@ def install(target, ctx, force=False, update=False):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
         shutil.copymode(src, dest)
-        if Path(rel).parent.as_posix() == "harness" and dest.suffix in {".sh", ".py"}:
-            dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         report.append((action, rel))
     for folder in ctx["CUSTOM_ADDONS"].split(","):
         (target / folder).mkdir(parents=True, exist_ok=True)
@@ -259,74 +294,123 @@ def merge_claude_md(dest, content, name=CLAUDE_MD):
     return ("merged", name)
 
 
-def workspace_repo(target, workspace):
-    """The repository's path relative to the workspace (`git` in the fogits layout)."""
+def workspace_dir(target, workspace):
     workspace = workspace.resolve()
     if not workspace.is_dir():
         raise SystemExit(f"workspace {workspace} is not a directory")
-    try:
-        rel = target.relative_to(workspace)
-    except ValueError:
+    if not target.is_relative_to(workspace) or target == workspace:
         raise SystemExit(f"the repository {target} is not inside the workspace {workspace}")
-    if not rel.parts:
-        raise SystemExit("the workspace is the repository itself: no --workspace needed")
-    return workspace, rel.as_posix()
+    return workspace
 
 
-def workspace_rule(rule, rel):
-    """A repository permission rule, as seen from the workspace."""
-    tool, _, arg = rule.partition("(")
-    arg = arg.removesuffix(")")
-    if tool == "Bash" and arg.startswith("harness/"):
-        return [f"Bash({rel}/{arg})"]
-    if tool == "Bash" and arg.startswith("git "):
-        return [rule, f"Bash(git -C {rel} {arg[4:]})"]
-    if tool in ("Edit", "Read", "Write"):
-        return [f"{tool}({rel}/{arg})"]
-    return [rule]
-
-
-def install_workspace(target, workspace, ctx):
-    """CLAUDE.md and .claude/settings.json of the workspace. Returns (action, path) pairs."""
-    workspace, rel = workspace_repo(target, workspace)
-    note = "not used"
-    if ctx["ENTERPRISE_DIR"]:
-        enterprise = (target / ctx["ENTERPRISE_DIR"]).resolve()
-        where = enterprise.relative_to(workspace) if enterprise.is_relative_to(workspace) \
-            else enterprise
-        note = f"`{where}/`, read-only"
-    wctx = {**ctx, "REPO_DIR": rel, "ENTERPRISE_NOTE": note}
+def clean_workspace(target, workspace):
+    """Remove what the old harness generated in the workspace: the CLAUDE.md block that
+    imported the repository's rules, and its permission rules and plugin in settings.json.
+    The hooks find the repository and load its CLAUDE.md themselves now."""
+    workspace = workspace_dir(target, workspace)
     report = []
-    block = render(WORKSPACE_TEMPLATE.read_text(), wctx)
-    dest = workspace / CLAUDE_MD
-    if dest.exists():
-        action, _ = merge_claude_md(dest, block)
-    else:
-        dest.write_text(block)
-        action = "created"
-    report.append((action, f"{workspace}/{CLAUDE_MD}"))
-
-    settings = json.loads(render((TEMPLATE_DIR / SETTINGS).read_text(), ctx))
-    settings["permissions"] = {
-        key: [r for rule in rules for r in workspace_rule(rule, rel)]
-        for key, rules in settings["permissions"].items()}
-    content = json.dumps(settings, indent=2) + "\n"
-    dest = workspace / SETTINGS
-    if dest.exists():
-        action, _ = merge_settings(dest, content)
-    else:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
-        action = "created"
-    report.append((action, f"{workspace}/{SETTINGS}"))
+    claude = workspace / CLAUDE_MD
+    if claude.is_file() and WORKSPACE_BLOCK_RE.search(claude.read_text()):
+        rest = WORKSPACE_BLOCK_RE.sub("", claude.read_text()).strip()
+        if rest:
+            claude.write_text(rest + "\n")
+            report.append(("cleaned", f"{claude}"))
+        else:
+            claude.unlink()
+            report.append(("removed", f"{claude}"))
+    settings = workspace / SETTINGS
+    if settings.is_file():
+        current = json.loads(settings.read_text())
+        cleaned = without_legacy(current)
+        if cleaned != current:
+            if cleaned:
+                settings.write_text(json.dumps(cleaned, indent=2) + "\n")
+                report.append(("cleaned", f"{settings}"))
+            else:
+                settings.unlink()
+                report.append(("removed", f"{settings}"))
     return report
 
 
+def without_legacy(settings):
+    """Settings without the old per-version plugins and the rules of the vendored scripts."""
+    out = json.loads(json.dumps(settings))
+    plugins = out.get("enabledPlugins", {})
+    for key in [k for k in plugins if LEGACY_PLUGIN_RE.match(k)]:
+        del plugins[key]
+    perms = out.get("permissions", {})
+    for key, rules in perms.items():
+        perms[key] = [r for r in rules if not LEGACY_RULE_RE.match(r)]
+    for parent in ("enabledPlugins", "permissions"):
+        if parent in out:
+            out[parent] = {k: v for k, v in out[parent].items() if v != []}
+            if not out[parent]:
+                del out[parent]
+    if not out.get("enabledPlugins") and "odoo-harness" in out.get("extraKnownMarketplaces", {}):
+        del out["extraKnownMarketplaces"]["odoo-harness"]
+        if not out["extraKnownMarketplaces"]:
+            del out["extraKnownMarketplaces"]
+    return out
+
+
+def migrate_legacy(target):
+    """Remove the engine copy of the old vendored harness and rewrite its pre-commit
+    entries. State and configuration are kept. Returns (action, path) pairs."""
+    report = []
+    for rel in LEGACY_ENGINE_FILES:
+        path = target / rel
+        if path.is_file():
+            path.unlink()
+            report.append(("removed", rel))
+    for folder in ("harness/docker", "harness/e2e_plugins", "harness/__pycache__",
+                   "harness/checks/__pycache__", "harness/e2e_plugins/__pycache__"):
+        path = target / folder
+        if path.is_dir():
+            shutil.rmtree(path) if path.name == "__pycache__" else (
+                path.rmdir() if not any(path.iterdir()) else None)
+    precommit = target / ".pre-commit-config.yaml"
+    if precommit.is_file():
+        text = precommit.read_text()
+        new = text
+        for old, replacement in LEGACY_PRECOMMIT.items():
+            new = new.replace(old, replacement)
+        if new != text:
+            precommit.write_text(new)
+            report.append(("migrated", ".pre-commit-config.yaml"))
+    return report
+
+
+def raise_pin(target):
+    """HARNESS_VERSION in harness.env becomes the installed engine's version (never lower)."""
+    env_file = target / HARNESS_ENV
+    current = read_env(env_file).get("HARNESS_VERSION", "")
+    if version_tuple(current) >= version_tuple(ENGINE_VERSION):
+        return ("kept", HARNESS_ENV)
+    text = re.sub(r"^HARNESS_VERSION=.*$", f"HARNESS_VERSION={ENGINE_VERSION}",
+                  env_file.read_text(), flags=re.M)
+    env_file.write_text(text)
+    return ("merged", HARNESS_ENV)
+
+
+def allow_command(settings_file):
+    """Bash(odoo-harness:*) in the user's settings, so no workspace needs its own rules."""
+    rule = "Bash(odoo-harness:*)"
+    current = json.loads(settings_file.read_text()) if settings_file.is_file() else {}
+    allow = current.setdefault("permissions", {}).setdefault("allow", [])
+    if rule in allow:
+        return ("kept", str(settings_file))
+    allow.append(rule)
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(json.dumps(current, indent=2) + "\n")
+    return ("merged", str(settings_file))
+
+
 def merge_settings(dest, content):
-    """Union the harness permissions and plugin settings into existing settings."""
+    """Union the harness permissions and plugin settings into existing settings, without
+    the old per-version plugins and vendored-script rules."""
     current = json.loads(dest.read_text())
     harness = json.loads(content)
-    merged = json.loads(json.dumps(current))
+    merged = without_legacy(current)
     perms = merged.setdefault("permissions", {})
     for key, rules in harness["permissions"].items():
         existing = perms.setdefault(key, [])
@@ -367,8 +451,16 @@ def merge_gitignore(dest, fragment):
     return ("merged", ".gitignore")
 
 
+def user_settings_file():
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json"
+
+
 def main(argv=None):
     args = parse_args(argv)
+    if args.allow_command:
+        action, path = allow_command(user_settings_file())
+        print(f"{action:8} {path}")
+        return 0
     target, ctx = build_context(args)
     if args.show:
         src = TEMPLATE_DIR / ("gitignore" if args.show == ".gitignore" else args.show)
@@ -376,30 +468,29 @@ def main(argv=None):
             raise SystemExit(f"{args.show} is not a template file")
         sys.stdout.write(render(src.read_text(), ctx))
         return 0
-    if args.workspace_only:
-        if not args.workspace:
-            raise SystemExit("--workspace-only needs --workspace DIR")
-        if not (target / HARNESS_ENV).is_file():
-            raise SystemExit(f"{target / HARNESS_ENV} not found: install the harness first "
-                             "(the init skill)")
-        for action, rel in install_workspace(target, args.workspace, ctx):
-            print(f"{action:8} {rel}")
-        return 0
-    report = install(target, ctx, force=args.force, update=args.update)
+    report = migrate_legacy(target) if args.update else []
+    report += install(target, ctx, force=args.force, update=args.update)
+    if args.update:
+        report.append(raise_pin(target))
     if args.workspace:
-        report += install_workspace(target, args.workspace, ctx)
+        report += clean_workspace(target, args.workspace)
     if not args.update:
         print(ctx["DETECTED"] + "\n")
     for action, rel in report:
         print(f"{action:8} {rel}")
     if args.update:
-        print(f"\nodoo-harness files updated for Odoo {ODOO_VERSION} in {target}")
+        print(f"\nodoo-harness files updated for Odoo {ctx['ODOO_VERSION']} in {target} "
+              f"(engine {ENGINE_VERSION})")
+        if any(action == "removed" and rel.startswith("harness/") for action, rel in report):
+            print("removed: the copy of the old harness engine; the plugin's odoo-harness "
+                  "command runs it now.")
         if any(action == "kept*" for action, _ in report):
             print("kept*: a project file was kept but the template changed. Compare with:\n"
                   f"  python3 {Path(__file__).resolve()} . --show <file>")
     else:
-        print(f"\nodoo-harness installed for Odoo {ODOO_VERSION} in {target}")
-        print("Next: run harness/init.sh (initialization step 1).")
+        print(f"\nodoo-harness installed for Odoo {ctx['ODOO_VERSION']} in {target} "
+              f"(engine {ENGINE_VERSION})")
+        print("Next: run odoo-harness init (initialization step 1).")
     return 0
 
 

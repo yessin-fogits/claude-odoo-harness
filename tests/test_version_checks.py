@@ -2,13 +2,13 @@ import sys
 
 import pytest
 
-from conftest import ODOO_VERSION
+from conftest import CLI, ODOO_VERSION
 from test_static_and_errors import write
 
 
 def check(repo, rel, text, version):
     path = write(repo, rel, text)
-    result = repo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version=version)
+    result = repo.run(CLI, "static", str(path), odoo_version=version)
     return result.stderr
 
 

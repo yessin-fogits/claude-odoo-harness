@@ -40,7 +40,8 @@ if mode == "fix-and-verify":
     import subprocess
     import re
     feature_id = re.search(r"feature (F-\d+)", prompt).group(1)
-    subprocess.run([sys.executable, "harness/feature.py", "verify", feature_id],
+    # found on the PATH that odoo-harness gives the loop's agents
+    subprocess.run(["odoo-harness", "feature", "verify", feature_id],
                    check=True, capture_output=True)
     Path(os.environ["FAKE_AGENT_CALLS"] + ".self-verified").write_text(feature_id)
 print(json.dumps({"result": "done"}))

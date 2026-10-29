@@ -2,16 +2,19 @@
 """PreToolUse guard: the harness, not the agent, owns feature state and real data.
 
 Denies (with a red-pen reason):
-  - Edit/Write of feature_list.json and harness/evidence/ (use harness/feature.py)
+  - Edit/Write of feature_list.json and harness/evidence/ (use `odoo-harness feature`)
+  - Edit/Write of the harness engine (this plugin, ~/.odoo-harness/): the judge is not
+    rewritten by the agent it judges
   - edits of Odoo core / enterprise code, of third-party addons (THIRD_PARTY_ADDONS),
     of the Enterprise checkout (ENTERPRISE_DIR) and of PROTECTED_PATHS (deployment
     files): extend in custom modules instead, a human changes deployment files
   - Bash commands that write those files, drop or target a non-test database,
     delete docker volumes, skip git hooks with --no-verify, or push to the base
-    branch or main (task branches are pushed by harness/gitlab.py)
+    branch or main (task branches are pushed by `odoo-harness gitlab`)
 """
 
 import ast
+import os
 import re
 import shlex
 import sys
@@ -22,9 +25,9 @@ import _common as c  # noqa: E402
 
 FILE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 STATE_PATHS = ("feature_list.json", "harness/evidence")
-READ_ONLY_PREFIXES = ("harness/feature.py", "./harness/feature.py", "python3 harness/feature.py",
-                      "python harness/feature.py", "cat ", "head ", "tail ", "less ", "grep ",
+READ_ONLY_PREFIXES = ("odoo-harness feature ", "cat ", "head ", "tail ", "less ", "grep ",
                       "jq ", "ls ", "wc ", "diff ", "git ")
+HARNESS_HOME = Path(os.environ.get("ODOO_HARNESS_HOME") or Path.home() / ".odoo-harness")
 OPERATORS = {"&&", "||", ";", "|", "&", ";;", "(", ")", "|&"}
 
 
@@ -47,12 +50,12 @@ def check_state_file(rel):
     if posix == "feature_list.json":
         deny("direct edit of feature_list.json",
              "The harness owns feature states; an agent cannot mark its own work passing.",
-             "Use harness/feature.py: add | start | block | verify (verify is the only way to "
+             "Use odoo-harness feature: add | start | block | verify (verify is the only way to "
              "passing).")
     if posix.startswith("harness/evidence/"):
         deny(f"direct edit of {posix}",
-             "Evidence is written only by `harness/feature.py verify` after the 3 layers pass.",
-             "Run `harness/feature.py verify <id>`.")
+             "Evidence is written only by `odoo-harness feature verify` after the 3 layers pass.",
+             "Run `odoo-harness feature verify <id>`.")
 
 
 def is_core_module(module_dir):
@@ -98,11 +101,25 @@ def check_core(root, env, rel):
         parent = parent.parent
 
 
+def check_engine(path):
+    for folder in (c.PLUGIN_ROOT, HARNESS_HOME):
+        try:
+            path.resolve().relative_to(folder.resolve())
+        except (ValueError, OSError):
+            continue
+        deny(f"{path} is part of the harness engine",
+             "The engine judges the work (verification, feature states): the agent it judges "
+             "cannot change it. It is the plugin's, shared by every project on this machine.",
+             "Fix the project instead. If the harness itself is wrong, tell the user; project "
+             "rules go in harness/checks/ and harness/errors_project.py.")
+
+
 def check_file_tool(root, env, payload, tool_input):
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     if not path:
         return
     path = c.tool_path(payload, path)
+    check_engine(path)
     enterprise = env.get("ENTERPRISE_DIR", "").strip().rstrip("/")
     if enterprise:
         try:
@@ -148,11 +165,13 @@ def shell_segments(command):
 
 
 def normalize_feature_cli(tokens):
-    """`git/harness/feature.py ...` (run from the client workspace) reads as `harness/feature.py`."""
+    """The feature command however it is spelled reads as `odoo-harness feature`: through a
+    path to the command (~/.local/bin/odoo-harness), or the engine script itself."""
     out = list(tokens)
-    for i in (0, 1) if out and out[0] in ("python", "python3") else (0,):
-        if i < len(out) and out[i].endswith("/harness/feature.py"):
-            out[i] = "harness/feature.py"
+    if out and out[0].endswith("/odoo-harness"):
+        out[0] = "odoo-harness"
+    if len(out) > 1 and out[0] in ("python", "python3") and out[1].endswith("/engine/feature.py"):
+        out = ["odoo-harness", "feature", *out[2:]]
     return out
 
 
@@ -173,7 +192,7 @@ def check_state_commands(command):
     if segments is None:
         deny("cannot parse a command that mentions harness state",
              "Commands touching feature_list.json or harness/evidence/ must be clearly read-only.",
-             "Use harness/feature.py, or a plain read such as `cat feature_list.json`.")
+             "Use odoo-harness feature, or a plain read such as `cat feature_list.json`.")
     for tokens in segments:
         touches = [t for t in tokens if any(p in t for p in STATE_PATHS)]
         if not touches:
@@ -181,13 +200,13 @@ def check_state_commands(command):
         for i, token in enumerate(tokens[:-1]):
             if token.endswith(">") and any(p in tokens[i + 1] for p in STATE_PATHS):
                 deny("shell redirection into feature_list.json or harness/evidence/",
-                     "The harness owns feature states and evidence.", "Use harness/feature.py.")
-        text = " ".join(normalize_feature_cli(tokens))
+                     "The harness owns feature states and evidence.", "Use odoo-harness feature.")
+        text = " ".join(normalize_feature_cli(tokens)) + " "
         in_place = tokens[0] in ("sed", "perl") and any(t.startswith("-i") for t in tokens)
         if tokens[0] == "tee" or in_place or not text.startswith(READ_ONLY_PREFIXES):
             deny(f"command may modify harness state: {text[:120]}",
-                 "Only harness/feature.py changes feature_list.json and harness/evidence/.",
-                 "Use harness/feature.py add | start | block | verify. Reading the files with "
+                 "Only odoo-harness feature changes feature_list.json and harness/evidence/.",
+                 "Use odoo-harness feature add | start | block | verify. Reading the files with "
                  "cat/jq/git is fine.")
 
 
@@ -206,13 +225,13 @@ def check_bash(env, command):
             deny(f"command targets database '{name}', not the test DB",
                  "The harness only works on the disposable test DB; other databases may hold "
                  "real data.",
-                 f"Use the test DB '{env.get('TEST_DB', 'harness_test')}' (harness/init.sh "
+                 f"Use the test DB '{env.get('TEST_DB', 'harness_test')}' (odoo-harness init "
                  "--reset recreates it). A human handles any other database.")
     if re.search(r"docker[\s-]+compose\b[^;&|\n]*\bdown\b[^;&|\n]*(\s-v\b|--volumes)", command) \
             or re.search(r"docker\s+volume\s+(rm|prune)\b", command):
         deny("command deletes docker volumes",
              "Volumes hold the databases and filestore; deleting them is not reversible.",
-             "To start from a clean test DB use `harness/init.sh --reset`.")
+             "To start from a clean test DB use `odoo-harness init --reset`.")
     check_push(env, command)
     if re.search(r"\bgit\b[^;&|\n]*\bcommit\b[^;&|\n]*--no-verify", command):
         deny("git commit --no-verify",
@@ -230,7 +249,7 @@ def check_push(env, command):
                or a.startswith("--force") for a in args):
             deny(f"git push with a destructive option: {' '.join(segment)[:120]}",
                  "Force, mirror, --all and --delete pushes rewrite or remove shared history.",
-                 "Push the task branch with harness/gitlab.py push; a human handles anything else.")
+                 "Push the task branch with odoo-harness gitlab push; a human handles anything else.")
         refs = [a for a in args if not a.startswith("-")][1:]
         targets = {r.split(":")[-1].removeprefix("refs/heads/").lstrip("+") for r in refs}
         if not refs or targets & protected or "HEAD" in targets:
@@ -238,14 +257,14 @@ def check_push(env, command):
                  f"{', '.join(sorted(protected))} are deployed by CI; they change only through a "
                  "reviewed merge request.",
                  "Push the task branch and open its merge request with "
-                 "`harness/gitlab.py push` and `harness/gitlab.py mr` (feature.py does it when "
-                 "the task's features pass).")
+                 "`odoo-harness gitlab push` and `odoo-harness gitlab mr` (the feature workflow "
+                 "does it when the task's features pass).")
 
 
 def main():
     payload = c.read_input()
     root = c.project_dir(payload)
-    if not c.has_harness(root):
+    if not c.active(root):
         sys.exit(0)
     env = c.load_env(root)
     tool = payload.get("tool_name", "")

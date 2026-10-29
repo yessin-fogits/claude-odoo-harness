@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from conftest import ODOO_VERSION, ROOT
+from conftest import CLI, ODOO_VERSION, ROOT
 
 
 def frontmatter(path):
@@ -15,10 +15,32 @@ def frontmatter(path):
     return dict(re.findall(r"^([\w-]+):\s*(.*)$", head, re.M))
 
 
-def test_plugin_name_matches_branch_version():
+def test_one_plugin_for_every_version():
     manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
-    assert manifest["name"] == f"odoo-harness-{ODOO_VERSION.split('.')[0]}"
-    assert ODOO_VERSION in manifest["description"]
+    assert manifest["name"] == "odoo-harness"
+    # no version field: Claude Code then follows the commits of the marketplace ref
+    assert "version" not in manifest
+    versions = json.loads((ROOT / "versions.json").read_text())
+    assert all(v in manifest["description"] for v in (min(versions), max(versions)))
+
+
+def test_marketplace_serves_the_plugin_and_keeps_the_old_ones():
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
+    plugins = {p["name"]: p for p in market["plugins"]}
+    current = plugins["odoo-harness"]["source"]
+    # HTTPS, so no SSH key is needed to install
+    assert current["source"] == "url" and current["url"].startswith("https://")
+    assert current["ref"] == "main"
+    for version in json.loads((ROOT / "versions.json").read_text()):
+        old = plugins[f"odoo-harness-{version.split('.')[0]}"]
+        assert old["source"]["ref"] == version and "Deprecated" in old["description"]
+
+
+def test_skill_and_agent_paths_exist():
+    """Every ${CLAUDE_PLUGIN_ROOT}/... path a skill or agent names is in the plugin."""
+    for doc in [*(ROOT / "skills").glob("*/SKILL.md"), *(ROOT / "agents").glob("*.md")]:
+        for rel in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+)", doc.read_text()):
+            assert (ROOT / rel).exists(), (doc.name, rel)
 
 
 @pytest.mark.parametrize("skill", sorted(p.parent.name for p in (ROOT / "skills").glob("*/SKILL.md")))
@@ -62,11 +84,11 @@ def test_add_harness_check_template_works(hrepo):
 
     bad = hrepo.path / "extra-addons" / "client" / "demo_mod" / "controllers.py"
     bad.write_text("def get(self, **kw):\n    return env['x'].sudo().browse(kw['id'])\n")
-    result = hrepo.run(sys.executable, "harness/static_checks.py", str(bad),
+    result = hrepo.run(CLI, "static", str(bad),
                        odoo_version=ODOO_VERSION)
     assert "[sudo-browse-request-ids]" in result.stderr
     assert "WHY: Any user can read any record" in result.stderr
     bad.write_text("def get(self, **kw):\n    return env['x'].browse(int(kw['id']))\n")
-    result = hrepo.run(sys.executable, "harness/static_checks.py", str(bad),
+    result = hrepo.run(CLI, "static", str(bad),
                        odoo_version=ODOO_VERSION)
     assert result.returncode == 0, result.stderr

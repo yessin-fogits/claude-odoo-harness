@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from conftest import ROOT, TESTS
+from conftest import CLI, ROOT, TESTS
 
 sys.path.insert(0, str(ROOT / "tools"))
 import make_demo_project  # noqa: E402
@@ -21,7 +21,7 @@ def test_build_demo_project(tmp_path):
                               text=True).stdout.strip()
     env = (dest / "harness/harness.env").read_text()
     assert "CUSTOM_ADDONS=extra-addons/demo\n" in env and "ODOO_DOCKERFILE=Dockerfile" in env
-    result = subprocess.run([sys.executable, "harness/static_checks.py", "--all"], cwd=dest,
+    result = subprocess.run([CLI, "static", "--all"], cwd=dest,
                             capture_output=True, text=True)
     findings = [ln for ln in result.stderr.splitlines() if ln.startswith("✗")]
     # the demo keeps the fogits rcfile as it is: it validates Odoo 17.0 on every branch
@@ -40,5 +40,5 @@ def test_demo_module_is_valid_for_each_version(hrepo, version):
     make_demo_project.adapt_fixture_module(module, version)
     make_demo_project.add_menus(module, version)
     files = [str(p) for p in module.rglob("*") if p.is_file()]
-    result = hrepo.run(sys.executable, "harness/static_checks.py", *files, odoo_version=version)
+    result = hrepo.run(CLI, "static", *files, odoo_version=version)
     assert result.returncode == 0, result.stderr

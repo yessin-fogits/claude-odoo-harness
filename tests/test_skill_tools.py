@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from conftest import ROOT
+from conftest import CLI, ROOT
 
 TOOLS = ROOT / "tools" / "odoo-skill-extract"
 
@@ -87,8 +87,7 @@ def test_extract_rejects_non_odoo_dir(tmp_path):
 
 def make_skill(root, facts, refs):
     skill = root / "skill"
-    put(skill, "SKILL.md", f"---\nname: odoo\ndescription: Odoo {facts['odoo_version']} reference\n"
-                           "---\n# Odoo\n")
+    put(skill, "GUIDE.md", f"# Odoo {facts['odoo_version']}\n\nReference.\n")
     for name, text in refs.items():
         put(skill, f"references/{name}", text)
     check_skill.check(facts, skill, write=True)
@@ -151,11 +150,11 @@ def test_new_odoo_commit_alone_is_not_stale(mini_odoo, tmp_path):
     assert check_skill.check(facts, skill) == []
 
 
-def test_frontmatter_must_name_version(mini_odoo, tmp_path):
+def test_title_must_name_version(mini_odoo, tmp_path):
     facts = extract.extract(mini_odoo)
     skill = make_skill(tmp_path, facts, {})
-    (skill / "SKILL.md").write_text("---\nname: odoo\ndescription: Odoo\n---\n")
-    assert any("frontmatter" in p for p in check_skill.check(facts, skill))
+    (skill / "GUIDE.md").write_text("# Odoo\n")
+    assert any("title" in p for p in check_skill.check(facts, skill))
 
 
 def test_cli(mini_odoo, tmp_path):
@@ -165,25 +164,30 @@ def test_cli(mini_odoo, tmp_path):
     assert check_skill.main([str(facts_path), str(skill)]) == 0
 
 
-SKILL_DIR = ROOT / "skills" / "odoo"
+VERSIONS = json.loads((ROOT / "versions.json").read_text())
 
 
-@pytest.mark.skipif(not (SKILL_DIR / "SKILL.md").exists(), reason="no odoo skill on this branch")
-def test_branch_skill_matches_branch_version():
-    """The committed version-facts.md must describe this branch's Odoo version."""
-    from conftest import ODOO_VERSION
-    facts_md = (SKILL_DIR / "references" / "version-facts.md").read_text()
-    assert facts_md.startswith(f"# Odoo {ODOO_VERSION}: version facts")
-    assert f"Odoo {ODOO_VERSION}" in (SKILL_DIR / "SKILL.md").read_text().split("---")[1]
+@pytest.mark.parametrize("version", sorted(VERSIONS))
+def test_every_version_has_its_guide(version):
+    """Each supported version has a guide whose facts describe that version."""
+    guide = ROOT / "skills" / "odoo" / "versions" / version
+    facts_md = (guide / "references" / "version-facts.md").read_text()
+    assert facts_md.startswith(f"# Odoo {version}: version facts")
+    assert (guide / "GUIDE.md").read_text().startswith(f"# Odoo {version}\n")
+
+
+def test_no_guide_without_a_version():
+    guides = {p.name for p in (ROOT / "skills" / "odoo" / "versions").iterdir()}
+    assert guides == set(VERSIONS)
 
 
 FENCE_LANG = {"python": ".py", "xml": ".xml", "javascript": ".js", "js": ".js"}
 
 
-@pytest.mark.skipif(not (SKILL_DIR / "SKILL.md").exists(), reason="no odoo skill on this branch")
 def test_skill_examples_pass_the_harness_version_rules(hrepo):
     """Code shown by the skill must not be rejected by the harness for the same version."""
     from conftest import ODOO_VERSION
+    SKILL_DIR = ROOT / "skills" / "odoo" / "versions" / ODOO_VERSION
     examples = hrepo.path / "extra-addons" / "client" / "demo_mod" / "skill_examples"
     examples.mkdir()
     files = []
@@ -197,7 +201,7 @@ def test_skill_examples_pass_the_harness_version_rules(hrepo):
                 path.write_text(m.group(2))
                 files.append(str(path))
     assert files
-    result = hrepo.run(sys.executable, "harness/static_checks.py", *files,
+    result = hrepo.run(CLI, "static", *files,
                        odoo_version=ODOO_VERSION)
     flagged = [line for line in result.stderr.splitlines() if "[odoo-version-api]" in line]
     assert not flagged, "\n".join(flagged)

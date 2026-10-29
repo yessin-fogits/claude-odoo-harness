@@ -6,14 +6,14 @@ import sys
 
 import pytest
 
-from conftest import ROOT
+from conftest import CLI, ROOT
 from test_tasks import add_task_feature, change_module, finish, trepo  # noqa: F401
 
-PLUGIN = ROOT / "template" / "harness" / "e2e_plugins" / "harness_guide.py"
+PLUGIN = ROOT / "engine" / "e2e_plugins" / "harness_guide.py"
 
 
 def guide(repo, *args, **fake):
-    return repo.run(sys.executable, "harness/guide.py", *args, **fake)
+    return repo.run(CLI, "guide", *args, **fake)
 
 
 def content_path(repo, task="T2003"):
@@ -94,7 +94,7 @@ def test_capture_replays_each_feature_with_the_guide_plugin(done):
         a.startswith("--env=HARNESS_GUIDE_DIR=") for a in c)]
     assert len(calls) == 2
     assert "e2e/test_F001_x.py" in calls[0] and "e2e/test_F002_x.py" in calls[1]
-    assert "--env=PYTHONPATH=/work/harness/e2e_plugins" in calls[0]
+    assert "--env=PYTHONPATH=/opt/odoo-harness/e2e_plugins" in calls[0]
     assert calls[0][calls[0].index("-p") + 1] == "harness_guide"
     manifest = json.loads((done.path / ".harness/guide/T2003/steps.json").read_text())
     assert [f["id"] for f in manifest["features"]] == ["F-001", "F-002"]
@@ -104,7 +104,7 @@ def test_capture_replays_each_feature_with_the_guide_plugin(done):
     assert (done.path / steps[0]["image"]).is_file()
     content = json.loads(content_path(done).read_text())
     assert content["features"]["F-001"]["steps"]["F-001/test_F001_x__test_x/02"] == "À RÉDIGER"
-    assert "harness/guide.py build T2003" in result.stdout
+    assert "odoo-harness guide build T2003" in result.stdout
 
 
 def test_capture_keeps_the_text_already_written(done):
@@ -119,7 +119,7 @@ def test_a_regressed_feature_stops_the_capture(done):
     result = guide(done, "capture", "T2003", fake_e2e_out="1 failed in 2s\n", fake_e2e_rc=1)
     assert result.returncode == 1
     assert "F-001 regressed since it was verified" in result.stderr
-    assert "harness/feature.py start F-001 --reopen" in result.stderr
+    assert "odoo-harness feature start F-001 --reopen" in result.stderr
 
 
 # --- build ---------------------------------------------------------------------
@@ -133,7 +133,7 @@ def test_build_refuses_text_still_to_write(done):
 
 def test_build_refuses_without_capture(done):
     result = guide(done, "build", "T2003")
-    assert result.returncode == 1 and "harness/guide.py capture T2003" in result.stderr
+    assert result.returncode == 1 and "odoo-harness guide capture T2003" in result.stderr
 
 
 def test_build_writes_the_pdf_and_records_it(done):
@@ -186,7 +186,7 @@ def test_check_without_guides(done):
 
 def test_verify_gives_e2e_tests_the_guide_fixture(done):
     e2e = [c for c in done.calls() if "pytest" in c][0]
-    assert "--env=PYTHONPATH=/work/harness/e2e_plugins" in e2e
+    assert "--env=PYTHONPATH=/opt/odoo-harness/e2e_plugins" in e2e
     assert e2e[e2e.index("-p") + 1] == "harness_guide"
 
 

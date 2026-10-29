@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-from conftest import IR_ACCESS, ODOO_VERSION
+from conftest import CLI, IR_ACCESS, ODOO_VERSION
 from test_verify import load
 
 static_checks = load("static_checks")
@@ -17,7 +17,7 @@ def write(repo, rel, text):
 
 
 def run_static(repo, *files):
-    return repo.run(sys.executable, "harness/static_checks.py", *files)
+    return repo.run(CLI, "static", *files)
 
 
 def test_fixture_module_is_clean(hrepo):
@@ -81,7 +81,7 @@ def test_security_csv_matches_version(hrepo, version, name, ok):
                "id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink\n"
                "a,demo,model_demo_thing,base.group_user,1,1,1,1\n")
     path = write(hrepo, f"extra-addons/client/demo_mod/security/{name}", content)
-    result = hrepo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version=version)
+    result = hrepo.run(CLI, "static", str(path), odoo_version=version)
     assert (result.returncode == 0) is ok, result.stderr
 
 
@@ -90,7 +90,7 @@ def test_ir_access_operation_must_be_canonical(hrepo):
                  "id,name,model_id,group_id/id,operation,domain\n"
                  "a,demo,demo.thing,base.group_user,ur,\n"
                  'b,demo,demo.thing,base.group_user,r,"[(\'user_id\', \'=\', user.id)]"\n')
-    result = hrepo.run(sys.executable, "harness/static_checks.py", str(path), odoo_version="20.0")
+    result = hrepo.run(CLI, "static", str(path), odoo_version="20.0")
     assert "ir.access.csv:2: invalid operation 'ur'" in result.stderr
     assert ":3:" not in result.stderr
 
@@ -148,7 +148,7 @@ def test_project_map_reads_modules_from_the_code(hrepo):
         "from odoo import fields, models\n\n\n"
         "class Order(models.Model):\n    _inherit = 'sale.order'\n\n\n"
         "class Box(models.Model):\n    _name = 'other.box'\n    _inherit = ['mail.thread']\n")
-    result = hrepo.run(sys.executable, "harness/project_map.py")
+    result = hrepo.run(CLI, "map")
     assert result.returncode == 0, result.stderr
     out = result.stdout
     assert "| `other_mod` | Other — Adds a line | other.box | mail.thread, sale.order | demo_mod | none |" in out

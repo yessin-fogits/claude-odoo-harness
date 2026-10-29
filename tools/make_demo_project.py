@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Build a demo Odoo project with the harness installed, for this branch's Odoo version.
+"""Build a demo Odoo project with the harness installed, for one Odoo version.
 
-    tools/make_demo_project.py DEST [--no-feature]
+    tools/make_demo_project.py DEST [--odoo-version 20.0] [--no-feature]
+
+The version defaults to $HARNESS_TEST_ODOO_VERSION, else 20.0.
 
 DEST gets the layout of a fogits Odoo project (Dockerfile, odoo-stag.conf, deployment
 compose file, extra-addons/<client>/ and extra-addons/oca/), the demo_mod module
 (tests/fixtures/demo_mod adapted to the version, plus an action and a menu), a git
 repository with a staging branch, the harness installed by detection, and feature
-F-001 with its Playwright test. CI runs the real harness on it (harness/init.sh,
+F-001 with its Playwright test. CI runs the real harness on it (odoo-harness init,
 feature.py verify).
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -22,8 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import install_template  # noqa: E402
 
-ODOO_VERSION = install_template.ODOO_VERSION
-MAJOR = int(ODOO_VERSION.split(".")[0])
+ODOO_VERSION = os.environ.get("HARNESS_TEST_ODOO_VERSION", "20.0")
 FIXTURE = ROOT / "tests" / "fixtures" / "demo_mod"
 E2E_FILE = "e2e/test_F001_demo_thing.py"
 CLIENT = "demo"
@@ -170,20 +172,20 @@ def run(dest, *args):
     subprocess.run(list(args), cwd=dest, check=True)
 
 
-def build(dest, feature=True):
+def build(dest, feature=True, version=ODOO_VERSION):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    write_layout(dest)
+    write_layout(dest, version=version)
     module = dest / "extra-addons" / CLIENT / "demo_mod"
     shutil.copytree(FIXTURE, module, ignore=shutil.ignore_patterns("__pycache__"))
-    adapt_fixture_module(module)
-    add_menus(module)
+    adapt_fixture_module(module, version)
+    add_menus(module, version)
     git = ["git", "-c", "user.name=demo", "-c", "user.email=demo@example.com"]
     run(dest, "git", "init", "-q", "-b", "staging")
     install_template.main([str(dest), "--enterprise-dir", ""])
     if feature:
         (dest / E2E_FILE).write_text(E2E_TEST)
-        run(dest, sys.executable, "harness/feature.py", "add", "--task", "T0001",
+        run(dest, str(ROOT / "bin" / "odoo-harness"), "feature", "add", "--task", "T0001",
             "--behavior", "A user creates a demo thing and finds it in the list",
             "--verify", "unit: /demo_mod:TestThing", "--verify", f"e2e: {E2E_FILE}")
     run(dest, "git", "add", "-A")
@@ -195,10 +197,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("dest", type=Path)
+    p.add_argument("--odoo-version", default=ODOO_VERSION,
+                   choices=sorted(install_template.VERSIONS))
     p.add_argument("--no-feature", action="store_true")
     args = p.parse_args(argv)
-    build(args.dest, feature=not args.no_feature)
-    print(f"demo project for Odoo {ODOO_VERSION} in {args.dest}")
+    build(args.dest, feature=not args.no_feature, version=args.odoo_version)
+    print(f"demo project for Odoo {args.odoo_version} in {args.dest}")
     return 0
 
 

@@ -9,7 +9,7 @@ from urllib.parse import urlparse, parse_qs
 
 import pytest
 
-from conftest import TESTS, add_feature
+from conftest import CLI, TESTS, add_feature
 
 
 def git(repo, *args):
@@ -85,7 +85,7 @@ def test_start_creates_the_task_branch_from_the_base_branch(trepo):
     assert result.returncode == 0 and "on branch" not in result.stdout
     verify = finish(trepo, "F-002")
     assert "Task T2003: every feature passes" in verify.stdout
-    assert "harness/gitlab.py mr T2003" in verify.stdout
+    assert "odoo-harness gitlab mr T2003" in verify.stdout
     assert git(trepo, "log", "-1", "--format=%s") == "[T2003] F-002 Behavior 2"
 
 
@@ -115,7 +115,7 @@ def test_task_branch_starts_where_the_harness_is(trepo):
     result = trepo.feature("start", "F-001")
     assert result.returncode == 0, result.stderr
     assert "(new, from HEAD)" in result.stdout
-    assert (trepo.path / "harness/feature.py").is_file()
+    assert (trepo.path / "harness/harness.env").is_file()
 
 
 # --- merge requests --------------------------------------------------------------
@@ -167,7 +167,7 @@ def gitlab(trepo):
 
 
 def gitlab_cmd(repo, *args, **fake):
-    return repo.run(sys.executable, "harness/gitlab.py", *args, **fake)
+    return repo.run(CLI, "gitlab", *args, **fake)
 
 
 def test_mr_is_refused_until_the_task_is_finished(trepo, gitlab):
@@ -240,7 +240,7 @@ def test_loop_commits_with_the_task_and_opens_the_mr(trepo, gitlab, tmp_path):
                       "FAKE_AGENT_CALLS": str(tmp_path / "agent_calls.jsonl")})
     add_task_feature(trepo, "T2003", 1, "User sees the overview page")
     trepo.commit("features")
-    result = trepo.run(sys.executable, "harness/loop.py", "run", fake_maker="fix")
+    result = trepo.run(CLI, "loop", "run", fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
     assert git(trepo, "symbolic-ref", "--short", "HEAD") == "T2003"
     assert git(trepo, "log", "-1", "--format=%s") == "[T2003] F-001 User sees the overview page"

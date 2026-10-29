@@ -1,30 +1,23 @@
 ---
 name: update
-description: Update the odoo-harness files of this Odoo repository to the version of the installed plugin (harness scripts, checks, red-pen catalog, CLAUDE.md block, settings), keeping the project's state and configuration.
+description: Bring this Odoo repository's harness files up to the installed odoo-harness plugin (CLAUDE.md block, settings, version pin), and migrate a project that still carries a copy of the old vendored harness engine (harness/feature.py), keeping the project's state and configuration.
 disable-model-invocation: true
 ---
 
-You are updating the harness files of this repository to the installed plugin version.
-The plugin itself is updated by Claude Code (`claude plugin update`); this skill updates the
-files the plugin once copied into the repository.
+The harness engine is not in the repository: it is this plugin, installed once per machine
+and updated by Claude Code (`claude plugin update odoo-harness@odoo-harness`). A plugin
+update reaches every project at once. This skill only refreshes what the repository holds
+(the CLAUDE.md block, `.claude/settings.json`, new settings in `harness/harness.env`), raises
+the project's `HARNESS_VERSION` pin, and migrates projects installed before 2.0.
 
 `REPO` below is the repository: `.` when Claude Code runs in it, `git` when it runs in the
 client workspace (`~/Project/<client>`, with the repository in `git/`). In a workspace, add
-`--workspace .` to the installer commands and run the other commands with the `REPO` path
-(`git -C git status`, `python3 git/harness/feature.py check`).
-
-**Fresh clone of a project that already has the harness**, run from the workspace: only the
-workspace files are missing (`CLAUDE.md` importing `git/CLAUDE.md`, `.claude/settings.json`).
-Write them and stop, nothing in the repository changes:
-
-```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" git --workspace . --workspace-only
-```
+`--workspace .` to the installer command and run git as `git -C git ...`.
 
 ## 1. Start from a clean tree
 
-Run `git -C REPO status --porcelain`. If anything is uncommitted, ask the user to commit or stash
-first, so the update is one reviewable commit.
+Run `git -C REPO status --porcelain`. If anything is uncommitted, ask the user to commit or
+stash first, so the update is one reviewable commit.
 
 ## 2. Update
 
@@ -33,24 +26,26 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" REPO --update [--wor
 ```
 
 Show the user the report. What each action means:
-- `updated`: a harness file replaced by the new version (`harness/*.py`, `*.sh`, checks,
-  docker files, `harness/docker-compose.yml`, `harness/odoo.conf` rendered from
-  `harness/harness.env`);
-- `merged`: the CLAUDE.md harness block, `.claude/settings.json`, `.gitignore` or new
-  settings appended to `harness/harness.env`. The `# This project` section below the block
-  is never changed; when CLAUDE.md had none, an empty one is added: fill its `TODO` lines as
-  the init skill describes ("Project description");
+- `removed`: a file of the old vendored harness (`harness/feature.py`, `verify.py`, `init.sh`,
+  the harness checks, the docker files...). The plugin's `odoo-harness` command runs the
+  engine now. Project checks the team wrote in `harness/checks/` are kept. In a workspace, the
+  CLAUDE.md block and settings the old harness generated there are removed as well (what the
+  user wrote there is kept);
+- `migrated`: `.pre-commit-config.yaml` entries that ran the vendored scripts now run
+  `odoo-harness`;
+- `merged`: the CLAUDE.md harness block, `.claude/settings.json` (the old
+  `odoo-harness-<N>@odoo-harness` plugin and its `harness/...` rules are removed, the
+  `odoo-harness` rules added), `.gitignore`, new settings appended to `harness/harness.env`,
+  or `HARNESS_VERSION` raised to the installed engine. The `# This project` section below the
+  block is never changed; when CLAUDE.md had none, an empty one is added: fill its `TODO`
+  lines as the init skill describes ("Project description");
 - `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, feature_list.json,
   BOOTSTRAP.md, ARCHITECTURE.md) which updates never touch;
 - `kept*`: a project file (e2e/conftest.py, .pylintrc...) kept as is, although the template
   changed.
 
-A harness installed before full-project mode (with `MODULES` and `ADDONS_DIR`) is migrated:
-`CUSTOM_ADDONS` takes the old `ADDONS_DIR`, and the new settings (third-party addons,
-enterprise, base branch, GitLab project) are appended to `harness/harness.env` with their
-detected values. Check them with the user. Old root `docker-compose.yml` and `odoo.conf`
-files written by the earlier harness are no longer used: propose to delete them if the
-project does not use them itself.
+`HARNESS_VERSION` is the oldest engine the project accepts: once this update is committed, a
+teammate whose plugin is older is asked to update it before `odoo-harness` runs. Tell the user.
 
 For each `kept*` file, show the difference:
 
@@ -61,17 +56,30 @@ diff REPO/<file> <(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_template.py" R
 Propose to apply the template's changes that do not undo a project customization, and
 apply only what the user accepts.
 
-If the installer refuses because the project targets another Odoo version, stop: that is a
-version migration (see the `odoo` skill, `references/migrations.md`), not an update.
+If the installer refuses because of the Odoo version, stop: moving to another Odoo version is
+a migration, not an update (the `odoo` skill, `references/migrations.md` of the target
+version).
+
+After a migration from the vendored harness, also tell the user:
+- each teammate installs the plugin once on their machine
+  (`claude plugin install odoo-harness@odoo-harness`) and can uninstall the old one
+  (`claude plugin uninstall odoo-harness-<N>@odoo-harness`);
+- scripts or CI jobs that called `harness/<script>` now call `odoo-harness <command>`
+  (`harness/feature.py` → `odoo-harness feature`, `harness/init.sh` → `odoo-harness init`,
+  `harness/verify.sh` → `odoo-harness verify`, `harness/static_checks.py` → `odoo-harness static`,
+  `harness/project_map.py` → `odoo-harness map`). Grep the repository for `harness/` to find
+  them; deployment files are changed by a human.
 
 ## 3. Check
 
-- `python3 harness/static_checks.py`: new checks may report existing code. List what they
-  report; fix it as features or record it in PROGRESS.md "Known issues".
-- `python3 harness/feature.py check`.
-- `harness/init.sh --check` when Docker is available.
+- `odoo-harness where`: the repository, the engine version and the pin.
+- `odoo-harness static`: new checks may report existing code. List what they report; fix it
+  as features or record it in PROGRESS.md "Known issues".
+- `odoo-harness feature check`.
+- `odoo-harness init --check` when Docker is available.
 
 ## 4. Record
 
-Append to DECISIONS.md: `- YYYY-MM-DD: Updated the odoo-harness files (plugin <version from
-claude plugin list>).` and commit: `chore: update odoo-harness files`.
+Append to DECISIONS.md: `- YYYY-MM-DD: Updated the odoo-harness files (engine <version from
+odoo-harness where>).` (after a migration: `Moved to the odoo-harness plugin installed once
+per machine; removed the vendored engine.`) and commit: `chore: update odoo-harness files`.

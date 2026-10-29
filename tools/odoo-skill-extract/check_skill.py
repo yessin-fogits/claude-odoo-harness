@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Check the odoo skill against the facts extracted from the matching Odoo source.
 
-    check_skill.py FACTS.json SKILL_DIR [--write]
+    check_skill.py FACTS.json GUIDE_DIR [--write]
+
+GUIDE_DIR is the guide of one version in the odoo skill: skills/odoo/versions/<version>.
 
 - references/version-facts.md must be exactly the rendering of FACTS (--write
   regenerates it);
@@ -143,12 +145,12 @@ def check_reference(name, text, facts):
 def check(facts, skill_dir, write=False):
     skill_dir = Path(skill_dir)
     problems = []
-    skill_md = skill_dir / "SKILL.md"
+    skill_md = skill_dir / "GUIDE.md"
     if not skill_md.is_file():
         return [f"{skill_md} is missing"]
-    head = skill_md.read_text().split("---")[1] if skill_md.read_text().startswith("---") else ""
-    if f"Odoo {facts['odoo_version']}" not in head:
-        problems.append(f"SKILL.md: the frontmatter must name 'Odoo {facts['odoo_version']}'")
+    title = skill_md.read_text().lstrip().splitlines()[0] if skill_md.read_text().strip() else ""
+    if title != f"# Odoo {facts['odoo_version']}":
+        problems.append(f"GUIDE.md: the title must be '# Odoo {facts['odoo_version']}'")
     facts_md = skill_dir / "references" / "version-facts.md"
     expected = render_facts(facts)
     if write:

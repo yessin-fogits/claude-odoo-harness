@@ -52,7 +52,7 @@ if command == "run":
                 steps.append({"caption": caption, "image": f"{n:02d}.png", "url": "/odoo"})
             (out / "steps.json").write_text(json.dumps(
                 {"test": "e2e/test_F001_x.py::test_x", "steps": steps}))
-        if "harness/guide_pdf.py" in args:
+        if any(a.endswith("/guide_pdf.py") for a in args):
             rc = int(os.environ.get("FAKE_PDF_RC", "0"))
             if not rc:
                 Path(args[-1]).write_bytes(b"%PDF-1.4 fake\n" + Path(args[-2]).read_bytes())

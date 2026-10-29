@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse: fast layer-1 checks on the file that was just edited.
 
-Runs the project's harness/static_checks.py on that one file (syntax, XML,
+Runs the project's odoo-harness static on that one file (syntax, XML,
 manifest, security CSV, project checks) and hands red-pen findings back to the
 agent right away, instead of at verify time.
 """
@@ -18,7 +18,7 @@ CHECKED_SUFFIXES = {".py", ".xml", ".csv", ".js"}
 def main():
     payload = c.read_input()
     root = c.project_dir(payload)
-    if not c.has_harness(root):
+    if not c.active(root):
         sys.exit(0)
     tool_input = payload.get("tool_input") or {}
     path = tool_input.get("file_path")
@@ -30,10 +30,10 @@ def main():
         sys.exit(0)
     if path.suffix not in CHECKED_SUFFIXES or not path.is_file():
         sys.exit(0)
-    rc, out = c.run(root, [sys.executable, "harness/static_checks.py", str(path)], timeout=30)
+    rc, out = c.run(root, c.engine("static_checks.py", path), timeout=30)
     if rc != 0:
         c.emit({"decision": "block",
-                "reason": f"{out}\n\nFix this before continuing; harness/feature.py verify "
+                "reason": f"{out}\n\nFix this before continuing; odoo-harness feature verify "
                           "will fail on it at layer 1 anyway."})
     sys.exit(0)
 

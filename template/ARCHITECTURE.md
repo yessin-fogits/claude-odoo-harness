@@ -1,7 +1,7 @@
 # Architecture
 
 Map of this Odoo project for the people and agents who work on it. Written at
-initialization (discovery) from `harness/project_map.py` and from reading the code;
+initialization (discovery) from `odoo-harness map` and from reading the code;
 updated when a feature adds a module, a model or a dependency between modules.
 
 ## The project
@@ -15,13 +15,13 @@ updated when a feature adds a module, a model or a dependency between modules.
 
 ## Modules
 <!-- One line per custom module: what it does for the user, in plain words. Then the facts
-     from `harness/project_map.py` (models, dependencies, tests). -->
+     from `odoo-harness map` (models, dependencies, tests). -->
 
 ## Dependencies between custom modules
-<!-- The mermaid graph from harness/project_map.py, and what to watch when changing a module
+<!-- The mermaid graph from odoo-harness map, and what to watch when changing a module
      others depend on. -->
 
 ## Risks and debt
 <!-- From discovery: modules without tests, version problems, hard-coded secrets, findings of
-     `harness/static_checks.py --all`. Each item is either a feature in feature_list.json or a
+     `odoo-harness static --all`. Each item is either a feature in feature_list.json or a
      known issue in PROGRESS.md. -->

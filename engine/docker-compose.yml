@@ -1,0 +1,76 @@
+# Odoo harness test runtime: its own compose project, Postgres and port, so it never touches
+# the project's dev or deployment stacks. It belongs to the engine, not to the project: use it
+# through `odoo-harness` (hlib.compose_cmd), which runs
+#   docker compose --project-directory <repo> -f <engine>/docker-compose.yml
+#     --env-file <repo>/harness/harness.env
+# with HARNESS_HOME=<engine>. Relative paths are relative to the repository root.
+services:
+  db:
+    image: ${POSTGRES_IMAGE:-postgres:16}
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  odoo:
+    # Built from the project's Dockerfile by odoo-harness init when ODOO_DOCKERFILE is set.
+    image: ${ODOO_IMAGE:?set ODOO_IMAGE in harness/harness.env}
+    pull_policy: missing
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+      ODOO_RC: /etc/odoo/odoo.conf
+    ports:
+      - "127.0.0.1:${ODOO_PORT:-8069}:8069"
+    volumes:
+      - ./:/mnt/repo:ro
+      - ${ENTERPRISE_DIR:-./harness}:/mnt/enterprise:ro
+      # rendered from harness/harness.env before each compose call (hlib.write_runtime)
+      - ./.harness/odoo.conf:/etc/odoo/odoo.conf:ro
+      - odoo-data:/var/lib/odoo
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Tools, run on demand by the verification (docker compose run --rm <service> ...).
+  # The engine is mounted read-only on /opt/odoo-harness.
+  lint:
+    build:
+      context: ${HARNESS_HOME:?run through odoo-harness}/docker
+      dockerfile: lint.Dockerfile
+    profiles: ["tools"]
+    working_dir: /work
+    volumes:
+      - .:/work
+      - ${HARNESS_HOME:?run through odoo-harness}:/opt/odoo-harness:ro
+
+  e2e:
+    build:
+      context: ${HARNESS_HOME:?run through odoo-harness}/docker
+      dockerfile: e2e.Dockerfile
+    profiles: ["tools"]
+    working_dir: /work
+    ipc: host
+    environment:
+      ODOO_DB: ${TEST_DB:-harness_test}
+      ODOO_VERSION: ${ODOO_VERSION:?set ODOO_VERSION in harness/harness.env}
+    volumes:
+      - .:/work
+      - ${HARNESS_HOME:?run through odoo-harness}:/opt/odoo-harness:ro
+
+volumes:
+  db-data:
+  odoo-data:
