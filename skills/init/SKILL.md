@@ -144,11 +144,13 @@ Tick box 3 only after the user approves it.
 Work comes from Odoo tasks (from discovery for an existing project; for a new project, ask the
 user for the tasks or the requirements). Split each task into small features, each one
 observable by a user and checkable by an e2e test, with:
-- `task`: the Odoo task code (`T2003`), the same for all features of the task;
+- `task`: the Odoo task code (`T2003`), the same for all features of the task; if the task does
+  not exist in Odoo yet, any short name (`remise-devis`), renamed later with
+  `odoo-harness feature rename-task remise-devis T2003`;
 - `behavior`: one sentence, what a user can do or see;
 - `verification`: the unit/integration test and the e2e test that prove it.
 Present the list to the user, grouped by task. After approval, add each feature with
-`odoo-harness feature add --task <code> ...` (never by editing `feature_list.json`). Tick box 4
+`odoo-harness feature add --task <task> ...` (never by editing `feature_list.json`). Tick box 4
 in `BOOTSTRAP.md`.
 
 ## Finish

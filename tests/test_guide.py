@@ -85,6 +85,20 @@ def test_uncommitted_module_changes_are_refused(done):
     assert "uncommitted changes: extra-addons/client/demo_mod/models/thing.py" in result.stderr
 
 
+def test_renamed_task_keeps_its_commits_under_the_old_name(done):
+    assert done.feature("rename-task", "T2003", "T2004").returncode == 0
+    done.commit("[T2004] Rename task T2003")
+    assert guide(done, "capture", "T2004").returncode == 0
+
+
+def test_rename_refused_while_the_task_has_a_guide(done):
+    (done.path / "docs/guides").mkdir(parents=True, exist_ok=True)
+    (done.path / "docs/guides/T2003.pdf").write_bytes(b"%PDF")
+    result = done.feature("rename-task", "T2003", "T2004")
+    assert result.returncode == 1
+    assert "/odoo-harness:guide T2004" in result.stderr
+
+
 # --- capture -------------------------------------------------------------------
 
 def test_capture_replays_each_feature_with_the_guide_plugin(done):

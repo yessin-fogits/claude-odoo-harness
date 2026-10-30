@@ -72,7 +72,7 @@ verifies with the same rules. Each evidence file records the engine version that
 | `PROGRESS.md` | Current state (rewritten automatically), completed / in progress, known issues, next steps |
 | `DECISIONS.md` | `- date: decision` |
 | `ARCHITECTURE.md` | Map of the project: modules, models, dependencies, risks and debt |
-| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, and the Odoo `task` (`T2003`); changed only by `odoo-harness feature` |
+| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, and the Odoo `task` (`T2003`, or any short name until the task exists); changed only by `odoo-harness feature` |
 | `harness/harness.env` | The project's harness settings: Odoo version and image, addon folders, test DB and port, base branch, GitLab project, protected paths, `HARNESS_VERSION` |
 | `harness/checks/` | Project checks; every new kind of mistake found in a review becomes one |
 | `harness/errors_project.py` | The project's red pens: each failure prints WHY and HOW TO FIX |
@@ -87,6 +87,7 @@ Run it from the repository or its client workspace; it finds the repository itse
 | `odoo-harness init [--check \| --reset]` | The test environment: the project's image, its own PostgreSQL and port, the custom modules installed on a disposable DB, the baseline verification |
 | `odoo-harness feature add \| start \| block \| verify \| check \| status` | The feature workflow. `start` is refused if another feature is in progress and checks out the task branch; `verify` is the only way to `passing` |
 | `odoo-harness verify` | Three layers on the changed modules and every module that depends on them: static checks + pylint-odoo (the project's rcfile), Odoo tests, Playwright e2e with a clean server log. Older findings are debt, not blockers |
+| `odoo-harness feature rename-task remise-devis T2003` | Give a task its real code once it exists in Odoo: its features, its branch and `PROGRESS.md`. Commits keep the old name; evidence stays valid |
 | `odoo-harness gitlab mr T2003` | Once every feature of the task passes, push the task branch and open its merge request to `staging` |
 | `odoo-harness guide capture \| build \| check` | The French user guide of a completed task, from the replayed e2e tests |
 | `odoo-harness static [--all]`, `odoo-harness map` | The static checks (`--all`: the debt report), the project map |

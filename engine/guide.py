@@ -60,7 +60,7 @@ def completed_features(task):
         tasks = sorted({f["task"] for f in data["features"] if f.get("task")})
         raise RedPen("guide", f"no feature belongs to task {task}",
                      "A guide documents the features of one Odoo task (feature_list.json).",
-                     f"Use a task code from the list: {', '.join(tasks) or 'none yet'} "
+                     f"Use a task from the list: {', '.join(tasks) or 'none yet'} "
                      "(odoo-harness feature status).")
     todo = [f"{f['id']} ({f['state']})" for f in feats if f["state"] != "passing"]
     if todo:
@@ -70,10 +70,11 @@ def completed_features(task):
                      "Finish the task first (odoo-harness feature verify <id>, then commit), and "
                      "ask for the guide again.")
     problems = []
-    subjects = set(hlib.git("log", "--format=%s").splitlines())
+    # Without the [task] tag: the commits of a renamed task keep its old name.
+    subjects = {re.sub(r"^\[[^\]]*\] ", "", s) for s in hlib.git("log", "--format=%s").splitlines()}
     for feat in feats:
         problems += evidence_problems(feat)
-        if hlib.commit_message(feat) not in subjects:
+        if f"{feat['id']} {feat['behavior']}" not in subjects:
             problems.append(f"{feat['id']}: no commit '{hlib.commit_message(feat)}'")
     if problems:
         raise RedPen("guide", f"task {task} is not completed: " + "; ".join(problems),

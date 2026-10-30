@@ -40,6 +40,7 @@ Third-party addons (`{{THIRD_PARTY_ADDONS}}`) and Odoo Enterprise are read-only.
 
 # Odoo tasks and git
 - The work comes from Odoo tasks (code `T2003`). A task is split into one or more features: `odoo-harness feature add --task T2003 ...`.
+- No Odoo task yet? Do not wait: use any short name (`--task remise-devis`, letters, digits, `-` and `_`). When the task exists, `odoo-harness feature rename-task remise-devis T2003` renames its features and its branch, then commit. Commits already made keep the old name.
 - A task is worked on its own branch, named after the task. `odoo-harness feature start` checks it out, creating it from `{{BASE_BRANCH}}` the first time.
 - Commit each verified feature with the message `[T2003] F-001 <behavior>` (`odoo-harness feature verify` prints it).
 - When every feature of the task passes and is committed: `odoo-harness gitlab mr T2003` pushes the branch and opens the merge request to `{{BASE_BRANCH}}`. Never push to `{{BASE_BRANCH}}` or `main` yourself.
@@ -100,7 +101,7 @@ When a failure prints "No catalog entry", add its pattern to `harness/errors_pro
 
 ## Conventions
 - TODO module name prefix, manifest author and version scheme, translations, other project rules.
-- Commit messages: `[T<code>] F-<id> <behavior>`; task branches start from `{{BASE_BRANCH}}`.
+- Commit messages: `[<task>] F-<id> <behavior>`; task branches start from `{{BASE_BRANCH}}`.
 
 ## Risky to change
 - TODO modules with many dependents or no tests, and why.

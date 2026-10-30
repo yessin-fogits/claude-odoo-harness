@@ -57,14 +57,127 @@ def test_feature_carries_its_task(trepo):
     assert trepo.features()[0]["task"] == "T2003"
     assert "[T2003] User sees the overview page" in trepo.feature("status").stdout
     assert trepo.feature("check").returncode == 0
-    bad = trepo.feature("add", "--task", "not a task", "--behavior", "x",
+
+
+def test_task_can_be_named_before_it_exists_in_odoo(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    assert trepo.features()[0]["task"] == "remise-devis"
+    assert trepo.feature("check").returncode == 0
+
+
+@pytest.mark.parametrize("name", ["not a task", "a/b", "-x", "../x", "staging", "main", "HEAD"])
+def test_task_name_must_be_a_private_branch_and_a_file_name(trepo, name):
+    bad = trepo.feature("add", f"--task={name}", "--behavior", "x",
                         "--verify", "e2e: e2e/test_F009_x.py")
-    assert bad.returncode == 1 and "task must be an Odoo task code" in bad.stderr
+    assert bad.returncode == 1 and "task" in bad.stderr
+    assert trepo.features() == []
+
+
+def test_free_task_name_cannot_land_on_an_existing_branch(trepo):
+    git(trepo, "push", "-q", "origin", "staging:preprod")
+    git(trepo, "fetch", "-q", "origin")
+    bad = trepo.feature("add", "--task", "preprod", "--behavior", "x",
+                        "--verify", "e2e: e2e/test_F009_x.py")
+    assert bad.returncode == 1 and "already exists" in bad.stderr
+    assert trepo.features() == []
+
+
+def test_odoo_code_can_join_its_existing_branch(trepo):
+    git(trepo, "push", "-q", "origin", "staging:T2003")
+    git(trepo, "fetch", "-q", "origin")
+    add_task_feature(trepo, "T2003", 1)
+    assert trepo.features()[0]["task"] == "T2003"
+
+
+def test_second_feature_joins_a_free_named_task_on_its_branch(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    trepo.commit("features")
+    assert trepo.feature("start", "F-001").returncode == 0
+    add_task_feature(trepo, "remise-devis", 2)
+    assert [f["task"] for f in trepo.features()] == ["remise-devis", "remise-devis"]
+
+
+def test_rename_task_refuses_a_branch_a_colleague_pushed(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    git(trepo, "push", "-q", "origin", "staging:T2003")
+    git(trepo, "fetch", "-q", "origin")
+    taken = trepo.feature("rename-task", "remise-devis", "T2003")
+    assert taken.returncode == 1 and "already exists" in taken.stderr
+    assert trepo.features()[0]["task"] == "remise-devis"
 
 
 def test_features_without_task_keep_the_minimal_format(trepo):
     add_feature(trepo)
     assert set(trepo.features()[0]) == {"id", "behavior", "verification", "state", "evidence"}
+
+
+# --- rename --------------------------------------------------------------------
+
+def test_rename_task_moves_features_branch_and_progress(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    add_task_feature(trepo, "remise-devis", 2)
+    trepo.commit("features")
+    assert trepo.feature("start", "F-001").returncode == 0
+    finish(trepo, "F-001")
+    assert trepo.feature("start", "F-002").returncode == 0
+
+    result = trepo.feature("rename-task", "remise-devis", "T2003")
+
+    assert result.returncode == 0, result.stderr
+    assert {f["task"] for f in trepo.features()} == {"T2003"}
+    assert git(trepo, "symbolic-ref", "--short", "HEAD") == "T2003"
+    assert not git(trepo, "rev-parse", "--verify", "-q", "refs/heads/remise-devis")
+    progress = (trepo.path / "PROGRESS.md").read_text()
+    assert "F-002 [T2003] Behavior 2" in progress and "remise-devis" not in progress
+    assert "F-001 [T2003] Behavior 1" in progress
+    assert trepo.feature("check").returncode == 0  # the evidence stays valid
+    assert "still on gitlab" not in result.stdout.lower()
+
+
+def test_rename_task_without_a_branch_yet(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    assert trepo.feature("rename-task", "remise-devis", "T2003").returncode == 0
+    assert trepo.features()[0]["task"] == "T2003"
+    assert git(trepo, "symbolic-ref", "--short", "HEAD") == "staging"
+
+
+def test_rename_task_tag_named_like_a_checkbox(trepo):
+    add_task_feature(trepo, "x", 1)
+    trepo.commit("features")
+    assert trepo.feature("start", "F-001").returncode == 0
+    finish(trepo, "F-001")
+    assert trepo.feature("rename-task", "x", "T2003").returncode == 0
+    assert "- [x] F-001 [T2003] Behavior 1" in (trepo.path / "PROGRESS.md").read_text()
+
+
+def test_rename_task_refuses_what_it_cannot_do(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    add_task_feature(trepo, "T2003", 2)
+    trepo.commit("features")
+    assert trepo.feature("rename-task", "unknown", "T9").returncode == 1
+    assert trepo.feature("rename-task", "remise-devis", "not a task").returncode == 1
+    assert trepo.feature("rename-task", "remise-devis", "staging").returncode == 1
+    taken = trepo.feature("rename-task", "remise-devis", "T2003")
+    assert taken.returncode == 1 and "already exists" in taken.stderr
+    assert trepo.feature("start", "F-001").returncode == 0
+    git(trepo, "checkout", "-q", "staging")
+    elsewhere = trepo.feature("rename-task", "remise-devis", "T3000")
+    assert elsewhere.returncode == 1 and "git checkout remise-devis" in elsewhere.stderr
+    assert trepo.features()[0]["task"] == "remise-devis"
+
+
+def test_rename_task_reports_what_stays_on_gitlab(trepo):
+    add_task_feature(trepo, "remise-devis", 1)
+    trepo.commit("features")
+    assert trepo.feature("start", "F-001").returncode == 0
+    git(trepo, "push", "-q", "-u", "origin", "remise-devis")
+    mr_dir = trepo.path / ".harness/mr"
+    mr_dir.mkdir(parents=True, exist_ok=True)
+    (mr_dir / "remise-devis.json").write_text(json.dumps({"url": "https://gitlab/mr/1"}))
+    result = trepo.feature("rename-task", "remise-devis", "T2003")
+    assert result.returncode == 0, result.stderr
+    assert "branch remise-devis" in result.stdout and "https://gitlab/mr/1" in result.stdout
+    assert git(trepo, "ls-remote", "--heads", "origin", "remise-devis")
 
 
 # --- branches ------------------------------------------------------------------
