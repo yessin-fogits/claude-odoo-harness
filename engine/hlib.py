@@ -34,10 +34,12 @@ ODOO_CONF = STATE_DIR / "odoo.conf"
 
 STATES = ("not_started", "in_progress", "blocked", "passing")
 FEATURE_KEYS = {"id", "behavior", "verification", "state", "evidence"}
-# Optional: the Odoo task the feature belongs to (its code, e.g. T2003). A task is split
-# into one or more features, worked on the task's git branch.
+# Optional: the Odoo task the feature belongs to: its code (T2003), or any short name until
+# the Odoo task exists (then `feature rename-task`). A task is split into one or more
+# features, worked on the git branch of the same name; the name is also used in file names.
 OPTIONAL_KEYS = {"task"}
-TASK_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*$")
+TASK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+TASK_CODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*$")
 VERIFY_KINDS = ("unit", "integration", "e2e")
 ID_RE = re.compile(r"^F-\d{3,}$")
 
@@ -287,7 +289,8 @@ def validate(data):
                             f"{sorted(OPTIONAL_KEYS)})")
             continue
         if "task" in feat and not (isinstance(feat["task"], str) and TASK_RE.match(feat["task"])):
-            problems.append(f"{fid}: task must be an Odoo task code such as T2003")
+            problems.append(f"{fid}: task must use only letters, digits, - and _ "
+                            "(T2003, remise-devis)")
         if not isinstance(fid, str) or not ID_RE.match(fid):
             problems.append(f"{fid}: id must look like F-001")
         elif fid in seen:
@@ -398,6 +401,13 @@ def progress_set_task(fid, line, section):
     if section:
         lines = _append_to_section(lines, section, line)
     write_atomic(PROGRESS, "\n".join(lines) + "\n")
+
+
+def progress_rename_task(fid, old, new):
+    """Change the task of fid's line, which stays in its section."""
+    if PROGRESS.exists():
+        pattern = rf"^(- \[[ xX]\] {re.escape(fid)}) \[{re.escape(old)}\] "
+        write_atomic(PROGRESS, re.sub(pattern, rf"\1 [{new}] ", PROGRESS.read_text(), flags=re.M))
 
 
 def progress_append(section, line):

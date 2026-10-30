@@ -8,6 +8,8 @@
                                             begin work (refused if another is in_progress);
                                             a feature of an Odoo task is worked on the task's
                                             branch (T2003), created from BASE_BRANCH
+  feature.py rename-task OLD NEW            give a task its real code once it exists in Odoo:
+                                            its features, its branch and PROGRESS.md
   feature.py block ID --reason TEXT         park a feature, the reason goes to PROGRESS.md
   feature.py verify ID                      run the 3 layers; on success -> passing + evidence
   feature.py check                          integrity check (pre-commit, CI)
@@ -78,6 +80,22 @@ def next_id(data):
     return f"F-{(max(numbers) + 1 if numbers else 1):03d}"
 
 
+def check_task_name(task):
+    """A task name is also its git branch and part of file names; a shared branch is refused."""
+    if not hlib.TASK_RE.match(task):
+        raise RedPen("features", f"invalid task name {task!r}",
+                     "A task name is also its git branch and part of file names: only letters, "
+                     "digits, - and _.",
+                     "Use the Odoo task code (T2003), or a short name until the task exists "
+                     "(remise-devis).")
+    shared = {"HEAD", "main", "master", "production", hlib.load_env().get("BASE_BRANCH") or "staging"}
+    if task in shared:
+        raise RedPen("features", f"a task cannot be named {task}",
+                     "A task is worked on the branch of the same name, and this one is shared.",
+                     "Use the Odoo task code (T2003), or a short name until the task exists "
+                     "(remise-devis).")
+
+
 def cmd_add(args):
     data = hlib.load_features()
     fid = args.id or next_id(data)
@@ -88,6 +106,14 @@ def cmd_add(args):
             "state": "not_started", "evidence": None}
     if args.task:
         feat["task"] = args.task.strip()
+        check_task_name(feat["task"])
+        # An Odoo code may already have its branch; a free name may be an environment (preprod).
+        if (not hlib.task_features(data, feat["task"]) and branch_exists(feat["task"])
+                and not hlib.TASK_CODE_RE.match(feat["task"])):
+            raise RedPen("features", f"a branch named {feat['task']} already exists",
+                         "A task is worked on the branch of the same name, and this one may be "
+                         "shared (preprod, recette...).",
+                         "Choose another name, or the Odoo task code (T2003) if this is its branch.")
     problems = hlib.validate({"version": 1, "features": [feat]})
     if problems:
         raise RedPen("features", f"cannot add {fid}: " + "; ".join(problems),
@@ -164,6 +190,65 @@ def switch_to_task_branch(task):
         raise RedPen("git", f"git {' '.join(args)} failed", out.stderr.strip()[:300],
                      "Fix the git state (see the message), then start the feature again.")
     print(f"✓ on branch {task}" + (f" (new, from {args[-1]})" if "-b" in args else ""))
+
+
+def ref_exists(ref):
+    return bool(hlib.git("rev-parse", "--verify", "-q", ref))
+
+
+def branch_exists(name):
+    """Locally or on origin (as of the last fetch)."""
+    return ref_exists(f"refs/heads/{name}") or ref_exists(f"refs/remotes/origin/{name}")
+
+
+def cmd_rename_task(args):
+    """Rename a task. Its commits keep the old name: published history is not rewritten, and
+    the evidence stays valid because the fingerprint does not cover the task."""
+    old, new = args.old, args.new
+    data = hlib.load_features()
+    feats = hlib.task_features(data, old)
+    if not feats:
+        raise RedPen("features", f"no feature belongs to task {old}",
+                     "Only a task of feature_list.json can be renamed.",
+                     "Run `odoo-harness feature status` to list the tasks.")
+    check_task_name(new)
+    if hlib.task_features(data, new) or branch_exists(new):
+        raise RedPen("features", f"task or branch {new} already exists",
+                     "Renaming onto it would mix two tasks.",
+                     f"Choose another name, or move {new} out of the way first.")
+    has_branch = ref_exists(f"refs/heads/{old}")
+    if has_branch and hlib.current_branch() != old:
+        raise RedPen("git", f"not on the branch of {old} (on '{hlib.current_branch()}')",
+                     "feature_list.json must change on the branch that carries the task.",
+                     f"git checkout {old}, then run the command again.")
+    pdf = f"docs/guides/{old}.pdf"
+    if (hlib.REPO_ROOT / pdf).exists():
+        raise RedPen("guide", f"task {old} already has a user guide",
+                     "The guide is printed with the old name, and guides are indexed by task.",
+                     f"Remove {pdf} and the {old} entry of docs/guides/guides.json, run this "
+                     f"command again, then /odoo-harness:guide {new}.")
+    if has_branch:
+        out = subprocess.run(["git", "branch", "-m", old, new], cwd=hlib.REPO_ROOT,
+                             capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RedPen("git", f"git branch -m {old} {new} failed", out.stderr.strip()[:300],
+                         "Fix the git state (see the message), then run the command again.")
+    for feat in feats:
+        feat["task"] = new
+        hlib.progress_rename_task(feat["id"], old, new)
+    hlib.save_features(data)
+    print(f"✓ task {old} is now {new}: {', '.join(f['id'] for f in feats)}"
+          + (f", branch {new}" if has_branch else ""))
+    print(f"Commit it: git add feature_list.json PROGRESS.md && "
+          f"git commit -m '[{new}] Rename task {old}'")
+    mr = hlib.STATE_DIR / "mr" / f"{old}.json"
+    if ref_exists(f"refs/remotes/origin/{old}") or mr.is_file():
+        url = json.loads(mr.read_text()).get("url") if mr.is_file() else None
+        print(f"Still on GitLab under the old name: branch {old}"
+              + (f" and its merge request {url}" if url else "")
+              + f". Close or delete them there (the harness does not); `odoo-harness gitlab mr "
+              f"{new}` opens the new one.")
+    return 0
 
 
 def cmd_block(args):
@@ -284,7 +369,8 @@ def parse_args(argv):
     add.add_argument("--verify", action="append", required=True,
                      help="'unit: <test-tags>', 'integration: <test-tags>' or 'e2e: <file>'")
     add.add_argument("--id")
-    add.add_argument("--task", help="code of the Odoo task this feature belongs to (T2003)")
+    add.add_argument("--task", help="code of the Odoo task this feature belongs to (T2003), or "
+                     "any short name until it exists (then rename-task)")
     add.set_defaults(fn=cmd_add)
     start = sub.add_parser("start")
     start.add_argument("id")
@@ -292,6 +378,10 @@ def parse_args(argv):
     start.add_argument("--no-branch", action="store_true",
                        help="stay on the current branch even if the feature has a task")
     start.set_defaults(fn=cmd_start)
+    rename = sub.add_parser("rename-task")
+    rename.add_argument("old")
+    rename.add_argument("new")
+    rename.set_defaults(fn=cmd_rename_task)
     block = sub.add_parser("block")
     block.add_argument("id")
     block.add_argument("--reason", required=True)

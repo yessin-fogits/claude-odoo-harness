@@ -17,7 +17,7 @@ written in French. It is a PDF committed in the project repository: `docs/guides
 client workspace (`~/Project/<client>`, with the repository in `git/`). `odoo-harness` finds
 it from either folder; file paths below are relative to `REPO`.
 
-If $ARGUMENTS is empty or is not a task code, run `odoo-harness feature status`, ask which
+If $ARGUMENTS is empty or is not a task of the feature list, run `odoo-harness feature status`, ask which
 task, and stop.
 
 ## 1. Capture: the gate and the screenshots
@@ -44,7 +44,7 @@ change the tests yourself during this skill.
 ## 2. Look before you write
 
 - Read `steps.json`, then open every screenshot (Read the PNG files) in order.
-- Read the feature's code: `git log --format='%H %s' --grep '<task>'` gives the commits;
+- Read the feature's code: `git log --format='%H %s' --grep '<feature id>'` gives the commits;
   `git show --stat <sha>` and the diff of the custom modules show the models, fields, views,
   security and data the feature added.
 

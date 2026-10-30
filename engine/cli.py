@@ -3,7 +3,7 @@
 
     odoo-harness init [--check | --reset]       the test environment (initialization step 1)
     odoo-harness verify [...]                   the 3 verification layers on the changed modules
-    odoo-harness feature status|add|start|block|verify|check
+    odoo-harness feature status|add|start|rename-task|block|verify|check
                                                 the feature workflow, the only way to change
                                                 feature_list.json
     odoo-harness loop run|status                the autonomous maker-checker loop

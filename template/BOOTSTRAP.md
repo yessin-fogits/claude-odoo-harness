@@ -10,7 +10,7 @@ This file is the contract between the humans and the agents working on this repo
 - Third-party addons (read-only): `{{THIRD_PARTY_ADDONS}}`
 - Odoo Enterprise (read-only, outside the repository): `{{ENTERPRISE_DIR}}`
 - Test database: `{{TEST_DB}}` with demo data (disposable, recreated by `odoo-harness init --reset`)
-- Git: task branches `T<code>` start from `{{BASE_BRANCH}}`; merge requests target it (GitLab project `{{GITLAB_PROJECT}}`)
+- Git: task branches, named after the task, start from `{{BASE_BRANCH}}`; merge requests target it (GitLab project `{{GITLAB_PROJECT}}`)
 
 ## Commands
 | Purpose | Command |

@@ -75,7 +75,7 @@ preuve enregistre la version du moteur qui l'a produite.
 | `PROGRESS.md` | État actuel (réécrit automatiquement), terminé / en cours, problèmes connus, prochaines étapes |
 | `DECISIONS.md` | `- date : décision` |
 | `ARCHITECTURE.md` | Carte du projet : modules, modèles, dépendances, risques et dette |
-| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, et la `task` Odoo (`T2003`) ; modifié uniquement par `odoo-harness feature` |
+| `feature_list.json` | `id`, `behavior`, `verification`, `state`, `evidence`, et la `task` Odoo (`T2003`, ou un nom court tant que la tâche n'existe pas) ; modifié uniquement par `odoo-harness feature` |
 | `harness/harness.env` | Les réglages du harness pour le projet : version et image d'Odoo, dossiers de modules, base de test et port, branche de base, projet GitLab, chemins protégés, `HARNESS_VERSION` |
 | `harness/checks/` | Vérifications du projet ; chaque nouveau type d'erreur trouvé en revue en devient une |
 | `harness/errors_project.py` | Les stylos rouges du projet : chaque échec affiche POURQUOI et COMMENT CORRIGER |
@@ -90,6 +90,7 @@ Lancez-la depuis le dépôt ou son espace client ; elle trouve le dépôt toute 
 | `odoo-harness init [--check \| --reset]` | L'environnement de test : l'image du projet, sa propre base PostgreSQL et son port, les modules spécifiques installés sur une base jetable, la vérification de référence |
 | `odoo-harness feature add \| start \| block \| verify \| check \| status` | Le cycle des fonctionnalités. `start` est refusé si une autre fonctionnalité est en cours et bascule sur la branche de la tâche ; `verify` est le seul chemin vers `passing` |
 | `odoo-harness verify` | Trois couches sur les modules modifiés et tous ceux qui en dépendent : vérifications statiques + pylint-odoo (le rcfile du projet), tests Odoo, e2e Playwright avec un log serveur propre. Les problèmes plus anciens sont de la dette, pas des blocages |
+| `odoo-harness feature rename-task remise-devis T2003` | Donne à une tâche son vrai code quand elle existe dans Odoo : ses fonctionnalités, sa branche et `PROGRESS.md`. Les commits gardent l'ancien nom ; les preuves restent valides |
 | `odoo-harness gitlab mr T2003` | Quand toutes les fonctionnalités de la tâche passent, pousse la branche de la tâche et ouvre sa merge request vers `staging` |
 | `odoo-harness guide capture \| build \| check` | Le guide utilisateur en français d'une tâche terminée, à partir des tests e2e rejoués |
 | `odoo-harness static [--all]`, `odoo-harness map` | Les vérifications statiques (`--all` : le rapport de dette), la carte du projet |
