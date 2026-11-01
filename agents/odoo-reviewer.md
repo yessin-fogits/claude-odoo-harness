@@ -34,8 +34,17 @@ how to fix it.
   `groups` on sensitive fields and buttons.
 - **Tests**: the unit/integration tests assert behavior, not implementation details; the
   e2e test does what a user does and asserts what a user sees; tests create their own data.
+- **Assumptions**: where the behavior allows more than one reading (users, companies,
+  standard flows), the reading taken is stated in PROGRESS.md and is the simplest one.
+- **Simplicity**: no mixins, wrappers or behavior the feature does not need; no handling
+  of cases that cannot happen; not much more code than the behavior needs.
+- **Reusable**: the module works for another client or company. Values that differ between
+  clients (rates, thresholds, accounts, journals, products, partners, emails, URLs, record
+  ids or names) come from configuration (`ir.config_parameter` setting, `res.company` field,
+  editable data record), not literals in the code.
 - **Scope**: no unrelated changes, no half-done work, no debug leftovers, nothing outside
-  the custom modules.
+  the custom modules; no reformatting, renaming or cleanup of code next to the change, and
+  no deleted code the feature did not make unused.
 - **Handoff**: PROGRESS.md and DECISIONS.md describe the state; a new session could
   continue without asking.
 
@@ -53,7 +62,7 @@ Answer with exactly these sections:
 | Verification (ran, with evidence) | | |
 | Scope discipline | | |
 | Reliability (survives restart or rerun) | | |
-| Maintainability | | |
+| Maintainability (simplicity) | | |
 | Handoff readiness | | |
 
 Accept needs every dimension at 2 except at most one at 1. Any 0 is Block.

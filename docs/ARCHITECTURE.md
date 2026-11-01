@@ -143,6 +143,9 @@ files the old harness generated there.
   - Work on one feature at a time (WIP = 1).
   - Start the next feature only after the current one passes e2e verification.
   - Do less, but finish.
+  - State the reading of the feature before coding; ask when it is ambiguous.
+  - Write the least code that does the behavior; change only the lines it needs.
+  - Make it work for any client: values that differ between clients come from configuration, not literals.
   - Never edit Odoo core or enterprise code.
 - `# Feature List Rules`
   - Change state only through `odoo-harness feature`.

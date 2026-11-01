@@ -33,6 +33,9 @@ Third-party addons (`{{THIRD_PARTY_ADDONS}}`) and Odoo Enterprise are read-only.
 - Only start the next feature after the current one passes e2e verification.
 - Do less, but finish. A small feature that passes beats a large one that almost works.
 - Stay inside the current feature. If you discover other work, add it as a new feature, do not do it now.
+- Before writing code, state your reading of the feature: which users, companies and standard flows it touches. If the task allows more than one reading, ask. Without a human to ask (the autonomous loop), take the simplest reading and write it under Known issues in PROGRESS.md.
+- Write the least code that does the behavior, and make it work for any client. No abstractions or behavior the task does not ask for; no handling of cases that cannot happen. But a value that would differ for another client or company (a rate, a threshold, an account, a journal, a product, a partner, an email, a URL) is never a literal in the code: read it from configuration (a setting backed by `ir.config_parameter`, a field on `res.company`, or a data record a user can change), with the client's value as the default.
+- Change only the lines the feature needs. Do not reformat, rename or "improve" code next to yours, and do not delete dead code you did not create: mention it in PROGRESS.md. Remove only what your own change made unused.
 - Never edit Odoo core, Enterprise or third-party (OCA) addons. Extend by inheritance in custom modules only.
 - Never edit deployment files (Dockerfile, compose files, server configs, CI). If the deployment must change (a new Python dependency, a config option), say what and why; a human changes them.
 - If the baseline is broken (`odoo-harness init` fails), fix the baseline before anything else.
@@ -69,7 +72,7 @@ Completion is judged by the harness, in three layers:
 2. Runtime behaviour: Odoo unit tests (level 1) and integration tests (level 2): module install/upgrade on a test DB, cross-model flows.
 3. System confirmation: Playwright e2e tests (level 3) against a running instance. Every feature has its own e2e test. The full e2e suite must pass when a change touches more than one module or shared components.
 
-The tests run on a disposable database with demo data. They cover the modules you changed and every custom module that depends on them. Problems in modules you did not touch do not block you: `odoo-harness static --all` lists them as debt. When you touch a module, you own its problems.
+The tests run on a disposable database with demo data. They cover the modules you changed and every custom module that depends on them. Problems in modules you did not touch do not block you: `odoo-harness static --all` lists them as debt. When you touch a module, you own the problems on the lines you change and those that block your feature; report the others, do not fix them now.
 
 Only the e2e test is real verification. Unit tests passing is not enough to declare a feature done.
 
