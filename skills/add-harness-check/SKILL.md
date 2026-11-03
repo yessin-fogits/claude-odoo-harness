@@ -52,6 +52,7 @@ cp "${CLAUDE_PLUGIN_ROOT}/skills/add-harness-check/check_template.py" harness/ch
 ## 4. Record it
 
 - Append to `DECISIONS.md`: `- YYYY-MM-DD: New check <ID>: <the kind of mistake> (found in the review of F-xxx).`
-- If the check is not specific to this project, add to PROGRESS.md "Next steps":
-  `Upstream check <ID> to the odoo-harness plugin.`
+- If the check is not specific to this project, end that DECISIONS.md line with
+  `Upstream candidate.` and tell the user: upstreaming it to the odoo-harness plugin is
+  harness work, not a step of this project.
 - Commit the check with the fix of the instance that revealed it.

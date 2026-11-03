@@ -13,4 +13,3 @@
 ## Known issues
 
 ## Next steps
-- [ ] Finish the bootstrap contract (`BOOTSTRAP.md` → "Ready means").
