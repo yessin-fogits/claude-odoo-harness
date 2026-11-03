@@ -70,7 +70,7 @@ Il enchaîne ensuite quatre étapes :
 
 | Étape | Résultat |
 |---|---|
-| 1. Environnement de test | L'image du projet avec son propre PostgreSQL, son port et une base de test jetable, et tous les modules personnalisés installés. Votre stack de développement n'est pas touchée. |
+| 1. Environnement de test | L'image du projet avec son propre PostgreSQL, son port et une base de test jetable, et tous les modules personnalisés installés. Votre stack de développement n'est pas touchée. En mode base de dev (`DEV_DB`), il utilise votre PostgreSQL de dev et lance les tests e2e sur votre base de dev (neutralisée, mise à jour, jamais réinitialisée). |
 | 2. Tests | Un test qui passe à chaque niveau : unitaire, intégration et e2e |
 | 3. `BOOTSTRAP.md` | Comment démarrer, vérifier et réinitialiser le projet, à relire par vous |
 | 4. `feature_list.json` | Le travail découpé en petites fonctionnalités, à relire par vous |

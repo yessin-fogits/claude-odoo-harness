@@ -1,0 +1,12 @@
+# Dev database mode (DEV_DB set): no PostgreSQL of its own, the harness Odoo uses the dev
+# stack's server (HARNESS_DB_* from hlib.db_server) and its Odoo data directory, which holds
+# the filestore of DEV_DB. Added to docker-compose.yml by hlib.compose_files.
+services:
+  odoo:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # replaces the odoo-data volume (same target)
+      - ${DEV_DATA_DIR:?set DEV_DATA_DIR in harness/harness.env}:/var/lib/odoo
+      # the config without demo data of the commands on the dev DB (hlib.write_runtime)
+      - ./.harness/odoo-nodemo.conf:/etc/odoo/odoo-nodemo.conf:ro

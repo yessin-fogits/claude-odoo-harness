@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -323,3 +325,128 @@ def test_project_rcfile_and_odoo_version_are_passed_to_pylint(hrepo):
     assert any("unknown-option-value" in a for a in lint)
     debt = hrepo.run(CLI, "static", "--all")
     assert "lint config validates Odoo 11.0" in debt.stderr
+
+
+# --- dev DB mode ----------------------------------------------------------------
+
+DEV_SECRETS = "DEV_DB_PASSWORD=pg-secret\nDEV_ODOO_LOGIN=bot\nDEV_ODOO_PASSWORD=pw\n"
+
+
+def dev_mode(hrepo, secrets=DEV_SECRETS, **values):
+    """Turn hrepo into a dev DB mode project: DEV_* in harness.env, secrets in dev.local.env."""
+    data = hrepo.path / "devdata"
+    data.mkdir(exist_ok=True)
+    settings = {"DEV_DB": "client_dev", "DEV_DB_HOST": "pg_dev", "DEV_NETWORK": "client_default",
+                "DEV_DATA_DIR": str(data), **values}
+    env_file = hrepo.path / "harness/harness.env"
+    text = env_file.read_text()
+    for key, value in settings.items():
+        text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, flags=re.M)
+    env_file.write_text(text)
+    if secrets:
+        (hrepo.path / "harness/dev.local.env").write_text(secrets)
+
+
+def test_without_dev_db_the_harness_keeps_its_own_postgres(hrepo):
+    assert hrepo.verify("--fresh-install").returncode == 0
+    assert hrepo.compose_files() == ["docker-compose.yml", "docker-compose.own-db.yml"]
+    conf = (hrepo.path / ".harness/odoo.conf").read_text()
+    assert "db_host = db\n" in conf and "dbfilter = ^harness_test$" in conf
+    assert not (hrepo.path / ".harness/odoo-nodemo.conf").exists()
+    # psql in the harness's own db container, as before the dev DB mode
+    drops = [c for c in hrepo.calls() if "DROP" in " ".join(c)]
+    assert drops and all(c[c.index("--env-file") + 2:][:3] == ["exec", "-T", "db"] for c in drops)
+
+
+def test_dev_mode_runs_e2e_on_the_dev_db(hrepo, tmp_path):
+    dev_mode(hrepo)
+    e2e_env = tmp_path / "e2e-env.jsonl"
+    result = hrepo.verify(fake_e2e_env=e2e_env)
+    assert result.returncode == 0, result.stderr
+    assert hrepo.compose_files() == ["docker-compose.yml", "docker-compose.dev-db.yml",
+                                     "docker-compose.dev-network.yml"]
+    conf = (hrepo.path / ".harness/odoo.conf").read_text()
+    assert "db_host = pg_dev\n" in conf and "dbfilter = ^(harness_test|client_dev)$" in conf
+    assert "pg-secret" not in conf and "db_password" not in conf
+    assert ("client_dev", "SELECT value FROM ir_config_parameter "
+            "WHERE key = 'database.is_neutralized'") in hrepo.psql_calls()
+    runs = [c for c in hrepo.calls() if "odoo" in c and "-u" in c]
+    assert [c[c.index("-d") + 1] for c in runs] == ["harness_test", "client_dev"]
+    # no demo data into the client's copy, even for a dependency that -u installs
+    assert "--config=/etc/odoo/odoo-nodemo.conf" in runs[1]
+    assert "--config=/etc/odoo/odoo-nodemo.conf" not in runs[0]
+    nodemo = (hrepo.path / ".harness/odoo-nodemo.conf").read_text()
+    expected = ("with_demo = False" if tuple(map(int, ODOO_VERSION.split("."))) >= (19, 0)
+                else "without_demo = all")
+    assert expected in nodemo and expected not in conf
+    assert json.loads(e2e_env.read_text()) == {"HARNESS_E2E_DB": "client_dev",
+                                              "HARNESS_E2E_LOGIN": "bot",
+                                              "HARNESS_E2E_PASSWORD": "pw"}
+    report = json.loads((hrepo.path / ".harness/last-verify.json").read_text())
+    assert report["layers"]["system"]["e2e_db"] == "client_dev"
+    assert "on 'client_dev'" in result.stdout
+
+
+def test_dev_mode_without_network_reaches_postgres_through_the_host(hrepo):
+    dev_mode(hrepo, DEV_NETWORK="", DEV_DB_HOST="host.docker.internal")
+    assert hrepo.verify().returncode == 0
+    assert hrepo.compose_files() == ["docker-compose.yml", "docker-compose.dev-db.yml"]
+
+
+def test_dev_db_is_never_dropped(hrepo):
+    dev_mode(hrepo)
+    assert hrepo.verify("--fresh-install").returncode == 0
+    drops = [sql for _db, sql in hrepo.psql_calls() if "DROP" in sql.upper()]
+    assert drops and all("harness_test_fresh" in sql for sql in drops)
+    assert not [sql for sql in drops if "client_dev" in sql]
+
+
+def test_dev_db_not_neutralized_blocks_the_e2e_layer(hrepo):
+    dev_mode(hrepo)
+    result = hrepo.verify(fake_neutralized="")
+    assert result.returncode == 1
+    assert "✗ [dev db] the dev database 'client_dev' is not neutralized" in result.stderr
+    assert "odoo-bin neutralize -d client_dev" in result.stderr
+    assert "e2e" not in hrepo.services_run()
+
+
+def test_dev_db_missing_or_unreachable_blocks_the_e2e_layer(hrepo):
+    dev_mode(hrepo)
+    result = hrepo.verify(fake_db_exists="")
+    assert result.returncode == 1 and "'client_dev' does not exist" in result.stderr
+    result = hrepo.verify(fake_psql_rc=2)
+    assert result.returncode == 1 and "is not reachable" in result.stderr
+
+
+@pytest.mark.parametrize("values,secrets,message", [
+    ({}, "", "DEV_ODOO_LOGIN is not set"),
+    ({"DEV_DB": "harness_test"}, DEV_SECRETS, "DEV_DB and TEST_DB must differ"),
+    ({"DEV_DATA_DIR": "/nowhere/odoo"}, DEV_SECRETS, "DEV_DATA_DIR /nowhere/odoo is not a directory"),
+    ({"DEV_DB": "client;x"}, DEV_SECRETS, "DEV_DB must use only letters"),
+    ({"TEST_DB": ""}, DEV_SECRETS, "TEST_DB must be set"),
+])
+def test_incomplete_dev_settings_are_refused(hrepo, values, secrets, message):
+    dev_mode(hrepo, secrets=secrets, **values)
+    result = hrepo.verify()
+    assert result.returncode == 1
+    assert "the dev database settings are incomplete" in result.stderr and message in result.stderr
+    assert "e2e" not in hrepo.services_run()
+
+
+def test_dev_secrets_from_the_environment_win(hrepo, tmp_path):
+    dev_mode(hrepo, secrets="")
+    e2e_env = tmp_path / "e2e-env.jsonl"
+    result = hrepo.verify(fake_e2e_env=e2e_env, dev_odoo_login="ci", dev_odoo_password="ci-pw")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(e2e_env.read_text())["HARNESS_E2E_LOGIN"] == "ci"
+
+
+def test_dev_db_last_updated_from_another_branch_warns(hrepo):
+    dev_mode(hrepo)
+    state = hrepo.path / ".harness/state.json"
+    state.parent.mkdir(exist_ok=True)
+    state.write_text(json.dumps({"dev_db_branch": "T1111"}))
+    result = hrepo.verify()
+    assert result.returncode == 0, result.stderr
+    assert "last updated from branch T1111, this is staging" in result.stdout
+    assert json.loads(state.read_text())["dev_db_branch"] == "staging"

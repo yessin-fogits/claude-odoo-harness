@@ -1,35 +1,24 @@
-# Odoo harness test runtime: its own compose project, Postgres and port, so it never touches
-# the project's dev or deployment stacks. It belongs to the engine, not to the project: use it
+# Odoo harness test runtime: its own compose project and port, so it never touches the
+# project's dev or deployment stacks. It belongs to the engine, not to the project: use it
 # through `odoo-harness` (hlib.compose_cmd), which runs
 #   docker compose --project-directory <repo> -f <engine>/docker-compose.yml
+#     -f <engine>/docker-compose.own-db.yml   (or the dev-db files, see hlib.compose_files)
 #     --env-file <repo>/harness/harness.env
-# with HARNESS_HOME=<engine>. Relative paths are relative to the repository root.
+# with HARNESS_HOME=<engine> and the HARNESS_DB_* / HARNESS_E2E_* variables of
+# hlib.compose_env. Relative paths are relative to the repository root.
 services:
-  db:
-    image: ${POSTGRES_IMAGE:-postgres:16}
-    environment:
-      POSTGRES_USER: odoo
-      POSTGRES_PASSWORD: odoo
-      POSTGRES_DB: postgres
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   odoo:
     # Built from the project's Dockerfile by odoo-harness init when ODOO_DOCKERFILE is set.
     image: ${ODOO_IMAGE:?set ODOO_IMAGE in harness/harness.env}
     pull_policy: missing
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      HOST: db
-      USER: odoo
-      PASSWORD: odoo
+      # The PostgreSQL server: the harness's own (db), or the dev stack's in dev DB mode.
+      # PGPASSWORD serves psql (hlib.psql) and images whose entrypoint ignores PASSWORD.
+      HOST: ${HARNESS_DB_HOST:?run through odoo-harness}
+      PORT: ${HARNESS_DB_PORT:-5432}
+      USER: ${HARNESS_DB_USER:-odoo}
+      PASSWORD: ${HARNESS_DB_PASSWORD-odoo}
+      PGPASSWORD: ${HARNESS_DB_PASSWORD-odoo}
       ODOO_RC: /etc/odoo/odoo.conf
     ports:
       - "127.0.0.1:${ODOO_PORT:-8069}:8069"
@@ -65,12 +54,14 @@ services:
     working_dir: /work
     ipc: host
     environment:
-      ODOO_DB: ${TEST_DB:-harness_test}
+      # The test DB; the dev DB during the e2e layer of verify in dev DB mode.
+      ODOO_DB: ${HARNESS_E2E_DB:-harness_test}
+      ODOO_LOGIN: ${HARNESS_E2E_LOGIN:-admin}
+      ODOO_PASSWORD: ${HARNESS_E2E_PASSWORD:-admin}
       ODOO_VERSION: ${ODOO_VERSION:?set ODOO_VERSION in harness/harness.env}
     volumes:
       - .:/work
       - ${HARNESS_HOME:?run through odoo-harness}:/opt/odoo-harness:ro
 
 volumes:
-  db-data:
   odoo-data:

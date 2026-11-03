@@ -215,6 +215,24 @@ def test_guard_allows_safe_bash(hrepo, command):
     assert pre(hrepo, "Bash", command=command) is None, command
 
 
+def test_guard_ignores_dropdb_inside_an_argument(hrepo):
+    assert pre(hrepo, "Bash", command="grep -n 'psql\\|dropdb' hooks/x.py engine/y.py") is None
+    assert denied(pre(hrepo, "Bash", command="/usr/bin/dropdb -U odoo client_prod"))
+
+
+@pytest.mark.parametrize("command,ok", [
+    ("docker compose run --rm odoo odoo -d client_dev -u demo_mod --stop-after-init", True),
+    ("docker compose run --rm odoo odoo -d client_prod -u demo_mod --stop-after-init", False),
+    ("dropdb -U odoo client_dev", False),
+    ("psql -c 'DROP DATABASE client_dev'", False),
+    ("dropdb -U odoo harness_test", True),
+])
+def test_guard_dev_db_is_updated_never_dropped(hrepo, command, ok):
+    env_file = hrepo.path / "harness/harness.env"
+    env_file.write_text(env_file.read_text().replace("\nDEV_DB=\n", "\nDEV_DB=client_dev\n"))
+    assert (pre(hrepo, "Bash", command=command) is None) is ok, command
+
+
 # --- PostToolUse --------------------------------------------------------------------
 
 def post(repo, path):

@@ -1,6 +1,7 @@
 """Shared Playwright fixtures for the Odoo web client.
 
-The e2e container runs pytest with --base-url http://odoo:8069 against the test DB.
+The e2e container runs pytest with --base-url http://odoo:8069 against the test DB, or the
+dev DB in dev DB mode (ODOO_DB, ODOO_LOGIN and ODOO_PASSWORD are set by the harness).
 Changing this file is a shared change: the full e2e suite runs on the next verify.
 """
 
@@ -17,8 +18,8 @@ PASSWORD = os.environ.get("ODOO_PASSWORD", "admin")
 
 @pytest.fixture
 def unique() -> str:
-    """A short unique suffix. The test DB persists between runs: records an e2e test creates
-    must have unique names, or a later run finds several of them."""
+    """A short unique suffix. The test DB and the dev DB persist between runs: records an e2e
+    test creates must have unique names, or a later run finds several of them."""
     return uuid.uuid4().hex[:8]
 
 

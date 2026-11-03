@@ -10,6 +10,7 @@ This file is the contract between the humans and the agents working on this repo
 - Third-party addons (read-only): `{{THIRD_PARTY_ADDONS}}`
 - Odoo Enterprise (read-only, outside the repository): `{{ENTERPRISE_DIR}}`
 - Test database: `{{TEST_DB}}` with demo data (disposable, recreated by `odoo-harness init --reset`)
+- Dev database (dev DB mode only, `DEV_DB` in `harness/harness.env`): the e2e tests run on it; a neutralized copy of the client's data, updated with `-u` by verify, never dropped or reset. The test database then lives on the dev stack's PostgreSQL too.
 - Git: task branches, named after the task, start from `{{BASE_BRANCH}}`; merge requests target it (GitLab project `{{GITLAB_PROJECT}}`)
 
 ## Commands
@@ -24,14 +25,15 @@ This file is the contract between the humans and the agents working on this repo
 
 ## Expected baseline
 `odoo-harness init` ends with `✓ baseline OK`, which means:
-- the `db` and `odoo` containers are running and Odoo answers on `/web/login`;
+- the `db` (not in dev DB mode) and `odoo` containers are running and Odoo answers on `/web/login`;
+- in dev DB mode: the dev DB is reachable and neutralized;
 - the test DB exists and every custom module installs without error;
 - `odoo-harness verify` passes on the current code.
 
 ## Off-limits
 - Odoo core, Odoo Enterprise and third-party (OCA) addons: extend them in custom modules.
 - Deployment files, changed by a human: `{{PROTECTED_PATHS}}`.
-- Any database other than the test DB, including the dev stack's database.
+- Any database other than the test DB, including the dev stack's database, except the dev DB (`DEV_DB`) that `odoo-harness verify` updates for the e2e tests. Never drop, reset or restore the dev DB: a human does.
 - Credentials: never write a token or password in a tracked file.
 
 ## Ready means

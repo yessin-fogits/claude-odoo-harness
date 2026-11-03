@@ -8,6 +8,7 @@ import pytest
 
 from conftest import CLI, ROOT
 from test_tasks import add_task_feature, change_module, finish, trepo  # noqa: F401
+from test_verify import dev_mode
 
 PLUGIN = ROOT / "engine" / "e2e_plugins" / "harness_guide.py"
 
@@ -134,6 +135,27 @@ def test_a_regressed_feature_stops_the_capture(done):
     assert result.returncode == 1
     assert "F-001 regressed since it was verified" in result.stderr
     assert "odoo-harness feature start F-001 --reopen" in result.stderr
+
+
+def test_dev_mode_capture_replays_on_the_dev_db(done, tmp_path):
+    dev_mode(done)
+    before = len(done.calls())
+    e2e_env = tmp_path / "e2e-env.jsonl"
+    result = guide(done, "capture", "T2003", fake_e2e_env=e2e_env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    updates = [c for c in done.calls()[before:] if "odoo" in c and "-u" in c]
+    assert [c[c.index("-d") + 1] for c in updates] == ["client_dev"]
+    assert "--config=/etc/odoo/odoo-nodemo.conf" in updates[0]
+    replays = [json.loads(line) for line in e2e_env.read_text().splitlines()]
+    assert len(replays) == 2 and all(r["HARNESS_E2E_DB"] == "client_dev" for r in replays)
+
+
+def test_dev_mode_capture_refuses_a_dev_db_not_neutralized(done):
+    dev_mode(done)
+    result = guide(done, "capture", "T2003", fake_neutralized="")
+    assert result.returncode == 1
+    assert "'client_dev' is not neutralized" in result.stderr
+    assert not (done.path / ".harness/guide/T2003/steps.json").exists()
 
 
 # --- build ---------------------------------------------------------------------

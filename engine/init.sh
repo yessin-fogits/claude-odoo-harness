@@ -3,6 +3,9 @@
 # Builds the test image (the project's Dockerfile), brings the harness stack up,
 # prepares the disposable test DB with demo data, installs every custom module of
 # the project and runs the baseline verification. Safe to run again at any time.
+# In dev DB mode (DEV_DB in harness.env) there is no harness PostgreSQL: the test DB lives on
+# the dev stack's server, and the dev DB is checked (reachable, neutralized), never created,
+# dropped or reset; the baseline verification updates it with -u for its e2e layer.
 #
 #   odoo-harness init            full initialization
 #   odoo-harness init --check    quick health check (no install, no tests)
@@ -61,10 +64,18 @@ build_image() {
     ok "image $ODOO_IMAGE built"
 }
 
+check_dev_db() {
+    dev_mode || return 0
+    step "checking the dev database '$DEV_DB'"
+    python3 "$ENGINE_DIR/hlib.py" devcheck || return 1
+    ok "dev database '$DEV_DB' reachable and neutralized"
+}
+
 check() {
-    local failed=0 running svc
+    local failed=0 running svc services=(db odoo)
+    dev_mode && services=(odoo)
     running="$(dc ps --status running --services 2>/dev/null)"
-    for svc in db odoo; do
+    for svc in "${services[@]}"; do
         if grep -qx "$svc" <<<"$running"; then
             ok "$svc container running"
         else
@@ -74,7 +85,7 @@ check() {
             failed=1
         fi
     done
-    if grep -qx db <<<"$running"; then
+    if dev_mode || grep -qx db <<<"$running"; then
         if test_db_exists; then
             ok "test DB '$TEST_DB' exists"
         else
@@ -94,10 +105,19 @@ check() {
             failed=1
         fi
     fi
+    check_dev_db || failed=1
     return "$failed"
 }
 
 reset_test_db() {
+    # the filestore path below is in the dev data directory in dev DB mode
+    if [[ ! "$TEST_DB" =~ ^[A-Za-z0-9_]+$ ]]; then
+        redpen env "invalid TEST_DB '$TEST_DB'" \
+            "The reset deletes filestore/<TEST_DB>; an empty or unusual name could delete more." \
+            "Set TEST_DB in harness/harness.env to letters, digits and _ only (harness_test)."
+        exit 1
+    fi
+    dev_mode && step "the dev database '$DEV_DB' is never reset; only the test DB is"
     step "dropping test DB '$TEST_DB' and its filestore"
     dc stop odoo >/dev/null 2>&1
     psql_db "DROP DATABASE IF EXISTS \"${TEST_DB}\" WITH (FORCE)" >/dev/null
@@ -152,14 +172,18 @@ fi
 require_enterprise
 build_image
 
-step "starting database"
-if ! dc up -d --wait db >/dev/null 2>&1; then
-    redpen env "PostgreSQL container did not become healthy" \
-        "The db service failed to start (image pull, volume or port problem)." \
-        "Read: odoo-harness compose logs db. Fix it, then re-run odoo-harness init."
-    exit 1
+if dev_mode; then
+    check_dev_db || exit 1
+else
+    step "starting database"
+    if ! dc up -d --wait db >/dev/null 2>&1; then
+        redpen env "PostgreSQL container did not become healthy" \
+            "The db service failed to start (image pull, volume or port problem)." \
+            "Read: odoo-harness compose logs db. Fix it, then re-run odoo-harness init."
+        exit 1
+    fi
+    ok "database running"
 fi
-ok "database running"
 
 [ "$mode" = reset ] && reset_test_db
 

@@ -132,7 +132,14 @@ def cmd_capture(args):
 
     modules = sorted({m for f in feats
                       for m in evidence_record(f).get("report", {}).get("changed_modules", [])})
-    if modules:
+    # Dev DB mode: the guide is for the developers, so it shows their database, as verify's e2e.
+    dev = hlib.dev_mode(env)
+    if dev:
+        try:
+            verify.update_dev_db(env, modules, run_dir, {})
+        except verify.LayerFailed:
+            return 1
+    elif modules:
         verify.step(f"update {','.join(modules)} on the test DB")
         log = run_dir / "odoo-update.log"
         rc, out = verify.run_logged(["run", "--rm", "-T", "odoo", "odoo", "-d", env["TEST_DB"],
@@ -162,7 +169,7 @@ def cmd_capture(args):
             ["run", "--rm", "-T", f"--env=PYTHONPATH={verify.E2E_PLUGINS}",
              f"--env=HARNESS_GUIDE_DIR={verify.rel(shots)}", "e2e", "pytest", *files,
              "--base-url", "http://odoo:8069", "-p", "harness_guide", "-p", "no:cacheprovider",
-             "-q"], log)
+             "-q"], log, hlib.dev_e2e_env(env) if dev else None)
         counts = verify.parse_pytest(out)
         if rc != 0 or counts["failed"] or counts["errors"] or not counts["passed"]:
             verify.redpen_from_text(

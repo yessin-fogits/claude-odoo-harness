@@ -55,13 +55,27 @@ class HarnessRepo:
         return [json.loads(line) for line in self.calls_file.read_text().splitlines()]
 
     def services_run(self):
-        """Compose services started with `run`, in order."""
+        """Compose services started with `run`, in order (psql statements apart: psql_calls)."""
         out = []
         for argv in self.calls():
             args = argv[argv.index("--env-file") + 2:]
-            if args[0] == "run":
+            if args[0] == "run" and "--entrypoint=sh" not in args:
                 out.append([a for a in args[1:] if not a.startswith("-")][0])
         return out
+
+    def psql_calls(self):
+        """(database, SQL) of each psql statement run through hlib.psql_args, in order."""
+        out = []
+        for argv in self.calls():
+            args = argv[argv.index("--env-file") + 2:]
+            if args[0] == "run" and "--entrypoint=sh" in args:
+                out.append((args[-2], args[-1]))
+        return out
+
+    def compose_files(self):
+        """The -f files of the last compose call, by name."""
+        argv = self.calls()[-1]
+        return [Path(argv[i + 1]).name for i, a in enumerate(argv) if a == "-f"]
 
     def git(self, *args):
         subprocess.run(["git", *args], cwd=self.path, check=True, capture_output=True)

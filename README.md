@@ -66,7 +66,7 @@ It then goes through four steps:
 
 | Step | Result |
 |---|---|
-| 1. Test environment | The project's image with its own PostgreSQL, port and disposable test database, and every custom module installed. Your dev stack is not touched. |
+| 1. Test environment | The project's image with its own PostgreSQL, port and disposable test database, and every custom module installed. Your dev stack is not touched. In dev DB mode (`DEV_DB`), it uses your dev PostgreSQL instead and runs the e2e tests on your dev database (neutralized, updated, never reset). |
 | 2. Tests | One passing test at each level: unit, integration and e2e |
 | 3. `BOOTSTRAP.md` | How to start, verify and reset the project, for you to review |
 | 4. `feature_list.json` | The work split into small features, for you to review |

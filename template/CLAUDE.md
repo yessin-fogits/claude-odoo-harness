@@ -26,7 +26,7 @@ Third-party addons (`{{THIRD_PARTY_ADDONS}}`) and Odoo Enterprise are read-only.
 - At session start the harness loads PROGRESS.md, recent decisions, the current feature and the baseline health into your context. Start from there.
 - After each edit of a module file, fast static checks run on that file. Fix what they report right away.
 - When you end a turn, the harness rewrites "Current state" in PROGRESS.md and refuses to stop if the state is unclean: static check failures, a broken feature list, or code changed this session without PROGRESS.md being updated.
-- Edits of feature_list.json, harness/evidence/, the harness engine, Odoo core/enterprise code, third-party addons and deployment files, commands on non-test databases and pushes to shared branches are denied.
+- Edits of feature_list.json, harness/evidence/, the harness engine, Odoo core/enterprise code, third-party addons and deployment files, commands on databases other than the test DB and the dev DB, any drop of a database other than the test DB, and pushes to shared branches are denied.
 
 # Work Rules
 - Work on one feature at a time (WIP = 1).
@@ -72,7 +72,7 @@ Completion is judged by the harness, in three layers:
 2. Runtime behaviour: Odoo unit tests (level 1) and integration tests (level 2): module install/upgrade on a test DB, cross-model flows.
 3. System confirmation: Playwright e2e tests (level 3) against a running instance. Every feature has its own e2e test. The full e2e suite must pass when a change touches more than one module or shared components.
 
-The tests run on a disposable database with demo data. They cover the modules you changed and every custom module that depends on them. Problems in modules you did not touch do not block you: `odoo-harness static --all` lists them as debt. When you touch a module, you own the problems on the lines you change and those that block your feature; report the others, do not fix them now.
+The tests run on a disposable database with demo data. When the project sets `DEV_DB` (dev DB mode), the e2e tests run on the developer's database instead: a neutralized copy of the client's data, updated by verify and never reset. So an e2e test creates the records it needs with unique names (the `unique` fixture) and relies on neither demo records nor a particular client record: it must pass twice in a row (verify runs it, then the user guide replays it on the same database). The tests cover the modules you changed and every custom module that depends on them. Problems in modules you did not touch do not block you: `odoo-harness static --all` lists them as debt. When you touch a module, you own the problems on the lines you change and those that block your feature; report the others, do not fix them now.
 
 Only the e2e test is real verification. Unit tests passing is not enough to declare a feature done.
 

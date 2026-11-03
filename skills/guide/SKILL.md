@@ -31,7 +31,8 @@ not committed, uncommitted changes in the modules or `e2e/`). When it refuses, s
 user the red-pen message and stop. Do not try to make the task pass, verify features, or
 commit for them: the guide is for completed work only.
 
-When it passes, it has replayed each feature's e2e test on the committed code and written:
+When it passes, it has replayed each feature's e2e test on the committed code (on the
+dev DB when the project sets `DEV_DB`, as verify does) and written:
 - `.harness/guide/<task>/steps.json`: for each feature, its tests and their steps (`key`,
   `caption` from `guide.step()`, `image`);
 - `.harness/guide/<task>/content.json`: the text to write, every field marked `À RÉDIGER`

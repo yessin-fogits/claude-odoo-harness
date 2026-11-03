@@ -117,9 +117,11 @@ def description(task, features):
                  f"{layers.get('system', {}).get('passed', 0)} e2e")
         rows.append(f"| {feat['id']} | {feat['behavior']} | "
                     f"{feat['evidence'].get('verified_at', '')[:10]} | {tests} |")
+    e2e_on = ("the developer's dev database (neutralized client copy)"
+              if hlib.dev_mode(hlib.load_env()) else "a fresh test database")
     lines = [f"Odoo task **{task}**: every feature below passed `odoo-harness feature verify` "
-             "(static checks and pylint-odoo, Odoo tests, Playwright e2e on a fresh test "
-             "database).", "", *rows, ""]
+             f"(static checks and pylint-odoo, Odoo tests on a test database with demo data, "
+             f"Playwright e2e on {e2e_on}).", "", *rows, ""]
     if modules:
         lines.append(f"Modules tested: {', '.join(sorted(modules))}.")
     lines.append("Evidence: `harness/evidence/<feature>.json` in this branch.")
