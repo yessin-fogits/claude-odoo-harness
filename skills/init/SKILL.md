@@ -126,6 +126,16 @@ database with demo data, then runs the baseline verification. It must end with
   it only if they agree (it becomes the first feature); never weaken the harness to pass.
 - Problems in deployment files (Dockerfile, configs) are fixed by a human: explain what and why.
 
+Dev DB mode (optional): ask the user, in one question, whether the e2e tests should run on
+their dev database (a copy of the client's data from production or staging) instead of the
+test DB. If yes, fill `DEV_DB`, `DEV_DB_HOST`, `DEV_DB_PORT`, `DEV_DB_USER`, `DEV_NETWORK` and
+`DEV_DATA_DIR` in `harness/harness.env` (read them from the dev compose file and
+`docker network ls`; the comments there explain each one), and ask the user to write
+`DEV_DB_PASSWORD`, `DEV_ODOO_LOGIN` and `DEV_ODOO_PASSWORD` in `harness/dev.local.env` (git
+ignores it; never write a password yourself). The dev DB must be neutralized: if `init`
+reports it is not, the user runs `odoo-bin neutralize` in the dev stack. Never neutralize,
+restore or drop the dev DB yourself.
+
 ## Step 2: verifiable test frame
 Every level of the validation hierarchy needs at least one test that passes in the project:
 - level 1 unit and level 2 integration: Odoo tests in a module's `tests/` package;

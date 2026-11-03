@@ -8,9 +8,10 @@ Denies (with a red-pen reason):
   - edits of Odoo core / enterprise code, of third-party addons (THIRD_PARTY_ADDONS),
     of the Enterprise checkout (ENTERPRISE_DIR) and of PROTECTED_PATHS (deployment
     files): extend in custom modules instead, a human changes deployment files
-  - Bash commands that write those files, drop or target a non-test database,
-    delete docker volumes, skip git hooks with --no-verify, or push to the base
-    branch or main (task branches are pushed by `odoo-harness gitlab`)
+  - Bash commands that write those files, drop any database but the test DB, run Odoo on a
+    database that is neither the test DB nor the dev DB (DEV_DB), delete docker volumes,
+    skip git hooks with --no-verify, or push to the base branch or main (task branches are
+    pushed by `odoo-harness gitlab`)
 """
 
 import ast
@@ -136,9 +137,15 @@ def check_file_tool(root, env, payload, tool_input):
     check_core(root, env, rel)
 
 
-def allowed_dbs(env):
+def droppable_dbs(env):
     test_db = env.get("TEST_DB", "harness_test")
     return {test_db, f"{test_db}_fresh"}
+
+
+def odoo_dbs(env):
+    """Databases Odoo may run on: the test DBs, and the dev DB (updated, never dropped)."""
+    dev_db = env.get("DEV_DB", "").strip()
+    return droppable_dbs(env) | ({dev_db} if dev_db else set())
 
 
 def shell_segments(command):
@@ -210,23 +217,41 @@ def check_state_commands(command):
                  "cat/jq/git is fine.")
 
 
+def dropdb_targets(command):
+    """The database of each dropdb command (the program, not the word inside an argument)."""
+    segments = shell_segments(command)
+    if segments is None:
+        # unparseable: read every `dropdb` word as the program
+        segments = [m.group(0).split() for m in re.finditer(r"\bdropdb\b[^;&|\n]*", command)]
+    targets = []
+    for tokens in segments:
+        for i, token in enumerate(tokens):
+            if token == "dropdb" or token.endswith("/dropdb"):
+                names = [t for t in tokens[i + 1:] if not t.startswith("-")]
+                targets += names[-1:] or ["<unknown>"]
+    return targets
+
+
 def check_bash(env, command):
     check_state_commands(command)
-    dbs = allowed_dbs(env)
-    targets = []
-    for match in re.finditer(r"\bdropdb\b([^;&|\n]*)", command):
-        names = [t for t in match.group(1).split() if not t.startswith("-")]
-        targets += names[-1:] or ["<unknown>"]
-    targets += re.findall(r"drop\s+database\s+(?:if\s+exists\s+)?[\"'`]?([\w-]+)", command, re.I)
-    targets += re.findall(r"\bodoo(?:-bin)?\b[^;&|\n]*?(?:\s-d\s*|--database[ =])([\w-]+)",
-                          command)
-    for name in targets:
-        if name not in dbs:
+    test_db = env.get("TEST_DB", "harness_test")
+    drops = dropdb_targets(command)
+    drops += re.findall(r"drop\s+database\s+(?:if\s+exists\s+)?[\"'`]?([\w-]+)", command, re.I)
+    for name in drops:
+        if name not in droppable_dbs(env):
+            deny(f"command drops database '{name}', not the test DB",
+                 "Only the disposable test DB is ever dropped; the dev DB and any other database "
+                 "may hold real data.",
+                 f"Use `odoo-harness init --reset` to recreate the test DB '{test_db}'. A human "
+                 "handles any other database.")
+    runs = re.findall(r"\bodoo(?:-bin)?\b[^;&|\n]*?(?:\s-d\s*|--database[ =])([\w-]+)", command)
+    for name in runs:
+        if name not in odoo_dbs(env):
             deny(f"command targets database '{name}', not the test DB",
-                 "The harness only works on the disposable test DB; other databases may hold "
-                 "real data.",
-                 f"Use the test DB '{env.get('TEST_DB', 'harness_test')}' (odoo-harness init "
-                 "--reset recreates it). A human handles any other database.")
+                 "The harness only works on the disposable test DB (and the dev DB, through "
+                 "odoo-harness verify); other databases may hold real data.",
+                 f"Use the test DB '{test_db}' (odoo-harness init --reset recreates it). A human "
+                 "handles any other database.")
     if re.search(r"docker[\s-]+compose\b[^;&|\n]*\bdown\b[^;&|\n]*(\s-v\b|--volumes)", command) \
             or re.search(r"docker\s+volume\s+(rm|prune)\b", command):
         deny("command deletes docker volumes",

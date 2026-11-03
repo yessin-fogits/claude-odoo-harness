@@ -3,7 +3,8 @@
 
 Environment: FAKE_CALLS (file to append argv as JSON lines) and per command
 FAKE_PYLINT_OUT, FAKE_ODOO_LOG / FAKE_ODOO_RC, FAKE_FRESH_LOG, FAKE_E2E_OUT /
-FAKE_E2E_RC, FAKE_SERVER_LOG. In guide mode (--env=HARNESS_GUIDE_DIR=...) the e2e run
+FAKE_E2E_RC, FAKE_SERVER_LOG; psql runs (hlib.psql_args): FAKE_DB_EXISTS / FAKE_PSQL_RC,
+FAKE_NEUTRALIZED. In guide mode (--env=HARNESS_GUIDE_DIR=...) the e2e run
 writes FAKE_GUIDE_STEPS (JSON list of captions, default two) like the harness_guide plugin;
 `e2e python harness/guide_pdf.py HTML PDF` writes a fake PDF unless FAKE_PDF_RC is set.
 """
@@ -28,6 +29,14 @@ def reply(text, rc=0):
     sys.exit(rc)
 
 
+if command == "run" and "--entrypoint=sh" in args:
+    # hlib.psql_args: the SQL statement is the last argument
+    sql = args[-1]
+    if "is_neutralized" in sql:
+        reply(os.environ.get("FAKE_NEUTRALIZED", "true"))
+    if "pg_database" in sql:
+        reply(os.environ.get("FAKE_DB_EXISTS", "1"), int(os.environ.get("FAKE_PSQL_RC", "0")))
+    reply("")
 if command == "run":
     service = [a for a in args[1:] if not a.startswith("-")][0]
     if service == "lint":
@@ -39,6 +48,10 @@ if command == "run":
         reply(os.environ.get("FAKE_ODOO_LOG", DEFAULT_ODOO_LOG),
               int(os.environ.get("FAKE_ODOO_RC", "0")))
     if service == "e2e":
+        if os.environ.get("FAKE_E2E_ENV"):
+            with open(os.environ["FAKE_E2E_ENV"], "a") as fh:
+                fh.write(json.dumps({k: os.environ.get(k) for k in (
+                    "HARNESS_E2E_DB", "HARNESS_E2E_LOGIN", "HARNESS_E2E_PASSWORD")}) + "\n")
         guide_dir = next((a.split("=", 2)[2] for a in args
                           if a.startswith("--env=HARNESS_GUIDE_DIR=")), None)
         if guide_dir:

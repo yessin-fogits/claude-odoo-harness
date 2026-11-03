@@ -29,12 +29,10 @@ redpen() {
 ok()   { printf '✓ %s\n' "$*"; }
 step() { printf '→ %s\n' "$*"; }
 
-# The same command as hlib.compose_cmd: runtime files first, then compose.
+# docker compose on the harness stack, through hlib.compose_cmd (runtime files, compose
+# files of the database mode, database settings).
 dc() {
-    python3 "$ENGINE_DIR/hlib.py" runtime || return 1
-    # shellcheck disable=SC2086
-    ${HARNESS_COMPOSE:-docker compose} --project-directory "$REPO_ROOT" \
-        -f "$ENGINE_DIR/docker-compose.yml" --env-file "$HARNESS_ENV" "$@"
+    python3 "$ENGINE_DIR/hlib.py" compose "$@"
 }
 
 # Run an odoo-bin command in a one-off container (no published ports).
@@ -42,12 +40,18 @@ odoo_run() {
     dc run --rm -T odoo odoo "$@"
 }
 
+# One SQL statement on the harness's PostgreSQL server (the dev stack's in dev DB mode).
 psql_db() {
-    dc exec -T db psql -U odoo -d postgres -tAc "$1"
+    python3 "$ENGINE_DIR/hlib.py" psql "$1"
 }
 
 test_db_exists() {
     [ "$(psql_db "SELECT 1 FROM pg_database WHERE datname='${TEST_DB}'" 2>/dev/null)" = "1" ]
+}
+
+# Dev DB mode: the e2e tests run on DEV_DB, on the dev stack's PostgreSQL.
+dev_mode() {
+    [ -n "${DEV_DB:-}" ]
 }
 
 # Every custom module of the project (CUSTOM_ADDONS), or base when there is none yet.

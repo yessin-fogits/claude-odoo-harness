@@ -129,7 +129,7 @@ files the old harness generated there.
   `state` is one of `not_started`, `in_progress`, `blocked` or `passing`.
 
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
-1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly.
+1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly. In dev DB mode (`DEV_DB`) the harness has no PostgreSQL of its own: the test DB lives on the dev stack's server, and the e2e layer runs on the dev DB after checking it is neutralized and updating it with `-u` (never dropped or reset).
 2. **Verifiable test frame**: `verify.sh` runs pylint-odoo, the `odoo-bin --test-enable` unit and integration tests, and the Playwright e2e tests. A sample passing test exists at each level.
 3. **Bootstrap contract**: `BOOTSTRAP.md` defines what "ready" means:
    - the start, verify and reset commands;
@@ -214,7 +214,7 @@ When a code review finds a new type of agent mistake:
 - **PreToolUse**:
   - Protects `feature_list.json`.
   - Blocks edits to Odoo core and enterprise paths.
-  - Blocks `dropdb` on non-test DBs and production configs.
+  - Blocks `dropdb` / `DROP DATABASE` on any DB but the test DB, and Odoo commands on DBs other than the test DB and the dev DB (`DEV_DB`).
 - **PostToolUse** (on Edit and Write of `.py` and `.xml` files): runs fast layer 1 checks on the changed file and returns red-pen feedback.
 - **Stop** (the automatic session end):
   - Rewrites the PROGRESS.md "Current state" section (last commit, test and lint status).

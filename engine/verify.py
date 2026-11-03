@@ -7,7 +7,9 @@
               that depends on them (odoo -u ... --test-tags); the baseline (no
               feature) updates and tests every custom module
   L3 system   Playwright e2e against the restarted server, clean server log,
-              optional install of the changed modules on a fresh DB
+              optional install of the changed modules on a fresh DB. In dev DB mode
+              (DEV_DB) the e2e tests run on the dev DB, updated with -u first, after a
+              check that it is reachable and neutralized
 
 Layers run in order and stop at the first failure. Without --e2e the whole e2e
 suite runs. With --feature, the whole suite also runs when the feature's changes
@@ -60,9 +62,10 @@ class LayerFailed(Exception):
 
 # --- process helpers ----------------------------------------------------------
 
-def run_logged(args, log_path):
+def run_logged(args, log_path, extra_env=None):
     """Run a compose sub-command, save its combined output, return (rc, output)."""
-    proc = subprocess.run(hlib.compose_cmd() + args, cwd=hlib.REPO_ROOT, env=hlib.compose_env(),
+    proc = subprocess.run(hlib.compose_cmd() + args, cwd=hlib.REPO_ROOT,
+                          env={**hlib.compose_env(), **(extra_env or {})},
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                           errors="replace")
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -275,8 +278,7 @@ def server_log_errors(since, run_dir):
 def fresh_install(env, names, run_dir):
     db = env["TEST_DB"] + "_fresh"
     modules = ",".join(names) or "base"
-    drop = ["exec", "-T", "db", "psql", "-U", "odoo", "-d", "postgres", "-c",
-            f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)']
+    drop = hlib.psql_args(env, f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)')
     run_logged(drop, run_dir / "fresh-drop.log")
     log = run_dir / "fresh-install.log"
     step(f"L3 system: install {modules} on a fresh DB '{db}'")
@@ -291,10 +293,42 @@ def fresh_install(env, names, run_dir):
     return True
 
 
+def update_dev_db(env, modules, run_dir, result):
+    """Dev DB mode: check DEV_DB, then update the modules on it (never install, never drop)."""
+    dev_db = env["DEV_DB"].strip()
+    pen = hlib.dev_db_check(env)
+    if pen:
+        print(pen, file=sys.stderr)
+        raise LayerFailed(result)
+    state = hlib.load_state()
+    branch, last = hlib.current_branch(), state.get("dev_db_branch")
+    if last and branch and last != branch:
+        print(f"⚠ the dev DB '{dev_db}' was last updated from branch {last}, this is {branch}: "
+              "its schema and data may hold that branch's changes. If a test fails on data it "
+              "did not create, restore the dev DB.", flush=True)
+    if not modules:
+        return
+    log = run_dir / "dev-db-update.log"
+    step(f"L3 system: odoo -u {','.join(modules)} on the dev DB '{dev_db}'")
+    rc, out = run_logged(["run", "--rm", "-T", "odoo", "odoo",
+                          f"--config={hlib.NODEMO_CONF_MOUNT}", "-d", dev_db,
+                          "-u", ",".join(modules), "--stop-after-init"], log)
+    blocks = odoo_error_blocks(out)
+    if rc != 0 or blocks:
+        for block in blocks[:5] or [out]:
+            redpen_from_text("L3 system", f"module update on the dev DB '{dev_db}' failed",
+                             block, log)
+        raise LayerFailed(result)
+    state["dev_db_branch"] = branch
+    hlib.save_state(state)
+
+
 def layer_system(env, e2e_files, full, fresh, modules, run_dir):
     targets = ["e2e"] if full else e2e_files
     missing = [f for f in targets if not (hlib.REPO_ROOT / f).exists()]
-    result = {"status": "fail", "e2e_targets": targets, "full_suite": full}
+    dev = hlib.dev_mode(env)
+    e2e_db = env["DEV_DB"].strip() if dev else env.get("TEST_DB", "harness_test")
+    result = {"status": "fail", "e2e_targets": targets, "full_suite": full, "e2e_db": e2e_db}
     if missing:
         hlib.print_redpen("L3 system", f"e2e test file missing: {', '.join(missing)}",
                           "Every feature needs its own Playwright test; only e2e is real "
@@ -302,6 +336,8 @@ def layer_system(env, e2e_files, full, fresh, modules, run_dir):
                           "Write the test in e2e/ (see e2e/test_smoke.py and the odoo_page fixture "
                           "in e2e/conftest.py), then verify again.")
         raise LayerFailed(result)
+    if dev:
+        update_dev_db(env, modules, run_dir, result)
     step("L3 system: restarting Odoo with the new code")
     rc, out = run_logged(["restart", "odoo"], run_dir / "restart.log")
     if rc == 0:
@@ -314,13 +350,14 @@ def layer_system(env, e2e_files, full, fresh, modules, run_dir):
     since = hlib.now_iso()
     artifacts = run_dir / "e2e"
     log = run_dir / "e2e.log"
-    step(f"L3 system: playwright {' '.join(targets)}")
+    step(f"L3 system: playwright {' '.join(targets)} on '{e2e_db}'")
     # harness_guide (engine/e2e_plugins/) gives the tests their `guide` fixture.
     rc, out = run_logged(["run", "--rm", "-T", f"--env=PYTHONPATH={E2E_PLUGINS}", "e2e",
                           "pytest", *targets,
                           "--base-url", "http://odoo:8069", "--output", rel(artifacts),
                           "--tracing", "retain-on-failure", "--screenshot", "only-on-failure",
-                          "-p", "harness_guide", "-p", "no:cacheprovider", "-q"], log)
+                          "-p", "harness_guide", "-p", "no:cacheprovider", "-q"], log,
+                         hlib.dev_e2e_env(env) if dev else None)
     counts = parse_pytest(out)
     result.update(counts, artifacts=rel(artifacts), log=rel(log))
     if rc != 0 or counts["failed"] or counts["errors"] or not counts["passed"]:
@@ -342,7 +379,7 @@ def layer_system(env, e2e_files, full, fresh, modules, run_dir):
         if not result["fresh_install"]:
             raise LayerFailed(result)
     result["status"] = "pass"
-    ok(f"L3 system: {counts['passed']} e2e test(s) passed"
+    ok(f"L3 system: {counts['passed']} e2e test(s) passed on '{e2e_db}'"
        f"{' (full suite)' if full else ''}, clean server log")
     return result
 

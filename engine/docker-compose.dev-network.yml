@@ -1,0 +1,13 @@
+# Dev database mode with DEV_NETWORK: the harness Odoo joins the dev stack's network to reach
+# its PostgreSQL by service name. Compose gives it the name `odoo` there too.
+# Added to docker-compose.yml by hlib.compose_files.
+services:
+  odoo:
+    networks:
+      - default
+      - dev
+
+networks:
+  dev:
+    external: true
+    name: ${DEV_NETWORK:?set DEV_NETWORK in harness/harness.env}
