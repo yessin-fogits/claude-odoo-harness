@@ -7,7 +7,7 @@ everything you need to continue is in these files, not in your memory.
 | File | Role |
 |---|---|
 | `BOOTSTRAP.md` | Bootstrap contract: how to start, verify, reset; what is in and out of scope |
-| `PROGRESS.md` | Current state, completed / in-progress tasks, known issues, next steps |
+| `PROGRESS.md` | The Odoo project's work: current state, completed / in-progress tasks, known issues, next steps. Never the harness setup (that is `BOOTSTRAP.md`) |
 | `DECISIONS.md` | Dated decisions. Read before changing direction; append when you decide |
 | `ARCHITECTURE.md` | Map of the project: modules, what they do, how they depend on each other, risks |
 | `feature_list.json` | The work, split into features. State is owned by the harness |
