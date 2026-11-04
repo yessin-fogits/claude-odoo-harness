@@ -457,7 +457,7 @@ def test_dev_db_missing_or_unreachable_blocks_the_e2e_layer(hrepo):
     ({}, "", "DEV_ODOO_LOGIN is not set"),
     ({"DEV_DB": "harness_test"}, DEV_SECRETS, "DEV_DB and TEST_DB must differ"),
     ({"DEV_DATA_DIR": "/nowhere/odoo"}, DEV_SECRETS, "DEV_DATA_DIR /nowhere/odoo is not a directory"),
-    ({"DEV_DB": "client;x"}, DEV_SECRETS, "DEV_DB must use only letters"),
+    ({"TEST_DB": "../x"}, DEV_SECRETS, "TEST_DB must be set and must not be a path"),
     ({"TEST_DB": ""}, DEV_SECRETS, "TEST_DB must be set"),
 ])
 def test_incomplete_dev_settings_are_refused(hrepo, values, secrets, message):
@@ -485,3 +485,25 @@ def test_dev_db_last_updated_from_another_branch_warns(hrepo):
     assert result.returncode == 0, result.stderr
     assert "last updated from branch T1111, this is staging" in result.stdout
     assert json.loads(state.read_text())["dev_db_branch"] == "staging"
+
+
+@pytest.mark.parametrize("dev_db,test_db,problems", [
+    ("stca-sta-22092026-dup", "harness_test", []),
+    ("Client.Dev-2026", "harness-test", []),
+    ("client_dev", "", ["TEST_DB must be set and must not be a path (/, . or ..)"]),
+    ("client_dev", "../data", ["TEST_DB must be set and must not be a path (/, . or ..)"]),
+    ("client_dev", "..", ["TEST_DB must be set and must not be a path (/, . or ..)"]),
+])
+def test_dev_config_accepts_any_database_name(hrepo, monkeypatch, dev_db, test_db, problems):
+    monkeypatch.setattr(verify.hlib, "REPO_ROOT", hrepo.path)
+    (hrepo.path / "dev-data").mkdir(exist_ok=True)
+    env = {"DEV_DB": dev_db, "TEST_DB": test_db, "DEV_DB_HOST": "pg_dev",
+           "DEV_DATA_DIR": "dev-data", "DEV_DB_PASSWORD": "x", "DEV_ODOO_LOGIN": "admin",
+           "DEV_ODOO_PASSWORD": "admin"}
+    assert verify.hlib.dev_config_problems(env) == problems
+
+
+def test_dbfilter_matches_the_database_names_literally():
+    conf = verify.hlib.render_odoo_conf({"TEST_DB": "harness_test", "DEV_DB": "client.dev-1",
+                                         "DEV_DB_HOST": "pg_dev", "ODOO_VERSION": ODOO_VERSION})
+    assert re.search(r"dbfilter = (.*)", conf).group(1) == r"^(harness_test|client\.dev\-1)$"

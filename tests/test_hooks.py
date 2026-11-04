@@ -231,6 +231,19 @@ def test_guard_dev_db_is_updated_never_dropped(hrepo, command, ok):
     assert (pre(hrepo, "Bash", command=command) is None) is ok, command
 
 
+@pytest.mark.parametrize("command,ok", [
+    ("odoo -d stca-sta-22092026-dup -u demo_mod --stop-after-init", True),
+    ("odoo -d 'stca-sta-22092026-dup' -u demo_mod --stop-after-init", True),
+    ("odoo -d stca-sta-22092026-dup.old -u demo_mod --stop-after-init", False),
+    ("dropdb stca-sta-22092026-dup", False),
+])
+def test_guard_reads_any_database_name_whole(hrepo, command, ok):
+    env_file = hrepo.path / "harness/harness.env"
+    env_file.write_text(env_file.read_text().replace(
+        "\nDEV_DB=\n", "\nDEV_DB=stca-sta-22092026-dup\n"))
+    assert (pre(hrepo, "Bash", command=command) is None) is ok, command
+
+
 # --- PostToolUse --------------------------------------------------------------------
 
 def post(repo, path):

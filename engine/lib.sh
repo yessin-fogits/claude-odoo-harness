@@ -46,7 +46,7 @@ psql_db() {
 }
 
 test_db_exists() {
-    [ "$(psql_db "SELECT 1 FROM pg_database WHERE datname='${TEST_DB}'" 2>/dev/null)" = "1" ]
+    [ "$(psql_db "SELECT 1 FROM pg_database WHERE datname='${TEST_DB//\'/\'\'}'" 2>/dev/null)" = "1" ]
 }
 
 # Dev DB mode: the e2e tests run on DEV_DB, on the dev stack's PostgreSQL.
