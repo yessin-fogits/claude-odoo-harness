@@ -91,7 +91,7 @@ def parse_args(argv):
     p.add_argument("--odoo-version", help=f"Odoo version of the project ({', '.join(VERSIONS)}; "
                    "default: detected from its Dockerfile)")
     p.add_argument("--custom-addons", help="comma-separated folders of the project's modules")
-    p.add_argument("--third-party-addons", help="comma-separated read-only addon folders (OCA...)")
+    p.add_argument("--third-party-addons", help="comma-separated third-party addon folders (OCA...)")
     p.add_argument("--enterprise-dir", help="Odoo Enterprise checkout, relative to target "
                    "(default: ../enterprise when the project uses it); '' for none")
     p.add_argument("--dockerfile", help="project Dockerfile the test image is built from; '' "

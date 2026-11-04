@@ -110,7 +110,7 @@ def markdown(facts, env):
            "## Odoo and third-party modules the project builds on", "",
            ", ".join(f"`{d}`" for d in standard) or "-", ""]
     for folder, mods in third_party(env).items():
-        out.append(f"- `{folder}` (read-only): {', '.join(mods) or 'empty'}")
+        out.append(f"- `{folder}`: {', '.join(mods) or 'empty'}")
     out += ["", "## Debt facts", "",
             f"- Modules without tests: {len(no_tests)} of {len(facts)}"
             + (f" ({', '.join(no_tests)})" if no_tests else ""),

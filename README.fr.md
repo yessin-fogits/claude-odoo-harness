@@ -143,9 +143,9 @@ Lancez-les depuis le dépôt ou l'espace client.
 La vérification se déroule dans cet ordre et s'arrête au premier échec :
 
 1. **Statique** : syntaxe, XML, manifestes, contrôles du projet et pylint-odoo, sur les modules
-   modifiés.
-2. **Tests Odoo** : sur la base de test, pour les modules modifiés et tous les modules personnalisés
-   qui en dépendent.
+   personnalisés modifiés.
+2. **Tests Odoo** : sur la base de test, pour les modules modifiés (addons tiers compris) et tous
+   les modules personnalisés qui en dépendent.
 3. **Bout en bout** : tests Playwright, avec un log serveur propre.
 
 Les erreurs de syntaxe, de XML, de manifeste et de CSV de sécurité bloquent toujours. Les
@@ -202,7 +202,7 @@ contrôles du projet et pylint ne bloquent que sur les lignes modifiées sur la 
 - **À la fin de chaque tour :** vérifie que le travail est laissé dans un état propre.
 - **En permanence, bloque :**
   - les modifications de la liste des fonctionnalités, des preuves et du moteur du harness ;
-  - les modifications d'Odoo core, d'Enterprise, des addons tiers et des fichiers de déploiement ;
+  - les modifications d'Odoo core, d'Enterprise et des fichiers de déploiement ;
   - les commandes qui suppriment ou ciblent une autre base que celle de test ;
   - les commandes qui suppriment des volumes Docker ou contournent les hooks git ;
   - les push vers `main`, `master`, `production` et la branche de base.

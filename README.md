@@ -137,9 +137,10 @@ Run them from the repository or the client workspace.
 
 Verification runs in this order and stops at the first failure:
 
-1. **Static**: syntax, XML, manifests, project checks and pylint-odoo, on the changed modules.
-2. **Odoo tests**: on the test database, for the changed modules and every custom module that
-   depends on them.
+1. **Static**: syntax, XML, manifests, project checks and pylint-odoo, on the changed custom
+   modules.
+2. **Odoo tests**: on the test database, for the changed modules (third-party ones included)
+   and every custom module that depends on them.
 3. **End-to-end**: Playwright tests, with a clean server log.
 
 Syntax, XML, manifest and security CSV errors always block. Project checks and pylint block
@@ -196,7 +197,7 @@ only on lines changed on the branch.
 - **At the end of each turn:** checks that the work is left in a clean state.
 - **At all times, blocks:**
   - edits to the feature list, the evidence and the harness engine;
-  - edits to Odoo core, Enterprise, third-party addons and deployment files;
+  - edits to Odoo core, Enterprise and deployment files;
   - commands that drop or target a database other than the test one;
   - commands that delete Docker volumes or skip git hooks;
   - pushes to `main`, `master`, `production` and the base branch.
