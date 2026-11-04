@@ -266,6 +266,8 @@ def test_existing_gitignore_is_merged(repo):
 
 @pytest.mark.parametrize("args", [
     ["--test-db", "x;drop"],
+    ["--test-db", "../data"],
+    ["--test-db", ".."],
     ["--custom-addons", "../outside"],
     ["--custom-addons", "/abs"],
     ["--dockerfile", "../Dockerfile"],
@@ -273,6 +275,11 @@ def test_existing_gitignore_is_merged(repo):
 def test_rejects_invalid_values(repo, args):
     with pytest.raises(SystemExit):
         install_template.main([str(repo), *args])
+
+
+def test_accepts_a_test_db_with_dashes_and_dots(repo):
+    install_template.main([str(repo), "--test-db", "stca-sta-test.2026"])
+    assert "TEST_DB=stca-sta-test.2026\n" in (repo / "harness/harness.env").read_text()
 
 
 def test_shell_scripts_pass_syntax_and_shellcheck():

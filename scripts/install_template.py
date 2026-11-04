@@ -80,8 +80,8 @@ GITIGNORE_FRAGMENT = "gitignore"
 BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?", re.S)
 PROJECT_SECTION_RE = re.compile(r"^# This project\s*$", re.M)
 
-DB_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 ENV_KEY_RE = re.compile(r"^([A-Z_]+)=(.*)$")
+SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()$`'\"\\*?\[\]{}~!#]")
 
 
 def parse_args(argv):
@@ -179,8 +179,13 @@ def build_context(args):
                              "--dockerfile")
     name = pick(args.project_name, "COMPOSE_PROJECT_NAME", f"{found['project_name']}-harness")
     test_db = pick(args.test_db, "TEST_DB", "harness_test")
-    if not DB_RE.match(test_db):
-        raise SystemExit(f"invalid --test-db {test_db!r}: letters, digits and _ only")
+    # init --reset deletes filestore/<TEST_DB>: never empty, never a path
+    if not test_db or "/" in test_db or test_db in (".", ".."):
+        raise SystemExit(f"invalid --test-db {test_db!r}: a database name, not a path")
+    # harness.env is sourced by bash and read raw by Python: values stay unquoted
+    if SHELL_SPECIAL_RE.search(test_db):
+        raise SystemExit(f"invalid --test-db {test_db!r}: no spaces or shell characters, "
+                         "harness.env is sourced by bash")
     image = existing.get("ODOO_IMAGE", "")
     if not image or (dockerfile and image.startswith("odoo:")):
         # never build the project's Dockerfile into an official image name
