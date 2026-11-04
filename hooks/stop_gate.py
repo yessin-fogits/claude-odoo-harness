@@ -65,14 +65,15 @@ def current_feature(root):
 
 
 def session_changed_code(root, env, session):
-    """Files under the addons dir or e2e/ changed since the session started."""
+    """Files under the custom or third-party addons or e2e/ changed since the session started."""
     names = set()
     start = session.get("start_commit")
     if start:
         names |= set(c.git(root, "diff", "--name-only", start).splitlines())
     names |= set(c.git(root, "diff", "--name-only", "HEAD").splitlines())
     names |= set(c.git(root, "ls-files", "--others", "--exclude-standard").splitlines())
-    prefixes = tuple(r + "/" for r in c.custom_roots(env)) + ("e2e/",)
+    roots = c.custom_roots(env) + c.env_paths(env, "THIRD_PARTY_ADDONS")
+    prefixes = tuple(r + "/" for r in roots) + ("e2e/",)
     code = {n for n in names if n.startswith(prefixes)}
     before = session.get("dirty_at_start") or {}
     if before and code:

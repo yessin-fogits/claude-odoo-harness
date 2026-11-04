@@ -84,7 +84,8 @@ def completed_features(task):
                      "with the message odoo-harness feature verify printed.")
     env = hlib.load_env()
     dirty = sorted(f for f in hlib.changed_files()
-                   if f.startswith("e2e/") or hlib.module_of(env, f))
+                   if f.startswith("e2e/") or hlib.module_of(env, f)
+                   or hlib.module_of(env, f, hlib.third_party_roots(env)))
     if dirty:
         raise RedPen("guide", f"uncommitted changes: {', '.join(dirty[:8])}",
                      "The guide must show the committed code, the code that was verified.",
@@ -131,7 +132,8 @@ def cmd_capture(args):
     run_dir.mkdir(parents=True, exist_ok=True)
 
     modules = sorted({m for f in feats
-                      for m in evidence_record(f).get("report", {}).get("changed_modules", [])})
+                      for key in ("changed_modules", "changed_third_party_modules")
+                      for m in evidence_record(f).get("report", {}).get(key, [])})
     # Dev DB mode: the guide is for the developers, so it shows their database, as verify's e2e.
     dev = hlib.dev_mode(env)
     if dev:

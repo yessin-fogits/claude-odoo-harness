@@ -18,15 +18,15 @@ The harness itself is the `odoo-harness` command, installed once per machine wit
 `odoo-harness verify`, `odoo-harness gitlab`, `odoo-harness guide`, `odoo-harness static`.
 Run it from this repository (or its client workspace).
 
-This is a whole Odoo project. Its own modules are in `{{CUSTOM_ADDONS}}`: the only code you change.
-Third-party addons (`{{THIRD_PARTY_ADDONS}}`) and Odoo Enterprise are read-only.
+This is a whole Odoo project. Its own modules are in `{{CUSTOM_ADDONS}}`; third-party addons
+(`{{THIRD_PARTY_ADDONS}}`) may be changed too. Odoo core and Enterprise are read-only.
 `ARCHITECTURE.md` maps the modules; read it before changing a module you do not know.
 
 # Sessions (automatic)
 - At session start the harness loads PROGRESS.md, recent decisions, the current feature and the baseline health into your context. Start from there.
 - After each edit of a module file, fast static checks run on that file. Fix what they report right away.
 - When you end a turn, the harness rewrites "Current state" in PROGRESS.md and refuses to stop if the state is unclean: static check failures, a broken feature list, or code changed this session without PROGRESS.md being updated.
-- Edits of feature_list.json, harness/evidence/, the harness engine, Odoo core/enterprise code, third-party addons and deployment files, commands on databases other than the test DB and the dev DB, any drop of a database other than the test DB, and pushes to shared branches are denied.
+- Edits of feature_list.json, harness/evidence/, the harness engine, Odoo core/enterprise code and deployment files, commands on databases other than the test DB and the dev DB, any drop of a database other than the test DB, and pushes to shared branches are denied.
 
 # Work Rules
 - Work on one feature at a time (WIP = 1).
@@ -36,7 +36,7 @@ Third-party addons (`{{THIRD_PARTY_ADDONS}}`) and Odoo Enterprise are read-only.
 - Before writing code, state your reading of the feature: which users, companies and standard flows it touches. If the task allows more than one reading, ask. Without a human to ask (the autonomous loop), take the simplest reading and write it under Known issues in PROGRESS.md.
 - Write the least code that does the behavior, and make it work for any client. No abstractions or behavior the task does not ask for; no handling of cases that cannot happen. But a value that would differ for another client or company (a rate, a threshold, an account, a journal, a product, a partner, an email, a URL) is never a literal in the code: read it from configuration (a setting backed by `ir.config_parameter`, a field on `res.company`, or a data record a user can change), with the client's value as the default.
 - Change only the lines the feature needs. Do not reformat, rename or "improve" code next to yours, and do not delete dead code you did not create: mention it in PROGRESS.md. Remove only what your own change made unused.
-- Never edit Odoo core, Enterprise or third-party (OCA) addons. Extend by inheritance in custom modules only.
+- Never edit Odoo core or Enterprise. Extend them by inheritance in custom modules.
 - Never edit deployment files (Dockerfile, compose files, server configs, CI). If the deployment must change (a new Python dependency, a config option), say what and why; a human changes them.
 - If the baseline is broken (`odoo-harness init` fails), fix the baseline before anything else.
 - Never write a token or password in a tracked file. Secrets come from the environment or the git-ignored `.env`.

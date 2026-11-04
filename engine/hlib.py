@@ -280,8 +280,13 @@ def env_list(env, key):
 
 
 def custom_roots(env):
-    """Folders of the project's own modules (CUSTOM_ADDONS), the code the agent may edit."""
+    """Folders of the project's own modules (CUSTOM_ADDONS)."""
     return [REPO_ROOT / p for p in env_list(env, "CUSTOM_ADDONS")]
+
+
+def third_party_roots(env):
+    """Folders of the third-party addons (THIRD_PARTY_ADDONS: OCA and other vendors)."""
+    return [REPO_ROOT / p for p in env_list(env, "THIRD_PARTY_ADDONS")]
 
 
 def custom_modules(env):
@@ -312,11 +317,12 @@ def dependents(env, names):
     return sorted(found)
 
 
-def module_of(env, path):
-    """Name of the custom module that contains path (repo-relative or absolute), or None."""
+def module_of(env, path, roots=None):
+    """Name of the module under roots (default: the custom ones) that contains path
+    (repo-relative or absolute), or None."""
     path = Path(path)
     path = path if path.is_absolute() else REPO_ROOT / path
-    for root in custom_roots(env):
+    for root in custom_roots(env) if roots is None else roots:
         try:
             parts = path.resolve().relative_to(root.resolve()).parts
         except ValueError:
@@ -372,10 +378,11 @@ def is_changed(lines, path, line):
     return lines[path] is None or line in lines[path] or (line <= 1 and bool(lines[path]))
 
 
-def changed_modules(env, since=None):
-    """Custom modules with changes on this branch (since `since`, or the base branch)."""
+def changed_modules(env, since=None, roots=None):
+    """Modules under roots (default: the custom ones) with changes on this branch (since
+    `since`, or the base branch)."""
     since = since or base_ref(env)
-    names = {module_of(env, f) for f in changed_files(since)}
+    names = {module_of(env, f, roots) for f in changed_files(since)}
     return sorted(n for n in names if n)
 
 

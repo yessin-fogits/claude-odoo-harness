@@ -150,12 +150,10 @@ def test_guard_protected_paths_setting(hrepo):
     assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/client/demo_mod/x.py")) is None
 
 
-def test_guard_denies_third_party_enterprise_and_deployment_files(hrepo):
+def test_guard_denies_enterprise_and_deployment_files(hrepo):
     env = hrepo.path / "harness/harness.env"
     env.write_text(env.read_text().replace("ENTERPRISE_DIR=\n", "ENTERPRISE_DIR=../enterprise\n"))
-    out = pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/oca/web_x/models.py"))
-    assert denied(out) and "third-party addon" in out["hookSpecificOutput"][
-        "permissionDecisionReason"]
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/oca/web_x/models.py")) is None
     enterprise = hrepo.path.parent / "enterprise" / "web_studio" / "models.py"
     assert denied(pre(hrepo, "Write", file_path=str(enterprise)))
     for rel in ("Dockerfile", "odoo-stag.conf", "docker_compose_stag.yml", ".gitlab-ci.yml"):
@@ -296,6 +294,16 @@ def test_stop_blocks_when_code_changed_without_progress(hrepo):
     progress.write_text(progress.read_text().replace(
         "## Known issues", "## Known issues\n- thing.py comment pending review"))
     assert stop(hrepo) is None
+
+
+def test_stop_counts_third_party_addon_changes_as_code(hrepo):
+    start_session(hrepo)
+    patched = hrepo.path / "extra-addons/oca/web_x/models.py"
+    patched.parent.mkdir(parents=True)
+    patched.write_text("# patched\n")
+    out = stop(hrepo)
+    assert out["decision"] == "block"
+    assert "extra-addons/oca/web_x/models.py" in out["reason"]
 
 
 def test_stop_blocks_on_static_findings(hrepo):

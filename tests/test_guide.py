@@ -86,6 +86,15 @@ def test_uncommitted_module_changes_are_refused(done):
     assert "uncommitted changes: extra-addons/client/demo_mod/models/thing.py" in result.stderr
 
 
+def test_uncommitted_third_party_changes_are_refused(done):
+    patched = done.path / "extra-addons/oca/web_x/__manifest__.py"
+    patched.parent.mkdir(parents=True)
+    patched.write_text("{'name': 'x'}\n")
+    result = guide(done, "capture", "T2003")
+    assert result.returncode == 1
+    assert "uncommitted changes: extra-addons/oca/web_x/__manifest__.py" in result.stderr
+
+
 def test_renamed_task_keeps_its_commits_under_the_old_name(done):
     assert done.feature("rename-task", "T2003", "T2004").returncode == 0
     done.commit("[T2004] Rename task T2003")

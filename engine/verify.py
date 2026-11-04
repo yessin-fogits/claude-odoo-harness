@@ -3,9 +3,10 @@
 
   L1 static   static_checks.py + pylint-odoo (lint container, the project's rcfile)
               on the custom modules changed on this branch
-  L2 runtime  Odoo tests on the test DB: the changed modules and every custom module
-              that depends on them (odoo -u ... --test-tags); the baseline (no
-              feature) updates and tests every custom module
+  L2 runtime  Odoo tests on the test DB: the changed modules, third-party (OCA)
+              ones included, and every custom module that depends on them
+              (odoo -u ... --test-tags); the baseline (no feature) updates and tests
+              every custom module and the changed third-party ones
   L3 system   Playwright e2e against the restarted server, clean server log,
               optional install of the changed modules on a fresh DB. In dev DB mode
               (DEV_DB) the e2e tests run on the dev DB, updated with -u first, after a
@@ -413,13 +414,20 @@ def main(argv=None):
     full = args.full_e2e or not args.e2e
     start = hlib.load_state().get(args.feature, {}).get("start_commit") if args.feature else None
     changed = hlib.changed_modules(env)
+    # Patched third-party addons are updated and tested like the custom modules, but not
+    # linted: L1 holds the project's own code to the house rules.
+    third_party = hlib.changed_modules(env, roots=hlib.third_party_roots(env))
     if start:
         changed = sorted(set(changed) | set(hlib.changed_modules(env, start)))
+        third_party = sorted(set(third_party) | set(
+            hlib.changed_modules(env, start, hlib.third_party_roots(env))))
     if args.feature:
-        scope = sorted(set(changed) | set(hlib.dependents(env, changed)))
+        modified = set(changed) | set(third_party)
+        scope = sorted(modified | set(hlib.dependents(env, modified)))
     else:
-        scope = sorted(hlib.custom_modules(env))
+        scope = sorted(set(hlib.custom_modules(env)) | set(third_party))
     report["changed_modules"] = changed
+    report["changed_third_party_modules"] = third_party
     report["tested_modules"] = scope
     if args.feature and not full:
         is_cross, touched, shared = cross_component(
@@ -431,9 +439,12 @@ def main(argv=None):
             reason = (f"modules {', '.join(touched)}" if len(touched) > 1
                       else f"shared files {', '.join(shared[:5])}")
             step(f"cross-component change ({reason}): full e2e suite required")
-    if args.feature and scope != changed:
+    if third_party:
+        step(f"third-party modules changed on this branch are updated and tested: "
+             f"{', '.join(third_party)}")
+    if args.feature and set(scope) != set(changed) | set(third_party):
         step(f"modules depending on the change are tested too: "
-             f"{', '.join(sorted(set(scope) - set(changed)))}")
+             f"{', '.join(sorted(set(scope) - set(changed) - set(third_party)))}")
 
     since = hlib.base_ref(env) or start
     layers = [(1, "static", lambda: layer_static(env, changed, since, run_dir)),

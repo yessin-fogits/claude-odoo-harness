@@ -7,7 +7,7 @@ This file is the contract between the humans and the agents working on this repo
 - Odoo version: {{ODOO_VERSION}}, test image `{{ODOO_IMAGE}}` (built from `{{ODOO_DOCKERFILE}}` when set), PostgreSQL image `{{POSTGRES_IMAGE}}`
 - Test runtime: the harness's own compose stack (its own containers, database and port; `odoo-harness init`), settings in `harness/harness.env`
 - Custom addons (the project's code): `{{CUSTOM_ADDONS}}`
-- Third-party addons (read-only): `{{THIRD_PARTY_ADDONS}}`
+- Third-party addons (OCA and vendors, may be changed): `{{THIRD_PARTY_ADDONS}}`
 - Odoo Enterprise (read-only, outside the repository): `{{ENTERPRISE_DIR}}`
 - Test database: `{{TEST_DB}}` with demo data (disposable, recreated by `odoo-harness init --reset`)
 - Dev database (dev DB mode only, `DEV_DB` in `harness/harness.env`): the e2e tests run on it; a neutralized copy of the client's data, updated with `-u` by verify, never dropped or reset. The test database then lives on the dev stack's PostgreSQL too.
@@ -31,7 +31,7 @@ This file is the contract between the humans and the agents working on this repo
 - `odoo-harness verify` passes on the current code.
 
 ## Off-limits
-- Odoo core, Odoo Enterprise and third-party (OCA) addons: extend them in custom modules.
+- Odoo core and Odoo Enterprise: extend them in custom modules.
 - Deployment files, changed by a human: `{{PROTECTED_PATHS}}`.
 - Any database other than the test DB, including the dev stack's database, except the dev DB (`DEV_DB`) that `odoo-harness verify` updates for the e2e tests. Never drop, reset or restore the dev DB: a human does.
 - Credentials: never write a token or password in a tracked file.

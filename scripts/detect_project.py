@@ -8,8 +8,8 @@ The repository is a whole Odoo project, not a list of modules. Detection reads:
 - addons_path from the project's Odoo config (odoo-stag.conf, odoo-main.conf,
   docker-compose/config/odoo.conf, odoo.conf...) and maps each container path to a
   folder of the repository (/mnt/extra-addons/qafila -> extra-addons/qafila);
-- which folders are custom (the project's own code, Claude may edit) and which are
-  third-party (OCA and other vendors, read-only); enterprise is outside the repo;
+- which folders are custom (the project's own code) and which are third-party (OCA and
+  other vendors); enterprise is outside the repo;
 - the Odoo version and image from the Dockerfile (ARG BASE_IMAGE=odoo:19.0, FROM ...);
 - the base branch (staging when it exists) and the GitLab project from the origin remote;
 - deployment files that the agent must not change (compose files, configs, CI).

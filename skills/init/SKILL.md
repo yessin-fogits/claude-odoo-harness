@@ -34,8 +34,8 @@ Arguments given: `$ARGUMENTS`
    It reads `addons_path` from the project's Odoo config, the Odoo version and image from the
    Dockerfile, the base branch, the GitLab project and the deployment files.
 2. Show the summary to the user and ask them to confirm, in one question:
-   - custom addon folders (the project's code, the only code you will change);
-   - third-party addon folders (OCA and vendors, read-only);
+   - custom addon folders (the project's code);
+   - third-party addon folders (OCA and vendors);
    - the Odoo Enterprise checkout (default `../enterprise`) and the base branch (`staging`).
    - the Odoo version (from the Dockerfile; ask when it was not detected).
    Fix anything wrong with the installer options below. If the project runs an Odoo version

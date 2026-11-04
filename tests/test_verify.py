@@ -153,6 +153,41 @@ def test_feature_tests_modules_that_depend_on_the_change(hrepo):
     assert "modules depending on the change are tested too: other_mod" in result.stdout
 
 
+def third_party_module(hrepo):
+    """extra-addons/oca/web_x (THIRD_PARTY_ADDONS) and the custom other_mod that uses it."""
+    for rel, depends in (("extra-addons/oca/web_x", "base"), (OTHER, "web_x")):
+        (hrepo.path / rel).mkdir(parents=True)
+        (hrepo.path / rel / "__manifest__.py").write_text(f"{{'name': 'x', 'depends': ['{depends}']}}")
+        (hrepo.path / rel / "__init__.py").write_text("")
+    hrepo.commit("third-party module")
+
+
+def test_feature_updates_and_tests_changed_third_party_modules(hrepo):
+    third_party_module(hrepo)
+    add_feature(hrepo)
+    hrepo.feature("start", "F-001")
+    touch(hrepo, "extra-addons/oca/web_x/__init__.py")
+    result = hrepo.feature("verify", "F-001")
+    assert result.returncode == 0, result.stderr
+    odoo = [c for c in hrepo.calls() if "--test-tags" in c][0]
+    assert odoo[odoo.index("-u") + 1] == "demo_mod,other_mod,web_x"
+    assert "/web_x" in odoo[odoo.index("--test-tags") + 1].split(",")
+    assert "third-party modules changed on this branch are updated and tested: web_x" \
+        in result.stdout
+    assert "no custom module changed on this branch" in result.stdout  # not linted
+    report = json.loads((hrepo.path / ".harness/last-verify.json").read_text())
+    assert report["changed_modules"] == [] and report["changed_third_party_modules"] == ["web_x"]
+
+
+def test_baseline_updates_changed_third_party_modules(hrepo):
+    third_party_module(hrepo)
+    touch(hrepo, "extra-addons/oca/web_x/__init__.py")
+    result = hrepo.verify()
+    assert result.returncode == 0, result.stderr
+    odoo = [c for c in hrepo.calls() if "--test-tags" in c][0]
+    assert odoo[odoo.index("-u") + 1] == "demo_mod,other_mod,web_x"
+
+
 def test_unknown_error_asks_to_extend_the_catalog(hrepo):
     log = ("2026-10-27 10:00:00,200 1 ERROR db x: something nobody has seen\n"
            "x odoo.tests.result: 0 failed, 0 error(s) of 3 tests when loading database 'd'\n")

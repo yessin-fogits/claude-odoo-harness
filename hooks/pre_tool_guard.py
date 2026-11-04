@@ -5,9 +5,9 @@ Denies (with a red-pen reason):
   - Edit/Write of feature_list.json and harness/evidence/ (use `odoo-harness feature`)
   - Edit/Write of the harness engine (this plugin, ~/.odoo-harness/): the judge is not
     rewritten by the agent it judges
-  - edits of Odoo core / enterprise code, of third-party addons (THIRD_PARTY_ADDONS),
-    of the Enterprise checkout (ENTERPRISE_DIR) and of PROTECTED_PATHS (deployment
-    files): extend in custom modules instead, a human changes deployment files
+  - edits of Odoo core / enterprise code, of the Enterprise checkout (ENTERPRISE_DIR) and
+    of PROTECTED_PATHS (deployment files): extend in custom modules instead, a human
+    changes deployment files
   - Bash commands that write those files, drop any database but the test DB, run Odoo on a
     database that is neither the test DB nor the dev DB (DEV_DB), delete docker volumes,
     skip git hooks with --no-verify, or push to the base branch or main (task branches are
@@ -73,13 +73,6 @@ def under(rel, prefix):
 
 
 def check_core(root, env, rel):
-    for prefix in c.env_paths(env, "THIRD_PARTY_ADDONS"):
-        if under(rel, prefix):
-            deny(f"{rel} is a third-party addon ({prefix})",
-                 "OCA and vendor modules are not the project's code: a local change is lost at "
-                 "the next update of the addon and hides the real fix.",
-                 "Extend the module in a custom module (_inherit, xpath views); if the addon "
-                 "itself has a bug, tell the user so it is fixed upstream or the addon updated.")
     for prefix in c.env_paths(env, "PROTECTED_PATHS"):
         if under(rel, prefix):
             deny(f"{rel} is in a protected path ({prefix})",

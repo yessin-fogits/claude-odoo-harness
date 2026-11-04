@@ -6,7 +6,7 @@ updated when a feature adds a module, a model or a dependency between modules.
 
 ## The project
 <!-- Who the client is, what the business does, what Odoo is used for (apps, flows). -->
-- Odoo {{ODOO_VERSION}}, custom modules in `{{CUSTOM_ADDONS}}`, third-party addons in `{{THIRD_PARTY_ADDONS}}` (read-only), Odoo Enterprise in `{{ENTERPRISE_DIR}}` (read-only).
+- Odoo {{ODOO_VERSION}}, custom modules in `{{CUSTOM_ADDONS}}`, third-party addons in `{{THIRD_PARTY_ADDONS}}`, Odoo Enterprise in `{{ENTERPRISE_DIR}}` (read-only).
 
 ## Runtime and deployment
 <!-- How the project runs: Dockerfile, deployment compose files and configs, CI, branches.
