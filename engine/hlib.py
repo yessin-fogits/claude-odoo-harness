@@ -31,7 +31,6 @@ HARNESS_ENV = HARNESS_DIR / "harness.env"
 # and the Odoo login the e2e tests use on DEV_DB. Real environment variables win.
 DEV_SECRETS = HARNESS_DIR / "dev.local.env"
 SECRET_KEYS = ("DEV_DB_PASSWORD", "DEV_ODOO_LOGIN", "DEV_ODOO_PASSWORD")
-DB_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 # The features of each task live in tasks/<task>.json and its notes in tasks/<task>.md: a task
 # is worked on its own branch by one developer, so two branches never write the same file.
 TASKS_DIR = REPO_ROOT / "tasks"
@@ -120,17 +119,25 @@ def db_server(env):
     return ("db", "5432", "odoo", "odoo")
 
 
+def safe_test_db(name):
+    """Any PostgreSQL name is accepted, but init --reset deletes filestore/<TEST_DB>: an empty
+    name or a path would delete more than the test DB's filestore."""
+    return bool(name) and "/" not in name and name not in (".", "..")
+
+
+def sql_literal(value):
+    return "'" + value.replace("'", "''") + "'"
+
+
 def dev_config_problems(env):
     """What is missing or unsafe in the dev database settings (empty when DEV_DB is not set)."""
     if not dev_mode(env):
         return []
     problems = []
     dev_db, test_db = env["DEV_DB"].strip(), env.get("TEST_DB", "").strip()
-    if not DB_NAME_RE.match(dev_db):
-        problems.append("DEV_DB must use only letters, digits and _")
     # init --reset deletes filestore/<TEST_DB>, inside the dev data directory in this mode
-    if not DB_NAME_RE.match(test_db):
-        problems.append("TEST_DB must be set and use only letters, digits and _")
+    if not safe_test_db(test_db):
+        problems.append("TEST_DB must be set and must not be a path (/, . or ..)")
     if dev_db == test_db:
         problems.append("DEV_DB and TEST_DB must differ: init --reset drops the test DB")
     if not env.get("DEV_DB_HOST", "").strip():
@@ -177,7 +184,7 @@ def dev_db_check(env):
                       "(see the comments in harness.env), or empty DEV_DB to test on the test DB.")
     dev_db = env["DEV_DB"].strip()
     host, port, _user, _password = db_server(env)
-    rc, out = psql(env, f"SELECT 1 FROM pg_database WHERE datname = '{dev_db}'")
+    rc, out = psql(env, f"SELECT 1 FROM pg_database WHERE datname = {sql_literal(dev_db)}")
     if rc != 0:
         return RedPen("dev db", f"the dev PostgreSQL {host}:{port} is not reachable",
                       f"The harness uses the dev stack's database server. psql said: {out[-300:]}",
@@ -231,7 +238,8 @@ def render_odoo_conf(env, demo=True):
     host, port, user, _password = db_server(env)
     values = {"ADDONS_PATH": ",".join(mounts), "DEMO_OPTION": demo, "DB_HOST": host,
               "DB_PORT": port, "DB_USER": user,
-              "DBFILTER": f"^({'|'.join(dbs)})$" if len(dbs) > 1 else f"^{test_db}$"}
+              "DBFILTER": f"^({'|'.join(map(re.escape, dbs))})$" if len(dbs) > 1
+              else f"^{re.escape(test_db)}$"}
     return re.sub(r"\{\{([A-Z_]+)\}\}", lambda m: values[m.group(1)],
                   (ENGINE_DIR / "odoo.conf").read_text())
 

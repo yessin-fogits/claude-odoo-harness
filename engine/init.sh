@@ -111,16 +111,16 @@ check() {
 
 reset_test_db() {
     # the filestore path below is in the dev data directory in dev DB mode
-    if [[ ! "$TEST_DB" =~ ^[A-Za-z0-9_]+$ ]]; then
+    if [[ -z "$TEST_DB" || "$TEST_DB" == */* || "$TEST_DB" == . || "$TEST_DB" == .. ]]; then
         redpen env "invalid TEST_DB '$TEST_DB'" \
-            "The reset deletes filestore/<TEST_DB>; an empty or unusual name could delete more." \
-            "Set TEST_DB in harness/harness.env to letters, digits and _ only (harness_test)."
+            "The reset deletes filestore/<TEST_DB>; an empty name or a path could delete more." \
+            "Set TEST_DB in harness/harness.env to a database name, not a path (harness_test)."
         exit 1
     fi
     dev_mode && step "the dev database '$DEV_DB' is never reset; only the test DB is"
     step "dropping test DB '$TEST_DB' and its filestore"
     dc stop odoo >/dev/null 2>&1
-    psql_db "DROP DATABASE IF EXISTS \"${TEST_DB}\" WITH (FORCE)" >/dev/null
+    psql_db "DROP DATABASE IF EXISTS \"${TEST_DB//\"/\"\"}\" WITH (FORCE)" >/dev/null
     dc run --rm -T --entrypoint rm odoo -rf "/var/lib/odoo/filestore/${TEST_DB}" >/dev/null 2>&1
 }
 

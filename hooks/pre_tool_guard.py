@@ -236,7 +236,7 @@ def check_bash(env, command):
     check_state_commands(command)
     test_db = env.get("TEST_DB", "harness_test")
     drops = dropdb_targets(command)
-    drops += re.findall(r"drop\s+database\s+(?:if\s+exists\s+)?[\"'`]?([\w-]+)", command, re.I)
+    drops += re.findall(r"drop\s+database\s+(?:if\s+exists\s+)?[\"'`]?([^\s;&|\"'`]+)", command, re.I)
     for name in drops:
         if name not in droppable_dbs(env):
             deny(f"command drops database '{name}', not the test DB",
@@ -244,7 +244,7 @@ def check_bash(env, command):
                  "may hold real data.",
                  f"Use `odoo-harness init --reset` to recreate the test DB '{test_db}'. A human "
                  "handles any other database.")
-    runs = re.findall(r"\bodoo(?:-bin)?\b[^;&|\n]*?(?:\s-d\s*|--database[ =])([\w-]+)", command)
+    runs = re.findall(r"\bodoo(?:-bin)?\b[^;&|\n]*?(?:\s-d\s*|--database[ =])[\"']?([^\s;&|\"'`]+)", command)
     for name in runs:
         if name not in odoo_dbs(env):
             deny(f"command targets database '{name}', not the test DB",
