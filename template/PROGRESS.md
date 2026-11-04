@@ -1,14 +1,7 @@
 # Progress
 
-## Current state
-<!-- Rewritten automatically by the harness at the end of each session. -->
-- Last commit: (none yet)
-- Test status: not run
-- Lint: not run
-
-## Completed tasks
-
-## In progress
+What concerns the whole project. The work of each task is in its own notes,
+`tasks/<task>.md`, written on the task's branch; the harness does not write this file.
 
 ## Known issues
 

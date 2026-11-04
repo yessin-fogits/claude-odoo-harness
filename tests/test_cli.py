@@ -49,13 +49,13 @@ def test_evidence_records_the_engine_version(hrepo):
     from conftest import add_feature
     add_feature(hrepo)
     hrepo.commit("feature")
-    hrepo.feature("start", "F-001", "--no-branch")
+    hrepo.feature("start", "F-T1-1", "--no-branch")
     (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text(
-        (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() + "# F-001\n")
-    result = hrepo.feature("verify", "F-001")
+        (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() + "# F-T1-1\n")
+    result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 0, result.stderr
     import json
-    evidence = json.loads((hrepo.path / "harness/evidence/F-001.json").read_text())
+    evidence = json.loads((hrepo.path / "harness/evidence/F-T1-1.json").read_text())
     assert evidence["engine_version"] == (ROOT / "engine" / "VERSION").read_text().strip()
 
 

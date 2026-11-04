@@ -66,13 +66,14 @@ def test_hooks_do_nothing_outside_a_harness_project(tmp_path, name):
 
 def test_session_start_injects_state(hrepo):
     add_feature(hrepo)
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     out = start_session(hrepo)
     ctx = out["hookSpecificOutput"]["additionalContext"]
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-    assert "## PROGRESS.md: Current state" in ctx and "## PROGRESS.md: Next steps" in ctx
-    assert "Feature in progress: F-001" in ctx
-    assert "verification: e2e: e2e/test_F001_thing.py" in ctx
+    assert "## Current state" in ctx and "## PROGRESS.md (whole project): Next steps" in ctx
+    assert "## Task T1: tasks/T1.md" in ctx and "F-T1-1 User creates a demo thing" in ctx
+    assert "Feature in progress: F-T1-1" in ctx
+    assert "verification: e2e: e2e/test_T1_1_thing.py" in ctx
     assert "Adopt the odoo-harness" in ctx  # recent decisions
     assert "Initialization incomplete" in ctx  # BOOTSTRAP boxes not ticked
     assert "Baseline health" in ctx
@@ -80,23 +81,35 @@ def test_session_start_injects_state(hrepo):
 
 
 def test_session_start_names_the_task_branch(hrepo):
-    result = hrepo.feature("add", "--task", "T2003", "--behavior", "User sees the overview",
-                           "--verify", "e2e: e2e/test_F001_x.py")
+    result = hrepo.feature("add", "--task", "T2003", "--no-branch", "--behavior",
+                           "User sees the overview", "--verify", "e2e: e2e/test_T2003_1_x.py")
     assert result.returncode == 0, result.stderr
     hrepo.commit("feature")
-    hrepo.feature("start", "F-001", "--no-branch")
+    hrepo.feature("start", "F-T2003-1", "--no-branch")
     ctx = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
-    assert "Feature in progress: F-001 — User sees the overview (Odoo task T2003)" in ctx
+    assert "Feature in progress: F-T2003-1 — User sees the overview (Odoo task T2003)" in ctx
     assert "git checkout T2003 before working" in ctx
 
 
 def test_session_start_reports_broken_integrity(hrepo):
     add_feature(hrepo)
-    data = json.loads((hrepo.path / "feature_list.json").read_text())
+    data = json.loads((hrepo.path / "tasks/T1.json").read_text())
     data["features"][0]["state"] = "passing"
-    (hrepo.path / "feature_list.json").write_text(json.dumps(data))
+    (hrepo.path / "tasks/T1.json").write_text(json.dumps(data))
     ctx = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
     assert "Feature list integrity: FAILED" in ctx
+
+
+def test_session_start_shows_a_teammates_feature_as_elsewhere(hrepo):
+    add_feature(hrepo)
+    hrepo.feature("start", "F-T1-1")
+    hrepo.commit("in progress")
+    hrepo.git("checkout", "-q", "staging")
+    hrepo.git("merge", "-q", "T1")
+    (hrepo.path / ".harness/state.json").unlink()  # a teammate's checkout
+    ctx = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "In progress on other branches (teammates' work, not yours): F-T1-1 [T1]" in ctx
+    assert "Feature in progress: F-T1-1" not in ctx
 
 
 def test_compaction_keeps_the_session_snapshot(hrepo):
@@ -113,14 +126,19 @@ def test_compaction_keeps_the_session_snapshot(hrepo):
 
 @pytest.mark.parametrize("tool,field", [("Edit", "file_path"), ("Write", "file_path"),
                                         ("MultiEdit", "file_path")])
-def test_guard_denies_feature_list_edits(hrepo, tool, field):
-    out = pre(hrepo, tool, **{field: str(hrepo.path / "feature_list.json")})
+@pytest.mark.parametrize("target", ["tasks/T2003.json", "feature_list.json"])
+def test_guard_denies_feature_list_edits(hrepo, tool, field, target):
+    out = pre(hrepo, tool, **{field: str(hrepo.path / target)})
     assert denied(out)
     assert "odoo-harness feature" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
+def test_guard_allows_the_task_notes(hrepo):
+    assert pre(hrepo, "Edit", file_path=str(hrepo.path / "tasks/T2003.md")) is None
+
+
 def test_guard_denies_evidence_edits(hrepo):
-    assert denied(pre(hrepo, "Write", file_path=str(hrepo.path / "harness/evidence/F-001.json")))
+    assert denied(pre(hrepo, "Write", file_path=str(hrepo.path / "harness/evidence/F-T1-1.json")))
 
 
 def test_guard_allows_module_edits(hrepo):
@@ -184,7 +202,10 @@ def test_guard_pushes(hrepo, command, ok):
     "sed -i 's/in_progress/passing/' feature_list.json",
     "python3 -c \"open('feature_list.json','w').write('x')\"",
     "jq '.features[0].state=\"passing\"' feature_list.json | tee feature_list.json",
-    "cp /tmp/x.json harness/evidence/F-001.json",
+    "cp /tmp/x.json harness/evidence/F-T1-1.json",
+    "echo '{}' > tasks/T1.json",
+    "sed -i 's/in_progress/passing/' tasks/T1.json",
+    "cp /tmp/x.json tasks/T1.json",
     "dropdb -U odoo production",
     "docker compose exec db psql -c 'DROP DATABASE client_prod'",
     "docker compose run --rm odoo odoo -d client_prod -u all --stop-after-init",
@@ -197,12 +218,16 @@ def test_guard_denies_dangerous_bash(hrepo, command):
 
 
 @pytest.mark.parametrize("command", [
-    "harness/feature.py verify F-001",
+    "harness/feature.py verify F-T1-1",
     "python3 harness/feature.py status",
     "cat feature_list.json",
     "jq '.features[] | .state' feature_list.json",
     "git checkout feature_list.json",
-    "git diff harness/evidence/F-001.json",
+    "cat tasks/T1.json",
+    "odoo-harness feature list",
+    "sed -i 's/left/done/' tasks/T1.md",
+    "echo '- note' >> tasks/T1.md",
+    "git diff harness/evidence/F-T1-1.json",
     "harness/init.sh --reset",
     "dropdb -U odoo harness_test",
     "docker compose run --rm odoo odoo -d harness_test -u demo_mod --stop-after-init",
@@ -268,8 +293,7 @@ def test_post_edit_silent_on_clean_or_unrelated_files(hrepo):
 # --- Stop ---------------------------------------------------------------------------
 
 def current_state(repo):
-    text = (repo.path / "PROGRESS.md").read_text()
-    return text.split("## Current state")[1].split("\n## ")[0]
+    return (repo.path / ".harness/current-state.md").read_text()
 
 
 def test_stop_rewrites_current_state(hrepo):
@@ -280,18 +304,19 @@ def test_stop_rewrites_current_state(hrepo):
     assert "- Test status: not run yet" in state
     assert "- Lint: static checks clean (now)" in state
     assert "- Feature in progress: none" in state
-    # the other sections are untouched
-    assert "## Next steps" in (hrepo.path / "PROGRESS.md").read_text()
+    # machine-local: no tracked file changes, so no teammate ever merges it
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=hrepo.path, capture_output=True,
+                          text=True).stdout == ""
 
 
 def test_stop_reports_last_verify(hrepo):
     add_feature(hrepo)
-    hrepo.feature("start", "F-001")
-    hrepo.feature("verify", "F-001")
+    hrepo.feature("start", "F-T1-1")
+    hrepo.feature("verify", "F-T1-1")
     start_session(hrepo)
     stop(hrepo)
     state = current_state(hrepo)
-    assert "pass (F-001" in state and "runtime pass, 3 tests" in state
+    assert "pass (F-T1-1" in state and "runtime pass, 3 tests" in state
 
 
 def test_stop_blocks_when_code_changed_without_progress(hrepo):
@@ -306,6 +331,19 @@ def test_stop_blocks_when_code_changed_without_progress(hrepo):
     progress = hrepo.path / "PROGRESS.md"
     progress.write_text(progress.read_text().replace(
         "## Known issues", "## Known issues\n- thing.py comment pending review"))
+    assert stop(hrepo) is None
+
+
+def test_stop_asks_for_the_task_notes_on_a_task_branch(hrepo):
+    add_feature(hrepo)
+    hrepo.commit("feature")
+    start_session(hrepo)
+    thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
+    thing.write_text(thing.read_text() + "\n# more\n")
+    out = stop(hrepo)
+    assert out["decision"] == "block" and "tasks/T1.md was not updated" in out["reason"]
+    notes = hrepo.path / "tasks/T1.md"
+    notes.write_text(notes.read_text().replace("## Notes", "## Notes\n- comment added"))
     assert stop(hrepo) is None
 
 

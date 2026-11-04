@@ -61,7 +61,7 @@ Fill every field marked `À RÉDIGER`, in French, for a developer who did not wo
 - `features.<id>.technical`: where it lives in the code: module, models and fields,
   views (XML ids), security rules, methods to read first. Use `code` for names. A list
   with `- ` per line is fine.
-- `features.<id>.notes` (optional): limits, configuration needed, known issues from PROGRESS.md.
+- `features.<id>.notes` (optional): limits, configuration needed, known issues from the task's notes (`tasks/<task>.md`).
 
 Rules:
 - Never describe behavior that no screenshot or code shows. The guide documents what the

@@ -41,4 +41,4 @@ The four initialization steps are done:
 1. [ ] Executable environment: `odoo-harness init` reaches `✓ baseline OK`.
 2. [ ] Verifiable test frame: at least one passing test at each level (unit, integration, e2e).
 3. [ ] This contract is filled in and reviewed by a human.
-4. [ ] The work is split into features in `feature_list.json`, reviewed by a human.
+4. [ ] The work is split into features (`tasks/<task>.json`), reviewed by a human; or, with several developers, each one adds a task's features when taking it.

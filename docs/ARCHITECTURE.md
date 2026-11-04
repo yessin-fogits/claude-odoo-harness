@@ -6,7 +6,7 @@ We are building a GitHub project that gives any Odoo project a ready-made Claude
 The course's core idea is that reliability comes from the system around the model, not from the model itself. That system has five parts: instructions, tools, environment, state and feedback.
 
 The user's notes add these requirements:
-- Context lives in `PROGRESS.md` and `DECISIONS.md`.
+- Context lives in `PROGRESS.md`, `DECISIONS.md` and each task's notes (`tasks/<task>.md`).
 - Sessions start and end automatically, with no `/session-*` commands.
 - Initialization follows 4 steps.
 - WIP = 1, and the motto is "faire moins mais terminer" (do less, but finish).
@@ -20,12 +20,12 @@ The user's notes add these requirements:
 A developer works on many Odoo projects, so the harness is split as gstack splits its own
 tools: **the engine is installed once per machine, the repository holds no copy of it.** But
 unlike gstack, which keeps project state in `~/.gstack/projects/`, the state stays in the
-repository: the feature list, the evidence and PROGRESS.md are the team's shared record.
+repository: the task files, the evidence and PROGRESS.md are the team's shared record.
 
 | Where | What | Updated by |
 |---|---|---|
 | The plugin (`claude plugin install odoo-harness@odoo-harness`, user scope) | hooks, skills, agents, the engine (`engine/`: feature, verify, init, loop, gitlab, guide, static checks, generic checks, red-pen catalog, Docker files) and the `odoo-harness` command (`bin/`) | the plugin update, for every project at once |
-| The repository | state (`PROGRESS.md`, `DECISIONS.md`, `feature_list.json`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`), project config (`harness/harness.env`, `harness/errors_project.py`, project checks in `harness/checks/`, `e2e/`, `.pylintrc`), the `CLAUDE.md` block and `.claude/settings.json` | the project |
+| The repository | state (`PROGRESS.md`, `DECISIONS.md`, `tasks/`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`), project config (`harness/harness.env`, `harness/errors_project.py`, project checks in `harness/checks/`, `e2e/`, `.pylintrc`), the `CLAUDE.md` block and `.claude/settings.json` | the project |
 | `~/.odoo-harness/` | `current`, a symlink to the installed plugin, refreshed at each session start; the `odoo-harness` shim in `~/.local/bin` points through it | the session start hook |
 
 - **One command.** `odoo-harness <init|verify|feature|loop|gitlab|guide|map|static>` replaces
@@ -46,7 +46,7 @@ repository: the feature list, the evidence and PROGRESS.md are the team's shared
   is bumped with every change that can alter a verdict or a command; otherwise two different
   engines would carry the same number and the pin could not tell them apart.
 - **Activation by marker.** The hooks run in every session, so each one first checks for
-  `harness/harness.env` and `feature_list.json` in the launch folder or `git/`, and exits
+  `harness/harness.env` and `tasks/` (or a legacy `feature_list.json`) in the launch folder or `git/`, and exits
   otherwise. In an Odoo repository without the harness (`__manifest__.py` one level down in
   the folder or `git/`, never a recursive scan), the session start hook offers `init` once.
 - **Client workspace.** Started in `~/Project/<client>`, the hooks find `git/` and inject the
@@ -56,7 +56,7 @@ repository: the feature list, the evidence and PROGRESS.md are the team's shared
   repository's `.claude/settings.json` keeps its deny rules and enables the plugin for
   teammates.
 - **The engine is protected.** Edits under the plugin folder and `~/.odoo-harness/` are denied
-  like `feature_list.json`: the judge cannot be rewritten by the agent it judges.
+  like `tasks/*.json`: the judge cannot be rewritten by the agent it judges.
 - **Migration of a project with the old vendored harness.** While `harness/feature.py` is
   still in the repository, the new hooks stand down and tell the user to run
   `/odoo-harness:update`. The update deletes the vendored engine files, writes
@@ -87,19 +87,22 @@ repository: the feature list, the evidence and PROGRESS.md are the team's shared
 ```
 CLAUDE.md            # Work Rules, Feature List Rules, Definition of Done, Validation Hierarchy
 BOOTSTRAP.md         # bootstrap contract (init step 3)
-PROGRESS.md          # Current state | Completed | In progress | Known issues | Next steps
+PROGRESS.md          # the whole project: Known issues | Next steps (the harness never writes it)
 DECISIONS.md         # "YYYY-MM-DD: decision (why)", append-only
 ARCHITECTURE.md      # map of the project: modules, dependencies, risks and debt
-feature_list.json    # minimal format, state changed only by `odoo-harness feature`
+tasks/
+  <task>.json        # the features of one task, state changed only by `odoo-harness feature`
+  <task>.md          # the task's notes: Features | Notes | Known issues | Decisions | Next steps
+.gitattributes       # DECISIONS.md merge=union
 harness/
   harness.env        # the project's harness settings, HARNESS_VERSION (engine pin)
   checks/            # project checks born from code reviews (one file per mistake type)
   errors_project.py  # the project's red pens
   evidence/          # per-feature evidence (JSON committed; traces gitignored)
-e2e/                 # Playwright (pytest-playwright) tests, one file per feature: test_<feature_id>_*.py
+e2e/                 # Playwright (pytest-playwright) tests, one file per feature: test_T2003_1_*.py for F-T2003-1
 .pylintrc (pylint-odoo), .pre-commit-config.yaml
 .claude/settings.json  # deny rules, the odoo-harness command allowed, the plugin enabled
-.harness/            # not versioned: odoo.conf rendered from harness.env, logs, session state
+.harness/            # not versioned: odoo.conf rendered from harness.env, logs, session state, current-state.md
 ```
 No engine file is copied: `odoo-harness` (the plugin) runs on this repository.
 
@@ -112,21 +115,43 @@ in the user settings (offered once per machine by `init`). `update --workspace .
 files the old harness generated there.
 
 ### File formats
-- **PROGRESS.md** has five sections:
-  - `## Current state`: last commit, test status and lint status. The Stop hook rewrites this section automatically.
-  - `## Completed tasks`: `- [x] F-001 …`
-  - `## In progress`: `- [ ] F-010 …`
-  - `## Known issues`
-  - `## Next steps`
+- **PROGRESS.md** holds what concerns the whole project: `## Known issues` and `## Next steps`.
+  The harness never writes it, so it changes only when a developer means to.
+- **tasks/<task>.md**, the notes of one task: `## Features` (`- [x] F-T2003-1 …` once verified,
+  `- [ ] F-T2003-2 …` otherwise, kept by the harness), `## Notes`, `## Known issues`,
+  `## Decisions`, `## Next steps`. Only the developer on the task's branch writes it.
+- **.harness/current-state.md** (not versioned): last commit, test and lint status. The Stop
+  hook rewrites it; it is machine state, so it never reaches a merge request.
 - **DECISIONS.md**: one line per decision, `- 2026-10-27: Use Playwright for e2e (Odoo tours too coupled to JS assets)`.
-- **feature_list.json** uses the minimal fields `id`, `behavior`, `verification`, `state` and `evidence`:
+- **tasks/<task>.json** holds the features of one task, with the minimal fields `id`, `behavior`, `verification`, `state` and `evidence`:
   ```json
-  {"features": [{"id": "F-001",
+  {"version": 2, "task": "T2003",
+   "features": [{"id": "F-T2003-1",
     "behavior": "Salesperson applies a 10% discount on a quotation line",
-    "verification": ["unit: sale_discount.tests.test_discount", "e2e: e2e/test_F001_discount.py"],
+    "verification": ["unit: sale_discount.tests.test_discount", "e2e: e2e/test_T2003_1_discount.py"],
     "state": "not_started", "evidence": null}]}
   ```
-  `state` is one of `not_started`, `in_progress`, `blocked` or `passing`.
+  `state` is one of `not_started`, `in_progress`, `blocked` or `passing`. Ids are numbered per
+  task, `F-<task>-<n>`, so two branches never pick the same one; they keep their task's name
+  after a `rename-task`. Legacy ids (`F-001`) stay valid.
+
+### Several developers on one project
+A task is one branch (`T2003`) and its own files, `tasks/T2003.json` and `tasks/T2003.md`.
+Developers on different tasks never touch the same harness file, so their merge requests merge
+without conflict, whatever the order.
+- **WIP = 1 per checkout and per task.** A feature in progress on a teammate's branch reaches
+  your checkout once it is merged into the base; it does not block you. `feature status` shows
+  it as `in_progress, other branch`; the session start hook lists it as a teammate's work.
+- **Taking a task** (`feature add` or `feature start`) checks out its branch: the local one
+  (fast-forwarded to GitLab, refused when the two diverged), else `origin/<task>` (a teammate's
+  branch, tracked), else a new one from the base branch. An `origin/<task>` from before the
+  harness, or with the legacy layout, is refused with the two ways out.
+- **The loop** works only on the task of the current branch or on tasks that have no branch on
+  GitLab: another one is a teammate's.
+- **Migration.** `/odoo-harness:update` on a project of an engine before 3.0 splits the single
+  feature file into task files (ids kept), moves the PROGRESS.md feature lines to the task
+  notes and drops its "Current state". It must land in the base branch before anyone opens a
+  task branch.
 
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
 1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly. In dev DB mode (`DEV_DB`) the harness has no PostgreSQL of its own: the test DB lives on the dev stack's server, and the e2e layer runs on the dev DB after checking it is neutralized and updating it with `-u` (never dropped or reset).
@@ -136,7 +161,7 @@ files the old harness generated there.
    - the expected baseline output;
    - the modules in scope and the paths that are off-limits (core and enterprise).
    - `init` refuses to finish until the contract holds.
-4. **Task breakdown**: the requirements are turned into small features in `feature_list.json`, each with a behavior and verification steps. The user reviews them before work starts.
+4. **Task breakdown**: the requirements are turned into small features in `tasks/<task>.json`, each with a behavior and verification steps. The user reviews them before work starts. With several developers, each one adds a task's features when taking it.
 
 ## CLAUDE.md content (short; details live in skills)
 - `# Work Rules`
@@ -149,14 +174,14 @@ files the old harness generated there.
   - Never edit Odoo core or enterprise code.
 - `# Feature List Rules`
   - Change state only through `odoo-harness feature`.
-  - Never edit `feature_list.json` by hand.
+  - Never edit `tasks/*.json` by hand.
   - Never mark a feature `passing` yourself. Only `feature.py verify` can do it.
   - New work goes into the list through `feature.py add`.
 - `# Definition of Done`
   - The feature's verification steps all pass through `feature.py verify`.
   - The evidence is recorded.
   - Lint is clean.
-  - PROGRESS.md is updated.
+  - The task's notes (`tasks/<task>.md`) are updated.
   - The work is committed.
 - `# Validation Hierarchy`
   - Level 1: unit tests.
@@ -165,15 +190,15 @@ files the old harness generated there.
 - `# When a review finds a new mistake type`: add a check in `harness/checks/` and log it in DECISIONS.md.
 
 ## Harness-controlled state transitions
-- `feature.py start ID` is refused if another feature is `in_progress` (WIP = 1).
+- `feature.py start ID` is refused if another feature is `in_progress` in this checkout or in the same task (WIP = 1).
 - `feature.py block ID --reason` sets `blocked`.
 - `feature.py verify ID` is the only way to reach `passing`:
   - It runs the 3 layers.
   - It writes evidence: commit SHA, a log summary, and the paths to Playwright traces and screenshots.
-  - It updates PROGRESS.md (Completed / In progress).
+  - It ticks the feature in the task's notes (`tasks/<task>.md`).
 - A `passing` feature goes back to `in_progress` if a later verify shows a regression.
 - Enforcement:
-  - The PreToolUse hook denies `Edit` and `Write` on `feature_list.json`.
+  - The PreToolUse hook denies `Edit` and `Write` on `tasks/*.json`.
   - It also denies `Bash` commands that write to that file other than `odoo-harness feature`.
   - A pre-commit check rejects a `passing` state that has no matching evidence file.
 
@@ -195,7 +220,7 @@ Every failure is printed as:
 ```
 ✗ [L2 runtime] sale_discount: test_discount_applied FAILED
 WHY: field 'discount_rate' computed without @api.depends → value never recomputed
-HOW TO FIX: add @api.depends('order_line.price_unit') on _compute_discount_rate; re-run odoo-harness feature verify F-001
+HOW TO FIX: add @api.depends('order_line.price_unit') on _compute_discount_rate; re-run odoo-harness feature verify F-T2003-1
 REF: skills/odoo/references/orm.md#computed-fields
 ```
 `errors.yaml` maps known patterns to the WHY and HOW TO FIX lines. Patterns include pylint-odoo codes, `External ID not found`, `Field … does not exist`, `AccessError`, `ParseError` in views, and Playwright timeouts. Unknown errors print the raw failure and ask the agent to add a pattern.
@@ -209,19 +234,19 @@ When a code review finds a new type of agent mistake:
 ## Automatic session hooks (plugin `hooks/hooks.json`)
 - **SessionStart**:
   - Runs a quick `init.sh --check`: containers up, DB exists, baseline lint.
-  - Injects into the context: the PROGRESS.md "Current state" and "Next steps" sections, the last 10 DECISIONS, and the `in_progress` feature with its verification steps.
+  - Injects into the context: the current state (`.harness/current-state.md`), the PROGRESS.md "Known issues" and "Next steps", the last 10 DECISIONS, the notes of the current branch's task, the `in_progress` feature of this checkout with its verification steps, and the features in progress on other branches (teammates' work).
   - If the baseline is broken, it tells the agent to fix it first.
 - **PreToolUse**:
-  - Protects `feature_list.json`.
+  - Protects `tasks/*.json` and `harness/evidence/`.
   - Blocks edits to Odoo core and enterprise paths.
   - Blocks `dropdb` / `DROP DATABASE` on any DB but the test DB, and Odoo commands on DBs other than the test DB and the dev DB (`DEV_DB`).
 - **PostToolUse** (on Edit and Write of `.py` and `.xml` files): runs fast layer 1 checks on the changed file and returns red-pen feedback.
 - **Stop** (the automatic session end):
-  - Rewrites the PROGRESS.md "Current state" section (last commit, test and lint status).
+  - Rewrites `.harness/current-state.md` (last commit, test and lint status).
   - Blocks stopping, with red-pen instructions, if any of these is true:
-    - there are uncommitted changes that PROGRESS.md does not mention;
+    - code changed in the session and neither the task's notes nor PROGRESS.md did;
     - lint fails;
-    - the `in_progress` feature has no notes in PROGRESS;
+    - the `in_progress` feature has no notes in its task's notes;
     - debug leftovers remain (`pdb`, `print(`, `console.log`).
 
 ## Odoo skill (built from github.com/odoo/odoo, version 20 first)
@@ -276,6 +301,6 @@ docs/, README.md, README.fr.md
 - The CI `odoo-e2e` job, for each version:
   1. Builds a demo project (`tools/make_demo_project.py --odoo-version`).
   2. Runs `odoo-harness init`.
-  3. Runs `odoo-harness feature start F-001` and `verify F-001`, which must reach `passing` with evidence.
+  3. Runs `odoo-harness feature start F-T0001-1` and `verify F-T0001-1`, which must reach `passing` with evidence.
   4. Injects a deliberate bug and asserts that verify fails with a red-pen message.
 - The CI `skill-check` job checks each version's guide against that version's Odoo source.

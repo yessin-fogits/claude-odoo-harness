@@ -2,7 +2,8 @@
 """PreToolUse guard: the harness, not the agent, owns feature state and real data.
 
 Denies (with a red-pen reason):
-  - Edit/Write of feature_list.json and harness/evidence/ (use `odoo-harness feature`)
+  - Edit/Write of tasks/<task>.json and harness/evidence/ (use `odoo-harness feature`);
+    the task notes, tasks/<task>.md, stay the agent's
   - Edit/Write of the harness engine (this plugin, ~/.odoo-harness/): the judge is not
     rewritten by the agent it judges
   - edits of Odoo core / enterprise code, of the Enterprise checkout (ENTERPRISE_DIR) and
@@ -25,7 +26,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _common as c  # noqa: E402
 
 FILE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-STATE_PATHS = ("feature_list.json", "harness/evidence")
+# Feature states (tasks/<task>.json; feature_list.json before engine 3.0) and evidence. The
+# task notes, tasks/<task>.md, are the agent's to write.
+STATE_RE = re.compile(r"feature_list\.json|harness/evidence|(?<![\w.-])tasks/[^/\s]*\.json")
+
+
+def mentions_state(text):
+    return bool(STATE_RE.search(text))
 READ_ONLY_PREFIXES = ("odoo-harness feature ", "cat ", "head ", "tail ", "less ", "grep ",
                       "jq ", "ls ", "wc ", "diff ", "git ")
 HARNESS_HOME = Path(os.environ.get("ODOO_HARNESS_HOME") or Path.home() / ".odoo-harness")
@@ -48,8 +55,8 @@ def rel_to(root, path):
 
 def check_state_file(rel):
     posix = rel.as_posix()
-    if posix == "feature_list.json":
-        deny("direct edit of feature_list.json",
+    if posix == "feature_list.json" or re.fullmatch(r"tasks/[^/]+\.json", posix):
+        deny(f"direct edit of {posix}",
              "The harness owns feature states; an agent cannot mark its own work passing.",
              "Use odoo-harness feature: add | start | block | verify (verify is the only way to "
              "passing).")
@@ -186,26 +193,26 @@ def git_subcommand(segment):
 
 
 def check_state_commands(command):
-    if not any(p in command for p in STATE_PATHS):
+    if not mentions_state(command):
         return
     segments = shell_segments(command)
     if segments is None:
         deny("cannot parse a command that mentions harness state",
-             "Commands touching feature_list.json or harness/evidence/ must be clearly read-only.",
-             "Use odoo-harness feature, or a plain read such as `cat feature_list.json`.")
+             "Commands touching tasks/*.json or harness/evidence/ must be clearly read-only.",
+             "Use odoo-harness feature, or a plain read such as `cat tasks/T2003.json`.")
     for tokens in segments:
-        touches = [t for t in tokens if any(p in t for p in STATE_PATHS)]
+        touches = [t for t in tokens if mentions_state(t)]
         if not touches:
             continue
         for i, token in enumerate(tokens[:-1]):
-            if token.endswith(">") and any(p in tokens[i + 1] for p in STATE_PATHS):
-                deny("shell redirection into feature_list.json or harness/evidence/",
+            if token.endswith(">") and mentions_state(tokens[i + 1]):
+                deny("shell redirection into tasks/*.json or harness/evidence/",
                      "The harness owns feature states and evidence.", "Use odoo-harness feature.")
         text = " ".join(normalize_feature_cli(tokens)) + " "
         in_place = tokens[0] in ("sed", "perl") and any(t.startswith("-i") for t in tokens)
         if tokens[0] == "tee" or in_place or not text.startswith(READ_ONLY_PREFIXES):
             deny(f"command may modify harness state: {text[:120]}",
-                 "Only odoo-harness feature changes feature_list.json and harness/evidence/.",
+                 "Only odoo-harness feature changes tasks/*.json and harness/evidence/.",
                  "Use odoo-harness feature add | start | block | verify. Reading the files with "
                  "cat/jq/git is fine.")
 

@@ -13,8 +13,10 @@ import make_demo_project  # noqa: E402
 
 def test_build_demo_project(tmp_path):
     dest = make_demo_project.build(tmp_path / "demo")
-    features = json.loads((dest / "feature_list.json").read_text())["features"]
-    assert [f["id"] for f in features] == ["F-001"]
+    features = json.loads((dest / "tasks/T0001.json").read_text())["features"]
+    assert [f["id"] for f in features] == ["F-T0001-1"]
+    assert subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], cwd=dest,
+                          capture_output=True, text=True).stdout.strip() == "staging"
     assert (dest / make_demo_project.E2E_FILE).is_file()
     assert (dest / "extra-addons/demo/demo_mod/views/thing_menus.xml").is_file()
     assert not subprocess.run(["git", "status", "--porcelain"], cwd=dest, capture_output=True,

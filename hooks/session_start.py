@@ -5,14 +5,14 @@ Every session (the plugin is installed once per machine):
   - puts the plugin's bin/ on the PATH of Claude's Bash tool (CLAUDE_ENV_FILE), and
     refreshes ~/.odoo-harness/current and the ~/.local/bin/odoo-harness shim;
   - in an Odoo repository without the harness, offers /odoo-harness:init once.
-In a repository with the harness: injects the project's Odoo version and guide, the
-PROGRESS.md state, the recent decisions, the current feature and the baseline health, and
-records a snapshot that the Stop gate compares against. A repository that still carries the
+In a repository with the harness: injects the project's Odoo version and guide, this
+checkout's current state, PROGRESS.md, the notes of the current branch's task, the tasks
+and their features, the recent decisions and the baseline health, and records the
+session start that the Stop gate compares against. A repository that still carries the
 old vendored engine only gets the instruction to migrate it.
 """
 
 import itertools
-import json
 import os
 import subprocess
 import sys
@@ -24,36 +24,40 @@ import _common as c  # noqa: E402
 MAX_DECISIONS = 10
 
 
-def feature_summary(root):
-    try:
-        data = json.loads((root / "feature_list.json").read_text())
-        feats = data["features"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return ["feature_list.json is unreadable. Restore it with `git checkout feature_list.json`."]
-    counts = {}
+def feature_summary(view, error):
+    if view is None:
+        return [error or "The task files are unreadable."]
+    feats = view["features"]
+    tasks = {}
     for f in feats:
-        counts[f.get("state")] = counts.get(f.get("state"), 0) + 1
-    lines = ["Features: " + (", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "none yet")]
-    current = [f for f in feats if f.get("state") == "in_progress"]
-    branch = c.git(root, "symbolic-ref", "-q", "--short", "HEAD")
+        counts = tasks.setdefault(f["task"], {})
+        counts[f["state"]] = counts.get(f["state"], 0) + 1
+    lines = ["Tasks (tasks/<task>.json): " + ("; ".join(
+        f"{task} " + ", ".join(f"{n} {s}" for s, n in sorted(counts.items()))
+        for task, counts in tasks.items()) or "none yet")]
+    current = [f for f in feats if f["id"] in view["here"]]
+    elsewhere = [f for f in feats if f["state"] == "in_progress" and f not in current]
+    branch = view.get("branch")
     if current:
         f = current[0]
-        task = f" (Odoo task {f['task']})" if f.get("task") else ""
-        lines.append(f"Feature in progress: {f['id']} — {f['behavior']}{task}")
-        if f.get("task") and branch != f["task"]:
+        lines.append(f"Feature in progress: {f['id']} — {f['behavior']} (Odoo task {f['task']})")
+        if branch != f["task"]:
             lines.append(f"  You are on branch '{branch}', not on the task branch "
                          f"'{f['task']}': git checkout {f['task']} before working.")
         lines += [f"  verification: {v}" for v in f.get("verification", [])]
         lines.append(f"It becomes passing only through `odoo-harness feature verify {f['id']}`.")
     else:
-        todo = [f for f in feats if f.get("state") == "not_started"]
+        todo = [f for f in feats if f["state"] == "not_started"]
         if todo:
-            task = f" [{todo[0]['task']}]" if todo[0].get("task") else ""
-            lines.append(f"No feature in progress. Next by order: {todo[0]['id']}{task} — "
-                         f"{todo[0]['behavior']} (`odoo-harness feature start {todo[0]['id']}`).")
+            lines.append(f"No feature in progress here. Next by order: {todo[0]['id']} "
+                         f"[{todo[0]['task']}] — {todo[0]['behavior']} "
+                         f"(`odoo-harness feature start {todo[0]['id']}`).")
         elif not feats:
-            lines.append("The feature list is empty: initialization step 4 (task breakdown) "
-                         "is not done.")
+            lines.append("No task yet: add the features of a task when you take it "
+                         "(`odoo-harness feature add --task T2003 ...`).")
+    if elsewhere:
+        lines.append("In progress on other branches (teammates' work, not yours): "
+                     + ", ".join(f"{f['id']} [{f['task']}]" for f in elsewhere) + ".")
     return lines
 
 
@@ -161,7 +165,7 @@ def workspace_context(launch, root):
              f"in git.",
              f"- `odoo-harness ...` finds `{rel}/` from here. Run git as `git -C {rel} ...`, or "
              f"`cd {rel}` first.",
-             f"- Paths in PROGRESS.md, feature_list.json and the red pens are relative to `{rel}/`."]
+             f"- Paths in PROGRESS.md, tasks/ and the red pens are relative to `{rel}/`."]
     enterprise = c.load_env(root).get("ENTERPRISE_DIR", "").strip().rstrip("/")
     if enterprise:
         lines.append(f"- Odoo Enterprise (`{(root / enterprise).resolve()}`) is read-only.")
@@ -199,12 +203,20 @@ def main():
     if root != launch:
         parts += workspace_context(launch, root)
 
+    state = c.state_dir(root) / "current-state.md"
+    parts.append("## Current state (end of the last session in this checkout)\n"
+                 + (state.read_text().strip() if state.is_file() else "(no session ended yet)"))
     progress = (root / "PROGRESS.md").read_text() if (root / "PROGRESS.md").is_file() else ""
-    for name in ("Current state", "In progress", "Known issues", "Next steps"):
+    for name in ("Known issues", "Next steps"):
         body = c.section_text(progress, name)
-        parts.append(f"## PROGRESS.md: {name}\n{body or '(empty)'}")
+        parts.append(f"## PROGRESS.md (whole project): {name}\n{body or '(empty)'}")
 
-    parts.append("## Features\n" + "\n".join(feature_summary(root)))
+    view, error = c.features(root)
+    task = c.current_task(root, view)
+    notes = c.notes_path(root, task)
+    if task and notes.is_file():
+        parts.append(f"## Task {task}: tasks/{task}.md\n" + notes.read_text().strip())
+    parts.append("## Features\n" + "\n".join(feature_summary(view, error)))
 
     rc, out = c.run(root, c.engine("feature.py", "check"), timeout=30)
     if rc != 0:
@@ -237,7 +249,6 @@ def main():
             "session_id": payload.get("session_id"),
             "source": payload.get("source"),
             "start_commit": c.git(root, "rev-parse", "HEAD") or None,
-            "progress_body": c.body_without(progress, "Current state"),
             # files already changed before this session: not this session's work
             "dirty_at_start": c.dirty_files(root),
         })

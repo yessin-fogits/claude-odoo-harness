@@ -23,5 +23,5 @@ updated when a feature adds a module, a model or a dependency between modules.
 
 ## Risks and debt
 <!-- From discovery: modules without tests, version problems, hard-coded secrets, findings of
-     `odoo-harness static --all`. Each item is either a feature in feature_list.json or a
+     `odoo-harness static --all`. Each item is either a feature of a task (tasks/) or a
      known issue in PROGRESS.md. -->

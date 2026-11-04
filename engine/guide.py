@@ -8,7 +8,7 @@
   guide.py check          list the guides that no longer match their task (stale)
 
 A task is completed when every one of its features is passing with valid evidence and
-committed ([T2003] F-001 ...), and nothing uncommitted is left in the custom modules or
+committed ([T2003] F-T2003-1 ...), and nothing uncommitted is left in the custom modules or
 e2e/. The screenshots come from the features' own e2e tests, so the guide shows behavior
 a test proved. The /odoo-harness:guide skill runs the three steps.
 """
@@ -59,7 +59,7 @@ def completed_features(task):
     if not feats:
         tasks = sorted({f["task"] for f in data["features"] if f.get("task")})
         raise RedPen("guide", f"no feature belongs to task {task}",
-                     "A guide documents the features of one Odoo task (feature_list.json).",
+                     "A guide documents the features of one Odoo task (tasks/<task>.json).",
                      f"Use a task from the list: {', '.join(tasks) or 'none yet'} "
                      "(odoo-harness feature status).")
     todo = [f"{f['id']} ({f['state']})" for f in feats if f["state"] != "passing"]

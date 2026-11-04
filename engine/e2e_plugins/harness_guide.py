@@ -39,7 +39,7 @@ FINAL_CAPTION = "Écran à la fin du scénario"
 
 
 def test_dir_name(nodeid):
-    """e2e/test_F001_discount.py::test_apply -> test_F001_discount__test_apply"""
+    """e2e/test_T2003_1_discount.py::test_apply -> test_T2003_1_discount__test_apply"""
     path, _, name = nodeid.partition("::")
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{Path(path).stem}__{name}").strip("_")
 

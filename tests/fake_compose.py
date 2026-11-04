@@ -55,7 +55,7 @@ if command == "run":
         guide_dir = next((a.split("=", 2)[2] for a in args
                           if a.startswith("--env=HARNESS_GUIDE_DIR=")), None)
         if guide_dir:
-            out = Path(guide_dir) / "test_F001_x__test_x"
+            out = Path(guide_dir) / "test_T2003_1_x__test_x"
             out.mkdir(parents=True, exist_ok=True)
             captions = json.loads(os.environ.get("FAKE_GUIDE_STEPS",
                                                  '["Ouvrir le menu", "Enregistrer"]'))
@@ -64,7 +64,7 @@ if command == "run":
                 (out / f"{n:02d}.png").write_bytes(b"\x89PNG fake")
                 steps.append({"caption": caption, "image": f"{n:02d}.png", "url": "/odoo"})
             (out / "steps.json").write_text(json.dumps(
-                {"test": "e2e/test_F001_x.py::test_x", "steps": steps}))
+                {"test": "e2e/test_T2003_1_x.py::test_x", "steps": steps}))
         if any(a.endswith("/guide_pdf.py") for a in args):
             rc = int(os.environ.get("FAKE_PDF_RC", "0"))
             if not rc:

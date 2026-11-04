@@ -89,6 +89,8 @@ def test_guard_from_the_workspace(ws):
     git = ws.path / "git"
     assert denied(pre(ws, "Edit", file_path=str(git / "feature_list.json")))
     assert denied(pre(ws, "Edit", file_path="git/feature_list.json"))
+    assert denied(pre(ws, "Edit", file_path="git/tasks/T1.json"))
+    assert pre(ws, "Edit", file_path="git/tasks/T1.md") is None
     assert denied(pre(ws, "Write", file_path=str(ws.path / "enterprise/web_studio/x.py")))
     assert denied(pre(ws, "Edit", file_path=str(git / "Dockerfile")))
     assert pre(ws, "Edit", file_path=str(git / MODULE_DIR / "models/thing.py")) is None
@@ -96,7 +98,7 @@ def test_guard_from_the_workspace(ws):
 
 
 @pytest.mark.parametrize("command,ok", [
-    ("odoo-harness feature verify F-001", True),
+    ("odoo-harness feature verify F-T1-1", True),
     ("~/.local/bin/odoo-harness feature status", True),
     ("cat git/feature_list.json", True),
     ("git -C git diff", True),
@@ -105,6 +107,8 @@ def test_guard_from_the_workspace(ws):
     ("git -c user.name=x push origin main", False),
     ("sed -i 's/x/y/' git/feature_list.json", False),
     ("echo '{}' > git/feature_list.json", False),
+    ("echo '{}' > git/tasks/T1.json", False),
+    ("cat git/tasks/T1.json", True),
     ("docker compose run --rm odoo odoo -d client_prod -u all", False),
 ])
 def test_guard_bash_from_the_workspace(ws, command, ok):
@@ -119,9 +123,9 @@ def test_post_edit_checks_the_repository(ws):
     assert out and out["decision"] == "block"
 
 
-def test_stop_writes_the_repository_progress(ws):
+def test_stop_writes_the_repository_state(ws):
     add_feature(ws.repo)
     start_session(ws)
     assert stop(ws) is None
-    assert "Last commit" in (ws.path / "git" / "PROGRESS.md").read_text()
-    assert not (ws.path / "PROGRESS.md").exists()
+    assert "Last commit" in (ws.path / "git" / ".harness/current-state.md").read_text()
+    assert not (ws.path / "PROGRESS.md").exists() and not (ws.path / ".harness").exists()

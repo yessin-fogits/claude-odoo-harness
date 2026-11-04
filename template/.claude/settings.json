@@ -14,7 +14,7 @@
       "Bash(git log:*)"
     ],
     "deny": [
-      "Edit(feature_list.json)",
+      "Edit(tasks/*.json)",
       "Edit(harness/evidence/**)",
       "Read(.env)",
       "Read(.env.*)"

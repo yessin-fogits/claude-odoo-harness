@@ -71,17 +71,17 @@ jobs:
         run: python tools/make_demo_project.py demo --odoo-version "$VERSION"
       - name: "Initialization step 1: odoo-harness init (baseline verification)"
         run: odoo-harness init
-      - name: Feature F-001 (task T0001) reaches passing on its task branch
+      - name: Feature F-T0001-1 (task T0001) reaches passing on its task branch
         run: |
           git config user.name ci && git config user.email ci@example.com
-          odoo-harness feature start F-001
+          odoo-harness feature start F-T0001-1
           test "$(git symbolic-ref --short HEAD)" = T0001
           # the feature's change: L1 lints the changed module with the project's rcfile
-          echo "# F-001" >> extra-addons/demo/demo_mod/models/thing.py
-          odoo-harness feature verify F-001
+          echo "# F-T0001-1" >> extra-addons/demo/demo_mod/models/thing.py
+          odoo-harness feature verify F-T0001-1
           odoo-harness feature check
-          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
-          git add -A && git commit -q -m "[T0001] F-001 A user creates a demo thing and finds it in the list"
+          python3 -c "import json, sys; f = json.load(open('tasks/T0001.json'))['features'][0]; sys.exit(f['state'] != 'passing')"
+          git add -A && git commit -q -m "[T0001] F-T0001-1 A user creates a demo thing and finds it in the list"
       - name: User guide of the completed task T0001 (French PDF from the replayed e2e test)
         run: |
           odoo-harness guide capture T0001
@@ -109,7 +109,7 @@ jobs:
           odoo-harness static --all || true
       - name: An injected bug fails verification with a red-pen message
         run: |
-          odoo-harness feature start F-001 --reopen
+          odoo-harness feature start F-T0001-1 --reopen
           python3 - <<'PY'
           from pathlib import Path
           p = Path("extra-addons/demo/demo_mod/models/thing.py")
@@ -124,14 +124,14 @@ jobs:
           p.write_text(s)
           PY
           log="$RUNNER_TEMP/verify.log"
-          if odoo-harness feature verify F-001 > "$log" 2>&1; then
+          if odoo-harness feature verify F-T0001-1 > "$log" 2>&1; then
             cat "$log"; echo "verify passed although the code is broken"; exit 1
           fi
           cat "$log"
           grep -q "WHY:" "$log" && grep -q "HOW TO FIX:" "$log" && grep -q "test_create" "$log"
           grep -q "AssertionError" "$log"
           if grep -q "No catalog entry" "$log"; then echo "a failure has no red-pen explanation"; exit 1; fi
-          python3 -c "import json, sys; f = json.load(open('feature_list.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
+          python3 -c "import json, sys; f = json.load(open('tasks/T0001.json'))['features'][0]; sys.exit(f['state'] != 'in_progress')"
       - name: Odoo server log
         if: failure()
         run: odoo-harness compose logs --no-color --tail 300 odoo
