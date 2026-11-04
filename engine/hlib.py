@@ -32,7 +32,11 @@ HARNESS_ENV = HARNESS_DIR / "harness.env"
 DEV_SECRETS = HARNESS_DIR / "dev.local.env"
 SECRET_KEYS = ("DEV_DB_PASSWORD", "DEV_ODOO_LOGIN", "DEV_ODOO_PASSWORD")
 DB_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
-FEATURE_LIST = REPO_ROOT / "feature_list.json"
+# The features of each task live in tasks/<task>.json and its notes in tasks/<task>.md: a task
+# is worked on its own branch by one developer, so two branches never write the same file.
+TASKS_DIR = REPO_ROOT / "tasks"
+# The single feature list of engines before 3.0; /odoo-harness:update splits it into tasks/.
+LEGACY_FEATURE_LIST = REPO_ROOT / "feature_list.json"
 PROGRESS = REPO_ROOT / "PROGRESS.md"
 EVIDENCE_DIR = HARNESS_DIR / "evidence"
 STATE_DIR = REPO_ROOT / ".harness"
@@ -43,15 +47,19 @@ ODOO_NODEMO_CONF = STATE_DIR / "odoo-nodemo.conf"
 NODEMO_CONF_MOUNT = "/etc/odoo/odoo-nodemo.conf"
 
 STATES = ("not_started", "in_progress", "blocked", "passing")
+# The keys stored in tasks/<task>.json. In memory each feature also carries `task`, the Odoo
+# task it belongs to (the file name): its code (T2003), or any short name until the Odoo task
+# exists (then `feature rename-task`). A task is split into one or more features, worked on
+# the git branch of the same name; the name is also used in file names.
 FEATURE_KEYS = {"id", "behavior", "verification", "state", "evidence"}
-# Optional: the Odoo task the feature belongs to: its code (T2003), or any short name until
-# the Odoo task exists (then `feature rename-task`). A task is split into one or more
-# features, worked on the git branch of the same name; the name is also used in file names.
-OPTIONAL_KEYS = {"task"}
 TASK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 TASK_CODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\d[A-Za-z0-9_-]*$")
 VERIFY_KINDS = ("unit", "integration", "e2e")
-ID_RE = re.compile(r"^F-\d{3,}$")
+# F-T2003-1: numbered within its task, so developers on different tasks never pick the same
+# id. F-001 is the id of engines before 3.0, still valid.
+ID_RE = re.compile(r"^F-(\d{3,}|[A-Za-z0-9][A-Za-z0-9_-]*-\d+)$")
+TASK_FILE_VERSION = 2
+NOTES_SECTIONS = ("Features", "Notes", "Known issues", "Decisions", "Next steps")
 
 
 # --- red pen --------------------------------------------------------------
@@ -409,28 +417,71 @@ def working_tree_dirty():
 
 # --- feature list ----------------------------------------------------------
 
+def task_sort_key(task):
+    """Natural order, the same in every clone: T9300 before T10283."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", task)]
+
+
+def task_file(task):
+    return TASKS_DIR / f"{task}.json"
+
+
 def load_features():
-    try:
-        data = json.loads(FEATURE_LIST.read_text())
-    except FileNotFoundError:
-        raise RedPen("features", "feature_list.json not found",
-                     "The harness keeps the work split into features in feature_list.json.",
-                     "Run the odoo-harness init skill (/odoo-harness:init), or "
-                     "restore the file from git.")
-    except json.JSONDecodeError as exc:
-        raise RedPen("features", f"feature_list.json is not valid JSON (line {exc.lineno})",
-                     "The file was edited by hand and broken.",
-                     "Restore it with `git checkout feature_list.json`, then use odoo-harness feature.")
+    """Every feature of every task file, in one view: {"version": 1, "features": [...]}, each
+    feature with its `task`. Tasks in natural order, features in file order."""
+    if not TASKS_DIR.is_dir():
+        if LEGACY_FEATURE_LIST.exists():
+            raise RedPen("features", "this project still keeps its features in feature_list.json",
+                         f"odoo-harness {ENGINE_VERSION} keeps each task's features in its own "
+                         "file, tasks/<task>.json, so that developers working on different "
+                         "tasks never change the same file.",
+                         "Run /odoo-harness:update (it moves the features into tasks/, keeping "
+                         "their ids), then commit the result.")
+        raise RedPen("features", "tasks/ not found",
+                     "The harness keeps the work split into features, one file per task in "
+                     "tasks/<task>.json.",
+                     "Run the odoo-harness init skill (/odoo-harness:init), or restore tasks/ "
+                     "from git.")
+    features = []
+    paths = sorted(TASKS_DIR.glob("*.json"), key=lambda p: task_sort_key(p.stem))
+    for path in paths:
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        try:
+            content = json.loads(path.read_text())
+        except json.JSONDecodeError as exc:
+            raise RedPen("features", f"{rel} is not valid JSON (line {exc.lineno})",
+                         "The file was edited by hand and broken.",
+                         f"Restore it with `git checkout {rel}`, then use odoo-harness feature.")
+        problems = validate_task_file(content, path.stem)
+        if problems:
+            raise RedPen("features", f"{rel} is invalid: " + "; ".join(problems),
+                         "The file does not match the harness format, probably edited by hand.",
+                         f"Restore it with `git checkout {rel}`; change it only with "
+                         "odoo-harness feature.")
+        features += [{**feat, "task": path.stem} for feat in content["features"]]
+    data = {"version": 1, "features": features}
     problems = validate(data)
     if problems:
-        raise RedPen("features", "feature_list.json is invalid: " + "; ".join(problems),
-                     "The file does not match the harness format, probably edited by hand.",
-                     "Restore it with `git checkout feature_list.json`; change it only with "
-                     "odoo-harness feature.")
+        raise RedPen("features", "the task files are inconsistent: " + "; ".join(problems),
+                     "Two task files disagree, usually after a merge or a hand edit.",
+                     "Restore the files with git (git checkout <ref> -- tasks/<task>.json); "
+                     "change them only with odoo-harness feature.")
     return data
 
 
+def validate_task_file(content, task):
+    if not TASK_RE.match(task):
+        return [f"the file name must be a task name (letters, digits, - and _), not {task!r}"]
+    if not isinstance(content, dict) or content.get("version") != TASK_FILE_VERSION or not \
+            isinstance(content.get("features"), list) or content.get("task") != task:
+        return [f'expected {{"version": {TASK_FILE_VERSION}, "task": "{task}", "features": '
+                '[...]}']
+    return [f"features[{i}] is not an object" for i, feat in enumerate(content["features"])
+            if not isinstance(feat, dict)]
+
+
 def validate(data):
+    """Problems of the view returned by load_features (every feature with its task)."""
     problems = []
     if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(
             data.get("features"), list):
@@ -441,15 +492,14 @@ def validate(data):
             problems.append(f"features[{i}] is not an object")
             continue
         fid = feat.get("id", f"features[{i}]")
-        if not FEATURE_KEYS <= set(feat) <= FEATURE_KEYS | OPTIONAL_KEYS:
-            problems.append(f"{fid}: keys must be {sorted(FEATURE_KEYS)} (+ optional "
-                            f"{sorted(OPTIONAL_KEYS)})")
+        if set(feat) != FEATURE_KEYS | {"task"}:
+            problems.append(f"{fid}: keys must be {sorted(FEATURE_KEYS)}")
             continue
-        if "task" in feat and not (isinstance(feat["task"], str) and TASK_RE.match(feat["task"])):
+        if not (isinstance(feat["task"], str) and TASK_RE.match(feat["task"])):
             problems.append(f"{fid}: task must use only letters, digits, - and _ "
                             "(T2003, remise-devis)")
         if not isinstance(fid, str) or not ID_RE.match(fid):
-            problems.append(f"{fid}: id must look like F-001")
+            problems.append(f"{fid}: id must look like F-T2003-1 (or F-001)")
         elif fid in seen:
             problems.append(f"{fid}: duplicate id")
         seen.add(fid)
@@ -462,10 +512,15 @@ def validate(data):
             problems.append(f"{fid}: passing without evidence")
         if feat["state"] != "passing" and feat["evidence"] is not None:
             problems.append(f"{fid}: evidence is only allowed on passing features")
-    in_progress = [f.get("id") for f in data["features"]
-                   if isinstance(f, dict) and f.get("state") == "in_progress"]
-    if len(in_progress) > 1:
-        problems.append(f"WIP = 1 violated, in_progress: {', '.join(in_progress)}")
+    # WIP = 1 per task: a task is worked on one branch. Two tasks may each have a feature in
+    # progress, on two developers' branches; feature start keeps one per checkout.
+    by_task = {}
+    for f in data["features"]:
+        if isinstance(f, dict) and f.get("state") == "in_progress":
+            by_task.setdefault(f.get("task"), []).append(str(f.get("id")))
+    for task, ids in by_task.items():
+        if len(ids) > 1:
+            problems.append(f"WIP = 1 violated in task {task}, in_progress: {', '.join(ids)}")
     return problems
 
 
@@ -488,21 +543,42 @@ def parse_verification(entry):
 
 
 def save_features(data):
+    """Write each task's file, only where it changed: a command on one task never rewrites the
+    file of another. A task left without features (renamed) loses its file."""
     problems = validate(data)
     if problems:
         raise AssertionError("refusing to save an invalid feature list: " + "; ".join(problems))
-    write_atomic(FEATURE_LIST, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tasks = {}
+    for feat in data["features"]:
+        tasks.setdefault(feat["task"], []).append(
+            {k: v for k, v in feat.items() if k != "task"})
+    for task, feats in tasks.items():
+        text = json.dumps({"version": TASK_FILE_VERSION, "task": task, "features": feats},
+                          indent=2, ensure_ascii=False) + "\n"
+        path = task_file(task)
+        if not path.is_file() or path.read_text() != text:
+            write_atomic(path, text)
+    for path in TASKS_DIR.glob("*.json"):
+        if path.stem not in tasks:
+            path.unlink()
 
 
 def task_features(data, task):
     return [f for f in data["features"] if f.get("task") == task]
 
 
+def in_progress_here(data):
+    """The features in progress in this checkout: those of the task of the current branch, and
+    those started here (.harness/state.json, e.g. with --no-branch). Another task's feature in
+    progress is another branch's work, merged here: it is not this checkout's WIP."""
+    branch, started = current_branch(), load_state()
+    return [f for f in data["features"]
+            if f["state"] == "in_progress" and (f["task"] == branch or f["id"] in started)]
+
+
 def commit_message(feat):
-    """Commit message of a verified feature: [T2003] F-001 behavior, or feat(F-001): ..."""
-    if feat.get("task"):
-        return f"[{feat['task']}] {feat['id']} {feat['behavior']}"
-    return f"feat({feat['id']}): {feat['behavior']}"
+    """Commit message of a verified feature: [T2003] F-T2003-1 behavior."""
+    return f"[{feat['task']}] {feat['id']} {feat['behavior']}"
 
 
 def current_branch():
@@ -514,7 +590,7 @@ def find_feature(data, fid):
         if feat["id"] == fid:
             return feat
     raise RedPen("features", f"unknown feature {fid}",
-                 "There is no feature with this id in feature_list.json.",
+                 "There is no feature with this id in the task files of this branch (tasks/).",
                  "Run `odoo-harness feature status` to list the ids.")
 
 
@@ -545,31 +621,49 @@ def save_state(state):
     write_atomic(STATE_FILE, json.dumps(state, indent=2) + "\n")
 
 
-# --- PROGRESS.md -------------------------------------------------------------
+# --- task notes: tasks/<task>.md ------------------------------------------------
+# The progress of one task, written on its branch only: its feature lines (kept by the
+# harness), what is done and left, its known issues, decisions and next steps. PROGRESS.md
+# keeps what concerns the whole project; the harness does not write it.
 
-def _task_re(fid):
+def notes_file(task):
+    return TASKS_DIR / f"{task}.md"
+
+
+def _notes_lines(task):
+    path = notes_file(task)
+    if path.exists():
+        return path.read_text().splitlines()
+    lines = [f"# Task {task}"]
+    for section in NOTES_SECTIONS:
+        lines += ["", f"## {section}"]
+    return lines
+
+
+def _feature_line_re(fid):
     return re.compile(rf"^- \[[ xX]\] {re.escape(fid)}\b")
 
 
-def progress_set_task(fid, line, section):
-    """Remove the task line of fid everywhere, then add `line` under `## section`."""
-    lines = PROGRESS.read_text().splitlines() if PROGRESS.exists() else []
-    lines = [ln for ln in lines if not _task_re(fid).match(ln)]
-    if section:
-        lines = _append_to_section(lines, section, line)
-    write_atomic(PROGRESS, "\n".join(lines) + "\n")
+def notes_set_feature(feat, line):
+    """The line of a feature, under Features of its task's notes (replacing the old one)."""
+    lines = [ln for ln in _notes_lines(feat["task"]) if not _feature_line_re(feat["id"]).match(ln)]
+    write_atomic(notes_file(feat["task"]),
+                 "\n".join(_append_to_section(lines, "Features", line)) + "\n")
 
 
-def progress_rename_task(fid, old, new):
-    """Change the task of fid's line, which stays in its section."""
-    if PROGRESS.exists():
-        pattern = rf"^(- \[[ xX]\] {re.escape(fid)}) \[{re.escape(old)}\] "
-        write_atomic(PROGRESS, re.sub(pattern, rf"\1 [{new}] ", PROGRESS.read_text(), flags=re.M))
+def notes_append(task, section, line):
+    write_atomic(notes_file(task),
+                 "\n".join(_append_to_section(_notes_lines(task), section, line)) + "\n")
 
 
-def progress_append(section, line):
-    lines = PROGRESS.read_text().splitlines() if PROGRESS.exists() else []
-    write_atomic(PROGRESS, "\n".join(_append_to_section(lines, section, line)) + "\n")
+def notes_rename(old, new):
+    """Move tasks/<old>.md to tasks/<new>.md, with its title."""
+    path = notes_file(old)
+    if path.exists():
+        text = re.sub(rf"^# Task {re.escape(old)}$", f"# Task {new}", path.read_text(), count=1,
+                      flags=re.M)
+        write_atomic(notes_file(new), text)
+        path.unlink()
 
 
 def _append_to_section(lines, section, line):

@@ -7,10 +7,11 @@ everything you need to continue is in these files, not in your memory.
 | File | Role |
 |---|---|
 | `BOOTSTRAP.md` | Bootstrap contract: how to start, verify, reset; what is in and out of scope |
-| `PROGRESS.md` | The Odoo project's work: current state, completed / in-progress tasks, known issues, next steps. Never the harness setup (that is `BOOTSTRAP.md`) |
-| `DECISIONS.md` | Dated decisions. Read before changing direction; append when you decide |
+| `tasks/<task>.json` | The features of one Odoo task. State is owned by the harness |
+| `tasks/<task>.md` | The notes of one task: its features, what is done and left, known issues, decisions, next steps |
+| `PROGRESS.md` | What concerns the whole project: known issues, next steps. Never the harness setup (that is `BOOTSTRAP.md`) |
+| `DECISIONS.md` | Dated decisions of the whole project. Read before changing direction |
 | `ARCHITECTURE.md` | Map of the project: modules, what they do, how they depend on each other, risks |
-| `feature_list.json` | The work, split into features. State is owned by the harness |
 | `harness/` | The project's harness settings (`harness.env`), its own checks and red pens, the evidence |
 
 The harness itself is the `odoo-harness` command, installed once per machine with the plugin:
@@ -23,45 +24,47 @@ This is a whole Odoo project. Its own modules are in `{{CUSTOM_ADDONS}}`; third-
 `ARCHITECTURE.md` maps the modules; read it before changing a module you do not know.
 
 # Sessions (automatic)
-- At session start the harness loads PROGRESS.md, recent decisions, the current feature and the baseline health into your context. Start from there.
+- At session start the harness loads this checkout's current state, PROGRESS.md, the notes of the current branch's task, the tasks and their features, recent decisions and the baseline health into your context. Start from there.
 - After each edit of a module file, fast static checks run on that file. Fix what they report right away.
-- When you end a turn, the harness rewrites "Current state" in PROGRESS.md and refuses to stop if the state is unclean: static check failures, a broken feature list, or code changed this session without PROGRESS.md being updated.
-- Edits of feature_list.json, harness/evidence/, the harness engine, Odoo core/enterprise code and deployment files, commands on databases other than the test DB and the dev DB, any drop of a database other than the test DB, and pushes to shared branches are denied.
+- When you end a turn, the harness records the current state in `.harness/` (never versioned) and refuses to stop if the state is unclean: static check failures, a broken feature list, or code changed this session without the task's notes (`tasks/<task>.md`) being updated.
+- Several developers work on this repository, each on their own task branch. A branch changes only the files of its own task (`tasks/<task>.*`); a feature in progress on another branch is a teammate's, not yours.
+- Edits of tasks/*.json, harness/evidence/, the harness engine, Odoo core/enterprise code and deployment files, commands on databases other than the test DB and the dev DB, any drop of a database other than the test DB, and pushes to shared branches are denied.
 
 # Work Rules
 - Work on one feature at a time (WIP = 1).
 - Only start the next feature after the current one passes e2e verification.
 - Do less, but finish. A small feature that passes beats a large one that almost works.
 - Stay inside the current feature. If you discover other work, add it as a new feature, do not do it now.
-- Before writing code, state your reading of the feature: which users, companies and standard flows it touches. If the task allows more than one reading, ask. Without a human to ask (the autonomous loop), take the simplest reading and write it under Known issues in PROGRESS.md.
+- Before writing code, state your reading of the feature: which users, companies and standard flows it touches. If the task allows more than one reading, ask. Without a human to ask (the autonomous loop), take the simplest reading and write it under Known issues in the task's notes.
 - Write the least code that does the behavior, and make it work for any client. No abstractions or behavior the task does not ask for; no handling of cases that cannot happen. But a value that would differ for another client or company (a rate, a threshold, an account, a journal, a product, a partner, an email, a URL) is never a literal in the code: read it from configuration (a setting backed by `ir.config_parameter`, a field on `res.company`, or a data record a user can change), with the client's value as the default.
-- Change only the lines the feature needs. Do not reformat, rename or "improve" code next to yours, and do not delete dead code you did not create: mention it in PROGRESS.md. Remove only what your own change made unused.
+- Change only the lines the feature needs. Do not reformat, rename or "improve" code next to yours, and do not delete dead code you did not create: mention it in the task's notes. Remove only what your own change made unused.
 - Never edit Odoo core or Enterprise. Extend them by inheritance in custom modules.
 - Never edit deployment files (Dockerfile, compose files, server configs, CI). If the deployment must change (a new Python dependency, a config option), say what and why; a human changes them.
 - If the baseline is broken (`odoo-harness init` fails), fix the baseline before anything else.
 - Never write a token or password in a tracked file. Secrets come from the environment or the git-ignored `.env`.
 
 # Odoo tasks and git
-- The work comes from Odoo tasks (code `T2003`). A task is split into one or more features: `odoo-harness feature add --task T2003 ...`.
-- No Odoo task yet? Do not wait: use any short name (`--task remise-devis`, letters, digits, `-` and `_`). When the task exists, `odoo-harness feature rename-task remise-devis T2003` renames its features and its branch, then commit. Commits already made keep the old name.
-- A task is worked on its own branch, named after the task. `odoo-harness feature start` checks it out, creating it from `{{BASE_BRANCH}}` the first time.
-- Commit each verified feature with the message `[T2003] F-001 <behavior>` (`odoo-harness feature verify` prints it).
+- The work comes from Odoo tasks (code `T2003`). A task is split into one or more features: `odoo-harness feature add --task T2003 ...`, which checks out the task's branch and writes `tasks/T2003.json` there. Add a task's features when you take the task.
+- No Odoo task yet? Do not wait: use any short name (`--task remise-devis`, letters, digits, `-` and `_`). When the task exists, `odoo-harness feature rename-task remise-devis T2003` renames its files and its branch (feature ids are kept), then commit. Commits already made keep the old name.
+- A task is worked on its own branch, named after the task. `odoo-harness feature add` and `start` check it out: the local branch, else a teammate's from GitLab (`origin/T2003`), else a new one from `{{BASE_BRANCH}}`.
+- Commit each verified feature with the message `[T2003] F-T2003-1 <behavior>` (`odoo-harness feature verify` prints it).
 - When every feature of the task passes and is committed: `odoo-harness gitlab mr T2003` pushes the branch and opens the merge request to `{{BASE_BRANCH}}`. Never push to `{{BASE_BRANCH}}` or `main` yourself.
 
 # Feature List Rules
-- `feature_list.json` is changed only through `odoo-harness feature`. Never edit it by hand.
-- Each feature has: `id`, `behavior`, `verification`, `state`, `evidence`, and the `task` it belongs to.
+- `tasks/<task>.json` is changed only through `odoo-harness feature`. Never edit it by hand. The task's notes, `tasks/<task>.md`, are yours to write (the harness keeps the lines under Features).
+- Each feature has: `id` (`F-T2003-1`, numbered within its task), `behavior`, `verification`, `state`, `evidence`; its task is the file it is in.
+- The e2e test of a feature is named after its id: `e2e/test_T2003_1_<name>.py`.
 - States: `not_started` → `in_progress` → `passing` (or `blocked`).
-- You may: `add` a feature, `start` one (refused if another is `in_progress`), `block` one with a reason.
+- You may: `add` a feature, `start` one (refused if another is `in_progress` in this checkout or in its task), `block` one with a reason.
 - You may NOT set `passing`. Only `odoo-harness feature verify <id>` sets it, after all verification layers pass, and it records the evidence.
 
 # Definition of Done
 A feature is done only when ALL of these are true:
 1. `odoo-harness feature verify <id>` passed and set the state to `passing` with evidence.
 2. Lint (pylint-odoo) is clean on the changed modules.
-3. `PROGRESS.md` is updated (completed task, known issues, next steps).
-4. Any decision taken is appended to `DECISIONS.md`.
-5. The work is committed (`[T2003] F-001 <behavior>`).
+3. The task's notes, `tasks/<task>.md`, are updated (what is done and left, known issues, next steps).
+4. Any decision taken is recorded: under Decisions in the task's notes, or in `DECISIONS.md` when it concerns the whole project.
+5. The work is committed (`[T2003] F-T2003-1 <behavior>`).
 6. When it was the last feature of its task: the merge request is open (`odoo-harness gitlab mr <task>`).
 
 "It should work" or "the code looks right" is not done. Evidence is done.

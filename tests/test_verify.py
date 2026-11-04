@@ -55,7 +55,7 @@ OTHER = "extra-addons/client/other_mod"
 
 @pytest.mark.parametrize("files,expected", [
     ({f"{MOD}/models/x.py"}, (False, ["demo_mod"], [])),
-    ({f"{MOD}/models/x.py", "e2e/test_F001_x.py", "PROGRESS.md"}, (False, ["demo_mod"], [])),
+    ({f"{MOD}/models/x.py", "e2e/test_T1_1_x.py", "PROGRESS.md"}, (False, ["demo_mod"], [])),
     ({f"{MOD}/x.py", f"{OTHER}/y.py"}, (True, ["demo_mod", "other_mod"], [])),
     ({f"{MOD}/x.py", "e2e/conftest.py"}, (True, ["demo_mod"], ["e2e/conftest.py"])),
     ({f"{MOD}/x.py", "Dockerfile"}, (True, ["demo_mod"], ["Dockerfile"])),
@@ -143,9 +143,9 @@ def test_feature_tests_modules_that_depend_on_the_change(hrepo):
     (other / "__manifest__.py").write_text("{'name': 'o', 'depends': ['demo_mod']}")
     hrepo.commit("other module")
     add_feature(hrepo)
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     touch(hrepo)
-    result = hrepo.feature("verify", "F-001")
+    result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 0, result.stderr
     odoo = [c for c in hrepo.calls() if "--test-tags" in c][0]
     assert odoo[odoo.index("-u") + 1] == "demo_mod,other_mod"
@@ -165,9 +165,9 @@ def third_party_module(hrepo):
 def test_feature_updates_and_tests_changed_third_party_modules(hrepo):
     third_party_module(hrepo)
     add_feature(hrepo)
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     touch(hrepo, "extra-addons/oca/web_x/__init__.py")
-    result = hrepo.feature("verify", "F-001")
+    result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 0, result.stderr
     odoo = [c for c in hrepo.calls() if "--test-tags" in c][0]
     assert odoo[odoo.index("-u") + 1] == "demo_mod,other_mod,web_x"
@@ -221,23 +221,23 @@ def test_server_log_errors_fail_system_layer(hrepo):
 def test_feature_runs_only_its_e2e_when_single_module(hrepo):
     add_feature(hrepo)
     hrepo.commit("add feature")
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").write_text(
         (hrepo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() + "\n")
-    assert hrepo.feature("verify", "F-001").returncode == 0
+    assert hrepo.feature("verify", "F-T1-1").returncode == 0
     e2e_call = [c for c in hrepo.calls() if "pytest" in c][0]
-    assert e2e_call[e2e_call.index("pytest") + 1] == "e2e/test_F001_thing.py"
+    assert e2e_call[e2e_call.index("pytest") + 1] == "e2e/test_T1_1_thing.py"
 
 
 def test_cross_module_feature_runs_full_e2e(hrepo):
     add_feature(hrepo)
     hrepo.commit("add feature")
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     other = hrepo.path / "extra-addons/client/other_mod"
     shutil.copytree(hrepo.path / "extra-addons/client/demo_mod", other)
     thing = hrepo.path / "extra-addons/client/demo_mod/models/thing.py"
     thing.write_text(thing.read_text() + "\n")
-    result = hrepo.feature("verify", "F-001")
+    result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 0, result.stderr
     assert "full e2e suite required" in result.stdout
     e2e_call = [c for c in hrepo.calls() if "pytest" in c][0]
@@ -246,12 +246,12 @@ def test_cross_module_feature_runs_full_e2e(hrepo):
 
 def test_missing_feature_e2e_file_is_reported(hrepo):
     add_feature(hrepo)
-    (hrepo.path / "e2e/test_F001_thing.py").unlink()
+    (hrepo.path / "e2e/test_T1_1_thing.py").unlink()
     hrepo.commit("add feature")
-    hrepo.feature("start", "F-001")
-    result = hrepo.feature("verify", "F-001")
+    hrepo.feature("start", "F-T1-1")
+    result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 1
-    assert "e2e test file missing: e2e/test_F001_thing.py" in result.stderr
+    assert "e2e test file missing: e2e/test_T1_1_thing.py" in result.stderr
 
 
 def test_verify_sh_wrapper(hrepo):
@@ -297,9 +297,9 @@ def test_failure_shows_the_assertion_once(hrepo):
 def test_cross_component_names_shared_files(hrepo):
     add_feature(hrepo)
     hrepo.commit("add feature")
-    hrepo.feature("start", "F-001")
+    hrepo.feature("start", "F-T1-1")
     (hrepo.path / "notes.log").write_text("x")
-    result = hrepo.feature("verify", "F-001")
+    result = hrepo.feature("verify", "F-T1-1")
     assert "cross-component change (shared files notes.log)" in result.stdout
 
 

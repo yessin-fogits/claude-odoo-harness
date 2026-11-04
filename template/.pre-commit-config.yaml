@@ -7,7 +7,7 @@ repos:
         entry: odoo-harness feature check
         language: system
         pass_filenames: false
-        files: ^(feature_list\.json|harness/evidence/)
+        files: ^(tasks/[^/]+\.json|harness/evidence/)
       - id: harness-static
         name: harness static checks (layer 1, no docker)
         entry: odoo-harness static

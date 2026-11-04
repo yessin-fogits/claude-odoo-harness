@@ -47,7 +47,11 @@ class HarnessRepo:
         return self.run(CLI, "verify", *args, **fake)
 
     def features(self):
-        return json.loads((self.path / "feature_list.json").read_text())["features"]
+        """Every feature with its task, as the engine reads them (tasks/<task>.json)."""
+        out = []
+        for path in sorted((self.path / "tasks").glob("*.json")):
+            out += [{**f, "task": path.stem} for f in json.loads(path.read_text())["features"]]
+        return out
 
     def calls(self):
         if not self.calls_file.exists():
@@ -121,13 +125,17 @@ def hrepo(tmp_path):
     return repo
 
 
-E2E_FILE = "e2e/test_F001_thing.py"
+E2E_FILE = "e2e/test_T1_1_thing.py"
 MODULE_DIR = "extra-addons/client/demo_mod"
+# The task of the features add_feature creates; tests of the task workflow use their own.
+TASK = "T1"
 
 
 def add_feature(repo, behavior="User creates a demo thing", e2e=E2E_FILE):
-    result = repo.feature("add", "--behavior", behavior, "--verify", "unit: /demo_mod:TestThing",
-                          "--verify", f"e2e: {e2e}")
+    """A feature of task T1: the first one checks out the branch T1 (the task workflow is
+    tested in test_tasks.py)."""
+    result = repo.feature("add", "--task", TASK, "--behavior", behavior,
+                          "--verify", "unit: /demo_mod:TestThing", "--verify", f"e2e: {e2e}")
     assert result.returncode == 0, result.stderr
     (repo.path / e2e).write_text("def test_thing(odoo_page):\n    pass\n")
     return result

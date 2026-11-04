@@ -26,7 +26,7 @@ def loop(repo, *args, **fake):
 
 def with_feature(repo, *behaviors):
     for i, behavior in enumerate(behaviors or ["User creates a demo thing"], start=1):
-        add_feature(repo, behavior, f"e2e/test_F{i:03d}_x.py")
+        add_feature(repo, behavior, f"e2e/test_T1_{i}_x.py")
     repo.commit("features")
 
 
@@ -44,10 +44,10 @@ def test_feature_verified_and_committed(loop_repo):
     result = loop(loop_repo, fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
     assert loop_repo.features()[0]["state"] == "passing"
-    assert "feat(F-001): User creates a demo thing" in git(loop_repo, "log", "-1", "--format=%s")
+    assert "[T1] F-T1-1 User creates a demo thing" in git(loop_repo, "log", "-1", "--format=%s")
     assert git(loop_repo, "status", "--porcelain").strip() == ""
     summary = json.loads((loop_repo.path / ".harness/loop/last.json").read_text())
-    assert summary["passing"] == ["F-001"] and summary["blocked"] == []
+    assert summary["passing"] == ["F-T1-1"] and summary["blocked"] == []
 
 
 def test_retry_gets_the_red_pen_feedback(loop_repo):
@@ -72,9 +72,9 @@ def test_exhausted_attempts_shelve_and_block(loop_repo):
     assert (loop_repo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() == before
     assert "harness-loop" in git(loop_repo, "stash", "list")
     assert git(loop_repo, "status", "--porcelain").strip() == ""
-    known = (loop_repo.path / "PROGRESS.md").read_text().split("## Known issues")[1]
-    assert "F-001 blocked" in known and "git stash" in known
-    assert "chore(F-001): blocked by the loop" in git(loop_repo, "log", "-1", "--format=%s")
+    known = (loop_repo.path / "tasks/T1.md").read_text().split("## Known issues")[1]
+    assert "F-T1-1 blocked" in known and "git stash" in known
+    assert "chore(F-T1-1): blocked by the loop" in git(loop_repo, "log", "-1", "--format=%s")
 
 
 def test_review_revise_sends_the_maker_back(loop_repo):
@@ -117,7 +117,9 @@ def test_works_on_a_new_branch(loop_repo):
     with_feature(loop_repo)
     result = loop(loop_repo, "--branch", "loop/test", fake_maker="fix")
     assert result.returncode == 0, result.stderr
+    # --branch is where the work goes, not the task's branch
     assert git(loop_repo, "branch", "--show-current").strip() == "loop/test"
+    assert loop_repo.features()[0]["state"] == "passing"
 
 
 def test_status(loop_repo):
@@ -132,7 +134,7 @@ def test_maker_that_verifies_itself_is_verified_again(loop_repo):
     result = loop(loop_repo, fake_maker="fix-and-verify")
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(agent_prompts(loop_repo)) == 1
-    assert (loop_repo.agent_calls.parent / "agent_calls.jsonl.self-verified").read_text() == "F-001"
+    assert (loop_repo.agent_calls.parent / "agent_calls.jsonl.self-verified").read_text() == "F-T1-1"
     assert loop_repo.features()[0]["state"] == "passing"
     events = (loop_repo.path / ".harness/loop").glob("*/events.jsonl")
     verifies = [json.loads(line) for f in events for line in f.read_text().splitlines()
@@ -144,5 +146,5 @@ def test_review_rejection_is_the_shelve_reason(loop_repo):
     with_feature(loop_repo)
     result = loop(loop_repo, "--review", "--attempts", "2", fake_maker="fix", fake_reviews="Block")
     assert result.returncode == 1
-    known = (loop_repo.path / "PROGRESS.md").read_text().split("## Known issues")[1]
+    known = (loop_repo.path / "tasks/T1.md").read_text().split("## Known issues")[1]
     assert "verified, but the review verdict was Block after 2 attempts" in known

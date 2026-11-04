@@ -18,6 +18,27 @@ from make_demo_project import write_layout  # noqa: E402
 from conftest import CLI, ENGINE, ODOO_VERSION as VERSION  # noqa: E402
 
 
+LEGACY_PROGRESS = '''# Progress
+
+## Current state
+<!-- Rewritten automatically by the harness at the end of each session. -->
+- Last commit: abc fix (2 days ago)
+
+## Completed tasks
+- [x] F-001 [T2003] Salesperson creates a discount (verified 2026-10-30)
+
+## In progress
+- [ ] F-002 [T2003] Salesperson applies the discount
+- [ ] F-003 [remise] Manager approves
+
+## Known issues
+- the client's tax rules are pending
+
+## Next steps
+- T2003 after the demo
+'''
+
+
 def run_install(target, *extra):
     return install_template.main([str(target), *extra])
 
@@ -54,11 +75,14 @@ def repo(tmp_path):
 
 def test_installs_all_template_files(repo):
     run_install(repo)
-    for rel in ["CLAUDE.md", "BOOTSTRAP.md", "PROGRESS.md", "DECISIONS.md", "feature_list.json",
-                "ARCHITECTURE.md", ".claude/settings.json", ".gitignore", "harness/harness.env",
-                "harness/errors_project.py", "harness/checks/.gitkeep", "e2e/conftest.py"]:
+    for rel in ["CLAUDE.md", "BOOTSTRAP.md", "PROGRESS.md", "DECISIONS.md", "tasks/.gitkeep",
+                "ARCHITECTURE.md", ".claude/settings.json", ".gitignore", ".gitattributes",
+                "harness/harness.env", "harness/errors_project.py", "harness/checks/.gitkeep",
+                "e2e/conftest.py"]:
         assert (repo / rel).is_file(), rel
-    assert not (repo / "gitignore").exists()
+    assert not (repo / "gitignore").exists() and not (repo / "gitattributes").exists()
+    assert not (repo / "feature_list.json").exists()
+    assert "DECISIONS.md merge=union" in (repo / ".gitattributes").read_text()
 
 
 def test_the_engine_is_not_copied(repo):
@@ -150,20 +174,70 @@ def test_fresh_repository_without_layout(tmp_path):
     assert "CUSTOM_ADDONS=addons\n" in env and (target / "addons").is_dir()
 
 
-def test_feature_list_is_minimal_and_empty(repo):
+def test_tasks_start_empty(repo):
     run_install(repo)
-    data = json.loads((repo / "feature_list.json").read_text())
-    assert data == {"version": 1, "features": []}
+    assert [p.name for p in (repo / "tasks").iterdir()] == [".gitkeep"]
 
 
-def test_progress_has_required_sections(repo):
+def test_progress_is_the_whole_projects(repo):
     run_install(repo)
     progress = (repo / "PROGRESS.md").read_text()
-    for section in ["## Current state", "## Completed tasks", "## In progress",
-                    "## Known issues", "## Next steps"]:
+    for section in ["## Known issues", "## Next steps"]:
         assert section in progress
-    for item in ["Last commit", "Test status", "Lint"]:
-        assert item in progress
+    # machine-local or per task now: nothing the harness rewrites on every branch
+    for section in ["## Current state", "## Completed tasks", "## In progress"]:
+        assert section not in progress
+
+
+def install_before_3(repo, features):
+    """A project installed by an engine before 3.0: one feature_list.json."""
+    run_install(repo)
+    (repo / "tasks/.gitkeep").unlink()
+    (repo / "tasks").rmdir()
+    (repo / "feature_list.json").write_text(json.dumps({"version": 1, "features": features}))
+    (repo / "PROGRESS.md").write_text(LEGACY_PROGRESS)
+
+
+def legacy_feature(fid, task, state="not_started"):
+    return {"id": fid, "behavior": "x", "verification": [f"e2e: e2e/test_{fid}.py"],
+            "state": state, "evidence": None, "task": task}
+
+
+def test_update_splits_the_feature_list_into_task_files(repo):
+    install_before_3(repo, [legacy_feature("F-001", "T2003"), legacy_feature("F-002", "T2003"),
+                          legacy_feature("F-003", "remise")])
+    run_install(repo, "--update")
+    assert not (repo / "feature_list.json").exists()
+    t2003 = json.loads((repo / "tasks/T2003.json").read_text())
+    assert t2003["version"] == 2 and t2003["task"] == "T2003"
+    assert [f["id"] for f in t2003["features"]] == ["F-001", "F-002"]
+    assert "task" not in t2003["features"][0]
+    assert [f["id"] for f in json.loads((repo / "tasks/remise.json").read_text())["features"]] \
+        == ["F-003"]
+    notes = (repo / "tasks/T2003.md").read_text()
+    assert notes.startswith("# Task T2003")
+    assert "- [x] F-001 Salesperson creates a discount (verified 2026-10-30)" in notes
+    assert "- [ ] F-002 Salesperson applies the discount" in notes
+    assert "- [ ] F-003 Manager approves" in (repo / "tasks/remise.md").read_text()
+    progress = (repo / "PROGRESS.md").read_text()
+    for gone in ["## Current state", "Last commit", "## Completed tasks", "## In progress", "F-00"]:
+        assert gone not in progress, gone
+    assert "- the client's tax rules are pending" in progress and "- T2003 after the demo" in progress
+    # the engine reads it, and the hooks still drive the repository
+    status = subprocess.run([CLI, "feature", "check"], cwd=repo, capture_output=True, text=True)
+    assert status.returncode == 0, status.stderr
+    assert "3 features" in status.stdout
+    assert "HARNESS_VERSION=3.0.0" in (repo / "harness/harness.env").read_text()
+    run_install(repo, "--update")  # one-shot: nothing left to migrate
+    assert (repo / "tasks/T2003.json").read_text() == json.dumps(t2003, indent=2) + "\n"
+
+
+def test_update_refuses_features_without_a_task(repo):
+    install_before_3(repo, [legacy_feature("F-001", "T2003"), {
+        k: v for k, v in legacy_feature("F-002", "").items() if k != "task"}])
+    with pytest.raises(SystemExit, match="F-002 belong to no task"):
+        run_install(repo, "--update")
+    assert (repo / "feature_list.json").is_file() and not (repo / "tasks").exists()
 
 
 def test_claude_md_has_rules(repo):
@@ -194,11 +268,11 @@ def test_state_files_never_overwritten_even_with_force(repo):
     run_install(repo)
     (repo / "PROGRESS.md").write_text("my progress")
     (repo / "ARCHITECTURE.md").write_text("my map")
-    (repo / "feature_list.json").write_text('{"version": 1, "features": [{"id": "F-001"}]}')
+    (repo / "tasks/T1.json").write_text('{"version": 2, "task": "T1", "features": []}')
     run_install(repo, "--force")
     assert (repo / "PROGRESS.md").read_text() == "my progress"
     assert (repo / "ARCHITECTURE.md").read_text() == "my map"
-    assert "F-001" in (repo / "feature_list.json").read_text()
+    assert (repo / "tasks/T1.json").is_file()
 
 
 def test_existing_claude_md_is_merged_not_replaced(repo):
@@ -247,7 +321,7 @@ def test_existing_settings_are_merged(repo):
     run_install(repo)
     settings = json.loads((repo / ".claude/settings.json").read_text())
     assert "Bash(make:*)" in settings["permissions"]["allow"]
-    assert "Edit(feature_list.json)" in settings["permissions"]["deny"]
+    assert "Edit(tasks/*.json)" in settings["permissions"]["deny"]
     assert settings["model"] == "x"
     assert settings["enabledPlugins"]["odoo-harness@odoo-harness"] is True
     marketplace = settings["extraKnownMarketplaces"]["odoo-harness"]["source"]

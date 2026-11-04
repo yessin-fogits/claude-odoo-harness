@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Autonomous feature loop: a maker-checker graph over feature_list.json.
+"""Autonomous feature loop: a maker-checker graph over the task files (tasks/<task>.json).
 
     odoo-harness loop run [--max-features 1] [--attempts 3] [--review] [--branch NAME]
     odoo-harness loop status
@@ -138,6 +138,12 @@ def preflight(run):
     check = sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "check")
     if check.returncode != 0:
         raise Stop(check.stdout + check.stderr)
+    if hlib.git("remote", "get-url", "origin"):
+        # best effort: select() leaves the tasks a teammate pushed to whoever pushed them
+        try:
+            sh("git", "fetch", "-q", "--prune", "origin", timeout=120)
+        except subprocess.TimeoutExpired:
+            pass
     if not os.environ.get("HARNESS_LOOP_SKIP_HEALTH"):
         health = sh("bash", str(hlib.ENGINE_DIR / "init.sh"), "--check", timeout=120)
         if health.returncode != 0:
@@ -151,12 +157,18 @@ def preflight(run):
 
 
 def select():
-    """The feature in progress, else the first not started one, else None."""
-    features = hlib.load_features()["features"]
-    for state in ("in_progress", "not_started"):
-        for feat in features:
-            if feat["state"] == state:
-                return feat
+    """The feature in progress here, else the first not started one of a task nobody else
+    works on, else None. A task whose branch is on origin belongs to whoever pushed it."""
+    data = hlib.load_features()
+    here = hlib.in_progress_here(data)
+    if here:
+        return here[0]
+    branch = hlib.current_branch()
+    for feat in data["features"]:
+        if feat["state"] == "not_started" and (
+                feat["task"] == branch
+                or not hlib.git("rev-parse", "--verify", "-q", f"refs/remotes/origin/{feat['task']}")):
+            return feat
     return None
 
 
@@ -168,8 +180,8 @@ Follow CLAUDE.md (Work Rules, Definition of Done) and the odoo skill for this Od
 The feature's verification: {'; '.join(feat['verification'])}. Write those tests if they do
 not exist yet, then the code. Run `odoo-harness feature verify {feat['id']}` to check
 your work: only that command can mark the feature passing, and the loop runs it again
-after you. Update PROGRESS.md (the feature line under In progress, Known issues, Next steps).
-Do not commit; do not start another feature; do not edit feature_list.json.
+after you. Update tasks/{feat['task']}.md (Notes, Known issues, Decisions, Next steps).
+Do not commit; do not start another feature; do not edit tasks/*.json.
 """
     if feedback:
         prompt += f"\nThe previous attempt failed. What the checker reported:\n{feedback}\n"
@@ -266,8 +278,9 @@ def run_graph(args):
                 run.summary["stopped"] = "no feature left to start"
                 break
             if feat["state"] == "not_started":
-                # may check out the branch of the feature's Odoo task
-                sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"], check=True)
+                # checks out the branch of the feature's Odoo task, unless --branch chose one
+                sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"],
+                   *(["--no-branch"] if args.branch else []), check=True)
             start_commit = sh("git", "rev-parse", "HEAD").stdout.strip()
             run.event("select", feature=feat["id"])
             feedback, done, failure = "", False, "not verified"

@@ -39,8 +39,16 @@ Show the user the report. What each action means:
   or `HARNESS_VERSION` raised to the installed engine. The `# This project` section below the
   block is never changed; when CLAUDE.md had none, an empty one is added: fill its `TODO`
   lines as the init skill describes ("Project description");
-- `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, feature_list.json,
-  BOOTSTRAP.md, ARCHITECTURE.md) which updates never touch;
+- `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, tasks/, BOOTSTRAP.md,
+  ARCHITECTURE.md) which updates never touch;
+- `migrated`: a project of an engine before 3.0. `feature_list.json` is split into one file per
+  task, `tasks/<task>.json` (ids kept), the feature lines of PROGRESS.md move to each task's
+  notes, `tasks/<task>.md`, and its "Current state" goes (it is in `.harness/` now). If the
+  update stops because features have no task, show them to the user, ask which task each one
+  belongs to, set `"task"` in `feature_list.json` (this one time, by hand), and run it again.
+  Tell the user to commit it and merge it into the base branch **before anyone starts a task
+  branch**: a branch from before the migration still has `feature_list.json` and conflicts
+  with it;
 - `kept*`: a project file (e2e/conftest.py, .pylintrc...) kept as is, although the template
   changed.
 

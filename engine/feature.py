@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""Feature workflow. The only way to change feature_list.json.
+"""Feature workflow. The only way to change tasks/<task>.json.
 
   feature.py status                         list features and what to do next
-  feature.py add --behavior TEXT --verify "e2e: e2e/test_F001_x.py" [--verify ...]
-                 [--task T2003] [--id F-001]
+  feature.py add --task T2003 --behavior TEXT --verify "e2e: e2e/test_T2003_1_x.py"
+                 [--verify ...] [--id F-T2003-1] [--no-branch]
+                                            add a feature to a task, on the task's branch
   feature.py start ID [--reopen] [--no-branch]
-                                            begin work (refused if another is in_progress);
-                                            a feature of an Odoo task is worked on the task's
-                                            branch (T2003), created from BASE_BRANCH
+                                            begin work (refused if another is in_progress here)
+                                            on the task's branch (T2003): the existing one, a
+                                            teammate's from origin, or a new one from
+                                            BASE_BRANCH
   feature.py rename-task OLD NEW            give a task its real code once it exists in Odoo:
-                                            its features, its branch and PROGRESS.md
-  feature.py block ID --reason TEXT         park a feature, the reason goes to PROGRESS.md
+                                            its files and its branch (ids are kept)
+  feature.py block ID --reason TEXT         park a feature, the reason goes to the task notes
   feature.py verify ID                      run the 3 layers; on success -> passing + evidence
   feature.py check                          integrity check (pre-commit, CI)
+  feature.py list                           every feature as JSON, with those in progress here
 
-States: not_started -> in_progress -> passing, or blocked. WIP = 1.
+Each task has its features in tasks/<task>.json and its notes in tasks/<task>.md, written on
+its own branch only, so two developers on two tasks never change the same file.
+States: not_started -> in_progress -> passing, or blocked. WIP = 1 per checkout.
 Only `verify` can set passing; it records evidence in harness/evidence/<ID>.json.
 When every feature of a task passes and is committed, `odoo-harness gitlab mr <task>`
 pushes the task branch and opens its merge request.
@@ -39,8 +44,7 @@ def today():
 
 
 def task_line(feat, done=False, suffix=""):
-    task = f"[{feat['task']}] " if feat.get("task") else ""
-    return f"- [{'x' if done else ' '}] {feat['id']} {task}{feat['behavior']}{suffix}"
+    return f"- [{'x' if done else ' '}] {feat['id']} {feat['behavior']}{suffix}"
 
 
 def in_progress(data):
@@ -52,16 +56,18 @@ def in_progress(data):
 def cmd_status(_args):
     data = hlib.load_features()
     if not data["features"]:
-        print("No features yet. Add them with: odoo-harness feature add --behavior ... --verify ...")
+        print("No features yet. Add them with: odoo-harness feature add --task T2003 "
+              "--behavior ... --verify ...")
         return 0
     marks = {"not_started": " ", "in_progress": ">", "blocked": "!", "passing": "✓"}
+    here = hlib.in_progress_here(data)
+    elsewhere = [f for f in in_progress(data) if f not in here]
     for feat in data["features"]:
-        task = f"[{feat['task']}] " if feat.get("task") else ""
-        print(f"[{marks[feat['state']]}] {feat['id']}  {feat['state']:<11}  {task}"
+        state = "in_progress, other branch" if feat in elsewhere else feat["state"]
+        print(f"[{marks[feat['state']]}] {feat['id']}  {state:<11}  [{feat['task']}] "
               f"{feat['behavior']}")
-    current = in_progress(data)
-    if current:
-        feat = current[0]
+    if here:
+        feat = here[0]
         print(f"\nCurrent: {feat['id']}. Verification:")
         for entry in feat["verification"]:
             print(f"  - {entry}")
@@ -75,9 +81,17 @@ def cmd_status(_args):
     return 0
 
 
-def next_id(data):
-    numbers = [int(f["id"][2:]) for f in data["features"]]
-    return f"F-{(max(numbers) + 1 if numbers else 1):03d}"
+def next_id(data, task):
+    """F-<task>-<n>, n after every id with that prefix: a renamed task keeps its ids, so a new
+    task reusing its old free name continues the numbering."""
+    prefix = f"F-{task}-"
+    numbers = [int(f["id"][len(prefix):]) for f in data["features"]
+               if f["id"].startswith(prefix) and f["id"][len(prefix):].isdigit()]
+    return f"{prefix}{max(numbers, default=0) + 1}"
+
+
+def e2e_example(fid):
+    return f"e2e/test_{fid.removeprefix('F-').replace('-', '_')}_discount.py"
 
 
 def check_task_name(task):
@@ -97,46 +111,77 @@ def check_task_name(task):
 
 
 def cmd_add(args):
+    task = args.task.strip()
+    check_task_name(task)
     data = hlib.load_features()
-    fid = args.id or next_id(data)
+    # An Odoo code may already have its branch; a free name may be an environment (preprod).
+    if (not hlib.task_features(data, task) and branch_exists(task)
+            and not hlib.TASK_CODE_RE.match(task)):
+        raise RedPen("features", f"a branch named {task} already exists",
+                     "A task is worked on the branch of the same name, and this one may be "
+                     "shared (preprod, recette...).",
+                     "Choose another name, or the Odoo task code (T2003) if this is its branch.")
+    if not args.no_branch:
+        # A task's files are written on its own branch only.
+        switch_to_task_branch(task, "add the feature")
+        data = hlib.load_features()
+    fid = args.id or next_id(data, task)
     if any(f["id"] == fid for f in data["features"]):
         raise RedPen("features", f"{fid} already exists", "Feature ids are unique.",
                      "Omit --id to get the next free id.")
     feat = {"id": fid, "behavior": args.behavior.strip(), "verification": args.verify,
-            "state": "not_started", "evidence": None}
-    if args.task:
-        feat["task"] = args.task.strip()
-        check_task_name(feat["task"])
-        # An Odoo code may already have its branch; a free name may be an environment (preprod).
-        if (not hlib.task_features(data, feat["task"]) and branch_exists(feat["task"])
-                and not hlib.TASK_CODE_RE.match(feat["task"])):
-            raise RedPen("features", f"a branch named {feat['task']} already exists",
-                         "A task is worked on the branch of the same name, and this one may be "
-                         "shared (preprod, recette...).",
-                         "Choose another name, or the Odoo task code (T2003) if this is its branch.")
+            "state": "not_started", "evidence": None, "task": task}
     problems = hlib.validate({"version": 1, "features": [feat]})
     if problems:
         raise RedPen("features", f"cannot add {fid}: " + "; ".join(problems),
                      "A feature needs one observable behavior and the tests that prove it, "
                      "including its own e2e test.",
-                     "Example: --task T2003 --behavior 'Salesperson applies a discount on a "
+                     f"Example: --task {task} --behavior 'Salesperson applies a discount on a "
                      "quotation line' --verify 'unit: /sale_discount:TestDiscount' "
-                     f"--verify 'e2e: e2e/test_{fid.replace('-', '')}_discount.py'")
+                     f"--verify 'e2e: {e2e_example(fid)}'")
     data["features"].append(feat)
     hlib.save_features(data)
+    hlib.notes_set_feature(feat, task_line(feat))
     print(f"✓ added {fid}: {feat['behavior']}")
     return 0
+
+
+def wip_conflicts(data, feat):
+    """Features in progress that forbid starting feat: one in this checkout, or one of its
+    task (worked on the same branch)."""
+    here = hlib.in_progress_here(data)
+    same_task = [f for f in in_progress(data) if f["task"] == feat["task"]]
+    return [f["id"] for f in here + same_task if f["id"] != feat["id"]]
+
+
+def refuse_wip(feat, others):
+    raise RedPen("features", f"cannot start {feat['id']}: {others[0]} is in_progress",
+                 "WIP = 1: finish the current feature before starting another one.",
+                 f"Finish {others[0]} (odoo-harness feature verify {others[0]}), or if it "
+                 f"cannot progress: odoo-harness feature block {others[0]} --reason '...'")
 
 
 def cmd_start(args):
     data = hlib.load_features()
     feat = hlib.find_feature(data, args.id)
-    others = [f["id"] for f in in_progress(data) if f["id"] != feat["id"]]
+    others = wip_conflicts(data, feat)
     if others:
-        raise RedPen("features", f"cannot start {feat['id']}: {others[0]} is in_progress",
-                     "WIP = 1: finish the current feature before starting another one.",
-                     f"Finish {others[0]} (odoo-harness feature verify {others[0]}), or if it "
-                     f"cannot progress: odoo-harness feature block {others[0]} --reason '...'")
+        refuse_wip(feat, others)
+    if not args.no_branch:
+        switch_to_task_branch(feat["task"], "start the feature")
+        # the task branch has its own version of the task files (a teammate's, for one)
+        data = hlib.load_features()
+        try:
+            feat = hlib.find_feature(data, args.id)
+        except RedPen:
+            raise RedPen("features", f"{args.id} is not on the branch {feat['task']}",
+                         "The task branch does not have this feature: it was added elsewhere "
+                         "and not merged there.",
+                         f"Add it on the branch: odoo-harness feature add --task {feat['task']} "
+                         "...")
+        others = wip_conflicts(data, feat)
+        if others:
+            refuse_wip(feat, others)
     if feat["state"] == "in_progress":
         print(f"{feat['id']} is already in progress.")
         return 0
@@ -144,14 +189,12 @@ def cmd_start(args):
         raise RedPen("features", f"{feat['id']} is already passing",
                      "A passing feature is reopened only when it regressed.",
                      f"If it regressed: odoo-harness feature start {feat['id']} --reopen")
-    if feat.get("task") and not args.no_branch:
-        switch_to_task_branch(feat["task"])
     feat["state"], feat["evidence"] = "in_progress", None
     hlib.save_features(data)
     state = hlib.load_state()
     state[feat["id"]] = {"start_commit": hlib.head_commit(), "started_at": hlib.now_iso()}
     hlib.save_state(state)
-    hlib.progress_set_task(feat["id"], task_line(feat), "In progress")
+    hlib.notes_set_feature(feat, task_line(feat, suffix=" (in progress)"))
     print(f"✓ {feat['id']} in progress: {feat['behavior']}")
     print("Verification to satisfy:")
     for entry in feat["verification"]:
@@ -160,36 +203,110 @@ def cmd_start(args):
 
 
 def has_harness(ref):
-    return subprocess.run(["git", "cat-file", "-e", f"{ref}:harness/harness.env"],
+    """The commit has the harness, in the layout of this engine (one file per task)."""
+    return all(subprocess.run(["git", "cat-file", "-e", f"{ref}:{path}"], cwd=hlib.REPO_ROOT,
+                              capture_output=True).returncode == 0
+               for path in ("harness/harness.env", "tasks"))
+
+
+def has_legacy_harness(ref):
+    return subprocess.run(["git", "cat-file", "-e", f"{ref}:feature_list.json"],
                           cwd=hlib.REPO_ROOT, capture_output=True).returncode == 0
 
 
-def switch_to_task_branch(task):
-    """Check out the task's branch, creating it from the base branch the first time."""
+def fetch_task_branch(task):
+    """Refresh origin/<task>, best effort: without the network the last fetch is used."""
+    if not hlib.git("remote", "get-url", "origin"):
+        return
+    try:
+        out = subprocess.run(["git", "fetch", "-q", "origin", f"refs/heads/{task}"],
+                             cwd=hlib.REPO_ROOT, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"! git fetch origin {task} timed out: using the last fetch", file=sys.stderr)
+        return
+    remote = f"refs/remotes/origin/{task}"
+    if out.returncode == 0:
+        hlib.git("update-ref", remote, "FETCH_HEAD")
+    elif "couldn't find remote ref" in out.stderr:
+        hlib.git("update-ref", "-d", remote)  # deleted on GitLab (merged): not a branch to join
+    else:
+        print(f"! git fetch origin {task} failed, using the last fetch: "
+              f"{out.stderr.strip()[:200]}", file=sys.stderr)
+
+
+def git_or_redpen(*args, doing):
+    out = subprocess.run(["git", *args], cwd=hlib.REPO_ROOT, capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RedPen("git", f"git {' '.join(args)} failed", out.stderr.strip()[:300],
+                     f"Fix the git state (see the message), then {doing} again.")
+
+
+def is_ancestor(ref, of):
+    return subprocess.run(["git", "merge-base", "--is-ancestor", ref, of], cwd=hlib.REPO_ROOT,
+                          capture_output=True).returncode == 0
+
+
+def catch_up_with_origin(task, doing):
+    """The local task branch takes the commits a teammate pushed to origin/<task>."""
+    remote = f"refs/remotes/origin/{task}"
+    if not ref_exists(remote) or is_ancestor(remote, task):
+        return  # nothing on origin, or nothing new there
+    if not is_ancestor(task, remote):
+        raise RedPen("git", f"the branch {task} and origin/{task} have diverged",
+                     "Someone pushed to the task branch while you had local commits on it.",
+                     f"Bring them together: git pull --rebase origin {task}, then {doing} again.")
+    git_or_redpen("merge", "-q", "--ff-only", remote, doing=doing)
+    print(f"✓ {task} fast-forwarded to origin/{task}")
+
+
+def switch_to_task_branch(task, doing):
+    """Check out the task's branch: the local one, else a teammate's from origin, else a new
+    one from the base branch. `doing` names the command for the red pens."""
+    fetch_task_branch(task)
     branch = hlib.current_branch()
-    if branch == task or not hlib.head_commit():
+    if branch == task:
+        catch_up_with_origin(task, doing)
+        return
+    if not hlib.head_commit():
         return
     if hlib.working_tree_dirty():
         raise RedPen("git", f"cannot switch to the branch of {task}: uncommitted changes on "
                      f"'{branch or 'HEAD'}'",
                      "Each Odoo task is worked on its own branch; switching now would carry "
                      "unrelated changes into it.",
-                     "Commit the finished work (or stash it), then start the feature again.")
+                     f"Commit the finished work (or stash it), then {doing} again.")
     env = hlib.load_env()
     base = env.get("BASE_BRANCH", "")
-    if hlib.git("rev-parse", "--verify", "-q", f"refs/heads/{task}"):
+    note = ""
+    if ref_exists(f"refs/heads/{task}"):
         args = ["checkout", "-q", task]
+    elif ref_exists(f"refs/remotes/origin/{task}"):
+        if not has_harness(f"origin/{task}"):
+            legacy = has_legacy_harness(f"origin/{task}")
+            raise RedPen("git", f"the branch {task} on origin "
+                         + ("has the harness of an engine before 3.0 (feature_list.json)"
+                            if legacy else "was created before the harness"),
+                         "A task is worked on the branch of the same name, and this one does "
+                         "not have the harness files of this engine (tasks/).",
+                         f"Either continue it: git checkout -b {task} origin/{task} && git merge "
+                         f"origin/{base or 'staging'}"
+                         + (" (then /odoo-harness:update if feature_list.json remains)"
+                            if legacy else "")
+                         + f", then {doing} again; or work under a new name, e.g. "
+                         f"--task {task}_{datetime.date.today():%d%m%Y}.")
+        args = ["checkout", "-q", "-b", task, "--track", f"origin/{task}"]
+        note = f" (from origin/{task})"
     else:
         # Start from the base branch, but only from a commit that has the harness: until the
         # harness install is merged upstream, the local base branch is the one that has it.
         refs = [base, f"origin/{base}"] if base else []
         start = next((r for r in refs if has_harness(r)), "HEAD")
         args = ["checkout", "-q", "-b", task, start]
-    out = subprocess.run(["git", *args], cwd=hlib.REPO_ROOT, capture_output=True, text=True)
-    if out.returncode != 0:
-        raise RedPen("git", f"git {' '.join(args)} failed", out.stderr.strip()[:300],
-                     "Fix the git state (see the message), then start the feature again.")
-    print(f"✓ on branch {task}" + (f" (new, from {args[-1]})" if "-b" in args else ""))
+        note = f" (new, from {start})"
+    git_or_redpen(*args, doing=doing)
+    if not note:
+        catch_up_with_origin(task, doing)
+    print(f"✓ on branch {task}{note}")
 
 
 def ref_exists(ref):
@@ -203,13 +320,14 @@ def branch_exists(name):
 
 def cmd_rename_task(args):
     """Rename a task. Its commits keep the old name: published history is not rewritten, and
-    the evidence stays valid because the fingerprint does not cover the task."""
+    the evidence stays valid because the fingerprint does not cover the task. The feature
+    ids are kept too (F-remise-devis-1): they are only labels, and stay unique."""
     old, new = args.old, args.new
     data = hlib.load_features()
     feats = hlib.task_features(data, old)
     if not feats:
         raise RedPen("features", f"no feature belongs to task {old}",
-                     "Only a task of feature_list.json can be renamed.",
+                     "Only a task with a file in tasks/ can be renamed.",
                      "Run `odoo-harness feature status` to list the tasks.")
     check_task_name(new)
     if hlib.task_features(data, new) or branch_exists(new):
@@ -219,7 +337,7 @@ def cmd_rename_task(args):
     has_branch = ref_exists(f"refs/heads/{old}")
     if has_branch and hlib.current_branch() != old:
         raise RedPen("git", f"not on the branch of {old} (on '{hlib.current_branch()}')",
-                     "feature_list.json must change on the branch that carries the task.",
+                     "The task files must change on the branch that carries the task.",
                      f"git checkout {old}, then run the command again.")
     pdf = f"docs/guides/{old}.pdf"
     if (hlib.REPO_ROOT / pdf).exists():
@@ -235,12 +353,11 @@ def cmd_rename_task(args):
                          "Fix the git state (see the message), then run the command again.")
     for feat in feats:
         feat["task"] = new
-        hlib.progress_rename_task(feat["id"], old, new)
     hlib.save_features(data)
+    hlib.notes_rename(old, new)
     print(f"✓ task {old} is now {new}: {', '.join(f['id'] for f in feats)}"
           + (f", branch {new}" if has_branch else ""))
-    print(f"Commit it: git add feature_list.json PROGRESS.md && "
-          f"git commit -m '[{new}] Rename task {old}'")
+    print(f"Commit it: git add -A tasks && git commit -m '[{new}] Rename task {old}'")
     mr = hlib.STATE_DIR / "mr" / f"{old}.json"
     if ref_exists(f"refs/remotes/origin/{old}") or mr.is_file():
         url = json.loads(mr.read_text()).get("url") if mr.is_file() else None
@@ -260,10 +377,10 @@ def cmd_block(args):
                      "If it regressed, reopen it with start --reopen first.")
     feat["state"] = "blocked"
     hlib.save_features(data)
-    hlib.progress_set_task(feat["id"], "", None)
-    hlib.progress_append("Known issues",
-                         f"- {feat['id']} blocked ({today()}): {args.reason.strip()}")
-    print(f"✓ {feat['id']} blocked. Reason recorded in PROGRESS.md (Known issues).")
+    hlib.notes_set_feature(feat, task_line(feat, suffix=" (blocked)"))
+    hlib.notes_append(feat["task"], "Known issues",
+                      f"- {feat['id']} blocked ({today()}): {args.reason.strip()}")
+    print(f"✓ {feat['id']} blocked. Reason recorded in tasks/{feat['task']}.md (Known issues).")
     return 0
 
 
@@ -312,20 +429,17 @@ def cmd_verify(args):
                         "commit": report.get("commit"), "verified_at": record["verified_at"],
                         "fingerprint": fp}
     hlib.save_features(data)
-    hlib.progress_set_task(feat["id"], task_line(feat, done=True, suffix=f" (verified {today()})"),
-                           "Completed tasks")
+    hlib.notes_set_feature(feat, task_line(feat, done=True, suffix=f" (verified {today()})"))
     print(f"\n✓ {feat['id']} passing. Evidence: {feat['evidence']['file']}")
-    print("Before moving on: update PROGRESS.md (Known issues, Next steps), append decisions "
-          f"to DECISIONS.md, commit with the message: {hlib.commit_message(feat)}")
-    if feat.get("task"):
-        left = [f["id"] for f in hlib.task_features(data, feat["task"])
-                if f["state"] != "passing"]
-        if left:
-            print(f"Task {feat['task']}: {', '.join(left)} still to do.")
-        else:
-            print(f"Task {feat['task']}: every feature passes. After the commit: "
-                  f"odoo-harness gitlab mr {feat['task']} (pushes the branch, opens the merge "
-                  "request).")
+    print(f"Before moving on: update tasks/{feat['task']}.md (Notes, Known issues, Decisions, "
+          f"Next steps), commit with the message: {hlib.commit_message(feat)}")
+    left = [f["id"] for f in hlib.task_features(data, feat["task"]) if f["state"] != "passing"]
+    if left:
+        print(f"Task {feat['task']}: {', '.join(left)} still to do.")
+    else:
+        print(f"Task {feat['task']}: every feature passes. After the commit: "
+              f"odoo-harness gitlab mr {feat['task']} (pushes the branch, opens the merge "
+              "request).")
     return 0
 
 
@@ -354,8 +468,17 @@ def cmd_check(_args):
                      "A feature is marked passing without matching verification evidence. "
                      "Only odoo-harness feature verify may set passing.",
                      "Reopen the feature (odoo-harness feature start <id> --reopen) and verify it "
-                     "again. Do not edit feature_list.json or harness/evidence/ by hand.")
+                     "again. Do not edit tasks/*.json or harness/evidence/ by hand.")
     print(f"✓ feature list OK ({len(data['features'])} features)")
+    return 0
+
+
+def cmd_list(_args):
+    """The features as JSON, for the hooks: one reader of the task files."""
+    data = hlib.load_features()
+    print(json.dumps({"branch": hlib.current_branch(),
+                      "here": [f["id"] for f in hlib.in_progress_here(data)],
+                      "features": data["features"]}, ensure_ascii=False))
     return 0
 
 
@@ -369,8 +492,11 @@ def parse_args(argv):
     add.add_argument("--verify", action="append", required=True,
                      help="'unit: <test-tags>', 'integration: <test-tags>' or 'e2e: <file>'")
     add.add_argument("--id")
-    add.add_argument("--task", help="code of the Odoo task this feature belongs to (T2003), or "
-                     "any short name until it exists (then rename-task)")
+    add.add_argument("--task", required=True,
+                     help="code of the Odoo task this feature belongs to (T2003), or any short "
+                     "name until it exists (then rename-task)")
+    add.add_argument("--no-branch", action="store_true",
+                     help="write the task file on the current branch (initialization only)")
     add.set_defaults(fn=cmd_add)
     start = sub.add_parser("start")
     start.add_argument("id")
@@ -390,6 +516,7 @@ def parse_args(argv):
     verify.add_argument("id")
     verify.set_defaults(fn=cmd_verify)
     sub.add_parser("check").set_defaults(fn=cmd_check)
+    sub.add_parser("list").set_defaults(fn=cmd_list)
     return p.parse_args(argv)
 
 

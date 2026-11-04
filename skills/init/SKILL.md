@@ -160,14 +160,23 @@ observable by a user and checkable by an e2e test, with:
 - `behavior`: one sentence, what a user can do or see;
 - `verification`: the unit/integration test and the e2e test that prove it.
 Present the list to the user, grouped by task. After approval, add each feature with
-`odoo-harness feature add --task <task> ...` (never by editing `feature_list.json`). Tick box 4
-in `BOOTSTRAP.md`.
+`odoo-harness feature add --task <task> --no-branch ...` (never by editing `tasks/*.json`):
+`--no-branch` writes each task's file on the install branch, so it reaches the base branch
+with the install. Feature ids are numbered per task (`F-T2003-1`); name each e2e test after
+its id (`e2e/test_T2003_1_<name>.py`). Tick box 4 in `BOOTSTRAP.md`.
+
+**Several developers on the project** (ask the user, or see the GitLab members): do not add
+the features of every open task here. Each developer adds a task's features when taking it,
+with `odoo-harness feature add --task <task> ...` on the task's branch, so a task is only ever
+in progress on one branch. Add here only the tasks the user is about to work on, and tick box
+4 with that noted.
 
 ## Finish
 - Append the initialization decisions to `DECISIONS.md` (one dated line each): the layout
   confirmed, the debt left as known issues, anything the user decided.
 - Check that the `# This project` section of `CLAUDE.md` has no `TODO` line left.
-- Update `PROGRESS.md`: "Next steps" lists the first task and its first feature.
+- Update `PROGRESS.md`: "Next steps" lists the first task and its first feature. Task work is
+  then recorded in each task's notes, `tasks/<task>.md`.
 - Commit on the current branch: `chore: install odoo-harness`. Tell the user that the harness
   install must reach the base branch (`staging`) through a merge request before task branches
   are shared, since task branches start from it.

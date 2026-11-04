@@ -257,7 +257,7 @@ def cross_component(env, files):
         module = hlib.module_of(env, name)
         if module:
             modules.add(module)
-        elif Path(name).suffix in DOC_SUFFIXES or name == "feature_list.json":
+        elif Path(name).suffix in DOC_SUFFIXES or parts[0] == "tasks":
             continue
         elif parts[0] in (".harness",) or name.startswith("harness/evidence/"):
             continue

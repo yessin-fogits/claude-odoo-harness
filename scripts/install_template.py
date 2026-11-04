@@ -19,12 +19,13 @@ The engine is not copied: it is installed once per machine with the plugin (engi
 through the `odoo-harness` command). The repository gets only its state and configuration.
 
 Deterministic and idempotent. Files have an owner:
-- state (PROGRESS.md, DECISIONS.md, feature_list.json, BOOTSTRAP.md, ARCHITECTURE.md):
-  never overwritten;
+- state (PROGRESS.md, DECISIONS.md, BOOTSTRAP.md, ARCHITECTURE.md, tasks/): never
+  overwritten (a feature_list.json of an engine before 3.0 is split into tasks/);
 - project (harness.env, e2e/conftest.py, .pylintrc...): created once, then the project's;
   --update keeps them and reports when the template changed. HARNESS_VERSION in harness.env
   is raised to the installed engine's version by --update;
-- merged (CLAUDE.md block, .claude/settings.json, .gitignore): merged every time. The
+- merged (CLAUDE.md block, .claude/settings.json, .gitignore, .gitattributes): merged every
+  time. The
   `# This project` section of CLAUDE.md is the project's: added when missing, never changed.
 
 The workspace is the folder Claude Code is started in when it is not the repository
@@ -70,13 +71,18 @@ TEMPLATE_DIR = PLUGIN_ROOT / "template"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import detect_project  # noqa: E402
 
-STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "feature_list.json", "BOOTSTRAP.md", "ARCHITECTURE.md"}
+STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "BOOTSTRAP.md", "ARCHITECTURE.md"}
 PROJECT_FILES = {".pylintrc", ".pre-commit-config.yaml", "e2e/conftest.py", "e2e/test_smoke.py",
                  "harness/harness.env", "harness/errors_project.py"}
 HARNESS_ENV = "harness/harness.env"
 CLAUDE_MD = "CLAUDE.md"
 SETTINGS = ".claude/settings.json"
 GITIGNORE_FRAGMENT = "gitignore"
+GITATTRIBUTES_FRAGMENT = "gitattributes"
+LEGACY_FEATURE_LIST = "feature_list.json"
+# A feature line of the PROGRESS.md of engines before 3.0: - [x] F-001 [T2003] behavior...
+LEGACY_PROGRESS_LINE_RE = re.compile(r"^- \[([ xX])\] (F-\d{3,}) (?:\[([A-Za-z0-9_-]+)\] )?(.*)$")
+NOTES_SECTIONS = ("Features", "Notes", "Known issues", "Decisions", "Next steps")
 BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?", re.S)
 PROJECT_SECTION_RE = re.compile(r"^# This project\s*$", re.M)
 
@@ -243,6 +249,9 @@ def install(target, ctx, force=False, update=False):
         content = render(src.read_text(), ctx)
         if rel == GITIGNORE_FRAGMENT:
             report.append(merge_gitignore(target / ".gitignore", content))
+            continue
+        if rel == GITATTRIBUTES_FRAGMENT:
+            report.append(merge_gitignore(target / ".gitattributes", content))
             continue
         dest = target / rel
         if dest.exists():
@@ -441,14 +450,73 @@ def merge_env(dest, content):
 
 
 def merge_gitignore(dest, fragment):
+    """The fragment's lines missing from dest (.gitignore, .gitattributes) are appended."""
     current = dest.read_text() if dest.exists() else ""
     missing = [line for line in fragment.splitlines()
                if line and line not in current.splitlines()]
     if not missing:
-        return ("kept", ".gitignore")
+        return ("kept", dest.name)
     sep = "" if not current or current.endswith("\n") else "\n"
     dest.write_text(current + sep + "\n".join(missing) + "\n")
-    return ("merged", ".gitignore")
+    return ("merged", dest.name)
+
+
+def migrate_layout(target):
+    """Engine 3.0: the single feature_list.json becomes one file per task, tasks/<task>.json
+    (ids kept), and the feature lines of PROGRESS.md move to each task's notes,
+    tasks/<task>.md; its "Current state" goes (it is machine-local now). One-shot: the
+    engine reads only the new layout. Returns (action, path) pairs."""
+    legacy = target / LEGACY_FEATURE_LIST
+    if not legacy.is_file():
+        return []
+    features = json.loads(legacy.read_text()).get("features", [])
+    untasked = [f.get("id", "?") for f in features if not f.get("task")]
+    if untasked:
+        raise SystemExit(
+            f"cannot migrate {LEGACY_FEATURE_LIST}: {', '.join(untasked)} belong to no task.\n"
+            "Since engine 3.0 every feature belongs to a task, its file in tasks/. Give them a "
+            f"task in {LEGACY_FEATURE_LIST} (\"task\": \"T2003\", or a short name), then run "
+            "the update again.")
+    tasks = {}
+    for feat in features:
+        tasks.setdefault(feat["task"], []).append({k: v for k, v in feat.items() if k != "task"})
+    report = []
+    (target / "tasks").mkdir(exist_ok=True)
+    lines = {task: [] for task in tasks}
+    progress = target / "PROGRESS.md"
+    kept = []
+    if progress.is_file():
+        section = ""
+        for line in progress.read_text().splitlines():
+            if line.startswith("## "):
+                section = line[3:].strip()
+            match = LEGACY_PROGRESS_LINE_RE.match(line)
+            owner = next((t for t, feats in tasks.items()
+                          if match and any(f["id"] == match.group(2) for f in feats)), None)
+            if owner:
+                lines[owner].append(f"- [{match.group(1)}] {match.group(2)} {match.group(4)}")
+            elif section != "Current state":
+                kept.append(line)
+    for task, feats in tasks.items():
+        rel = f"tasks/{task}.json"
+        (target / rel).write_text(json.dumps({"version": 2, "task": task, "features": feats},
+                                             indent=2, ensure_ascii=False) + "\n")
+        report.append(("migrated", rel))
+        notes = [f"# Task {task}"]
+        for name in NOTES_SECTIONS:
+            notes += ["", f"## {name}"] + (lines[task] if name == "Features" else [])
+        (target / f"tasks/{task}.md").write_text("\n".join(notes) + "\n")
+        report.append(("migrated", f"tasks/{task}.md"))
+    if progress.is_file():
+        # sections the harness filled and left empty now go; the rest is the project's
+        text = "\n".join(kept) + "\n"
+        for name in ("In progress", "Completed tasks"):
+            text = re.sub(rf"^## {name}\n(?:\s*\n)*(?=## |\Z)", "", text, flags=re.M)
+        progress.write_text(text)
+        report.append(("migrated", "PROGRESS.md"))
+    legacy.unlink()
+    report.append(("removed", LEGACY_FEATURE_LIST))
+    return report
 
 
 def user_settings_file():
@@ -469,6 +537,7 @@ def main(argv=None):
         sys.stdout.write(render(src.read_text(), ctx))
         return 0
     report = migrate_legacy(target) if args.update else []
+    report += migrate_layout(target)
     report += install(target, ctx, force=args.force, update=args.update)
     if args.update:
         report.append(raise_pin(target))
@@ -484,6 +553,10 @@ def main(argv=None):
         if any(action == "removed" and rel.startswith("harness/") for action, rel in report):
             print("removed: the copy of the old harness engine; the plugin's odoo-harness "
                   "command runs it now.")
+        if any(rel == LEGACY_FEATURE_LIST for _, rel in report):
+            print("migrated: feature_list.json is now one file per task in tasks/ (ids kept). "
+                  "Commit it before anyone starts a task branch: a branch from before the "
+                  "migration conflicts with it.")
         if any(action == "kept*" for action, _ in report):
             print("kept*: a project file was kept but the template changed. Compare with:\n"
                   f"  python3 {Path(__file__).resolve()} . --show <file>")

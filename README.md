@@ -69,7 +69,7 @@ It then goes through four steps:
 | 1. Test environment | The project's image with its own PostgreSQL, port and disposable test database, and every custom module installed. Your dev stack is not touched. In dev DB mode (`DEV_DB`), it uses your dev PostgreSQL instead and runs the e2e tests on your dev database (neutralized, updated, never reset). |
 | 2. Tests | One passing test at each level: unit, integration and e2e |
 | 3. `BOOTSTRAP.md` | How to start, verify and reset the project, for you to review |
-| 4. `feature_list.json` | The work split into small features, for you to review |
+| 4. `tasks/` | The work split into small features, one file per task, for you to review. With several developers, each one adds a task's features when taking it |
 
 `init` also offers to allow the `odoo-harness` command in your user settings, so Claude stops
 asking permission for it. To open merge requests, set `GITLAB_TOKEN` (api scope) in your
@@ -88,15 +88,17 @@ odoo-harness feature add \
   --task T2003 \
   --behavior "Salesperson applies a 10% discount on a quotation line" \
   --verify "unit: /sale_discount" \
-  --verify "e2e: e2e/test_F001_discount.py"
+  --verify "e2e: e2e/test_T2003_1_discount.py"
+#    this checks out the T2003 branch (yours, a teammate's from GitLab, or a new one)
+#    and writes tasks/T2003.json there; the feature is F-T2003-1
 
-# 2. Start it: this checks out the T2003 branch
-odoo-harness feature start F-001
+# 2. Start it
+odoo-harness feature start F-T2003-1
 
 # 3. Write the code and the tests, then verify
-odoo-harness feature verify F-001
+odoo-harness feature verify F-T2003-1
 
-# 4. Commit as "[T2003] F-001 <behavior>", then open the merge request
+# 4. Commit as "[T2003] F-T2003-1 <behavior>", then open the merge request
 #    (this works once every feature of the task passes)
 odoo-harness gitlab mr T2003
 ```
@@ -120,12 +122,13 @@ Run them from the repository or the client workspace.
 | Command | What it does |
 |---|---|
 | `feature status` | Shows the features and their state |
-| `feature add --behavior ... --verify ... [--task T2003] [--id F-001]` | Adds a feature. `--verify` is repeatable: `unit: <test-tags>`, `integration: <test-tags>` or `e2e: <file>` |
-| `feature start F-001 [--reopen] [--no-branch]` | Starts a feature and checks out its task branch. Refused if another feature is in progress |
-| `feature verify F-001` | Runs the verification. This is the only way to mark a feature `passing` |
-| `feature block F-001 --reason ...` | Marks a feature as blocked |
-| `feature rename-task OLD NEW` | Renames a task in its features, its local branch and `PROGRESS.md`. Existing commits keep the old name. If the old branch or merge request is on GitLab, close it yourself |
-| `feature check` | Checks `feature_list.json`: a valid file, one feature in progress at most, and evidence for each passing feature |
+| `feature add --task T2003 --behavior ... --verify ... [--id F-T2003-1] [--no-branch]` | Adds a feature to a task, on the task's branch. `--verify` is repeatable: `unit: <test-tags>`, `integration: <test-tags>` or `e2e: <file>` |
+| `feature start F-T2003-1 [--reopen] [--no-branch]` | Starts a feature and checks out its task branch: the local one, a teammate's from GitLab (brought up to date), or a new one from the base branch. Refused if another feature is in progress in this checkout or in its task |
+| `feature verify F-T2003-1` | Runs the verification. This is the only way to mark a feature `passing` |
+| `feature block F-T2003-1 --reason ...` | Marks a feature as blocked |
+| `feature rename-task OLD NEW` | Renames a task: its files in `tasks/` and its local branch. Feature ids and existing commits keep the old name. If the old branch or merge request is on GitLab, close it yourself |
+| `feature check` | Checks `tasks/*.json`: valid files, unique ids, one feature in progress per task at most, and evidence for each passing feature |
+| `feature list` | Every feature as JSON, with those in progress in this checkout |
 
 ### Checks
 
@@ -178,10 +181,12 @@ only on lines changed on the branch.
 |---|---|
 | `CLAUDE.md` | The rules Claude follows on this project |
 | `BOOTSTRAP.md` | How to start, verify and reset the project |
-| `PROGRESS.md` | Current state, finished and ongoing work, known issues, next steps |
+| `PROGRESS.md` | What concerns the whole project: known issues, next steps. The harness does not write it |
 | `DECISIONS.md` | Dated decisions of the project |
 | `ARCHITECTURE.md` | Modules, models, dependencies, risks and debt |
-| `feature_list.json` | The features and their state. Changed only by `odoo-harness feature` |
+| `tasks/<task>.json` | The features of one task and their state. Changed only by `odoo-harness feature` |
+| `tasks/<task>.md` | The notes of one task: its features, what is done and left, known issues, decisions, next steps |
+| `.gitattributes` | `DECISIONS.md merge=union`, so two branches that append decisions merge |
 | `e2e/` | Playwright tests |
 | `harness/harness.env` | Project settings: Odoo version and image, addon folders, test database and port, base branch, GitLab project, protected paths, minimum harness version |
 | `harness/checks/` | Checks specific to the project |
@@ -221,7 +226,8 @@ only on lines changed on the branch.
 
 ## Autonomous loop
 
-`odoo-harness loop run` lets headless Claude Code sessions work through `feature_list.json`.
+`odoo-harness loop run` lets headless Claude Code sessions work through the features of `tasks/`.
+It leaves alone the tasks whose branch is already on GitLab: a teammate is on them.
 
 ```mermaid
 flowchart TD
@@ -253,7 +259,7 @@ flowchart TD
 - The loop picks the feature in progress, otherwise the first one not started.
 - When a feature completes its task, the loop pushes the branch and opens the merge request.
   Use `--no-mr` to turn this off.
-- Failed work is kept in a named `git stash`. The name and the reason are in `PROGRESS.md`.
+- Failed work is kept in a named `git stash`. The name and the reason are in the task's notes.
 
 | Option | Effect | Default |
 |---|---|---|
@@ -272,6 +278,17 @@ Logs are in `.harness/loop/<run>/`.
 
 Each person installs the plugin once, as in [Install](#install), step 1. Claude Code also offers
 it when you open a repository that uses the harness. A fresh clone needs nothing else.
+
+Several developers share a project by working on separate tasks. Each task has its own branch
+and its own files, `tasks/<task>.json` and `tasks/<task>.md`, so two merge requests never
+conflict on the harness files. A task is in progress on one branch at a time: `feature status`
+shows a teammate's work as `in_progress, other branch`, and it does not block yours. To take
+over a teammate's task, run `feature start` on one of its features: the harness checks out the
+task branch from GitLab and brings it up to date.
+
+A project installed by an engine before 3.0 has a single `feature_list.json`.
+`/odoo-harness:update` splits it into task files. Merge that into the base branch before anyone
+opens a task branch.
 
 If the plugin is older than the project's `HARNESS_VERSION`, `odoo-harness` refuses to run and
 asks you to update it.
@@ -338,7 +355,7 @@ claude plugin marketplace remove odoo-harness
    `odoo-harness` from `extraKnownMarketplaces`, and any harness permissions you no longer want.
 4. Delete `harness/` and `.harness/`, plus `e2e/`, `.pylintrc` and `.pre-commit-config.yaml` if
    you don't keep them.
-5. Keep or archive `PROGRESS.md`, `DECISIONS.md`, `feature_list.json` and `BOOTSTRAP.md`, which
+5. Keep or archive `PROGRESS.md`, `DECISIONS.md`, `tasks/` and `BOOTSTRAP.md`, which
    hold the project's history.
 
 ## Work on the harness

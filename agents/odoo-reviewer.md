@@ -10,8 +10,9 @@ how to fix it.
 
 ## Gather the context
 
-1. Read `CLAUDE.md`, `BOOTSTRAP.md`, the `In progress` and `Known issues` sections of
-   `PROGRESS.md`, and the feature in progress with `odoo-harness feature status`.
+1. Read `CLAUDE.md`, `BOOTSTRAP.md`, the notes of the task (`tasks/<task>.md`, the task of
+   the current branch), the `Known issues` of `PROGRESS.md`, and the feature in progress with
+   `odoo-harness feature status`.
 2. Read `ODOO_VERSION` in `harness/harness.env`. Judge the code against that version
    only; the `odoo` skill of the plugin (`references/version-facts.md`,
    `references/version-notes.md`) lists its real API.
@@ -35,7 +36,7 @@ how to fix it.
 - **Tests**: the unit/integration tests assert behavior, not implementation details; the
   e2e test does what a user does and asserts what a user sees; tests create their own data.
 - **Assumptions**: where the behavior allows more than one reading (users, companies,
-  standard flows), the reading taken is stated in PROGRESS.md and is the simplest one.
+  standard flows), the reading taken is stated in the task's notes and is the simplest one.
 - **Simplicity**: no mixins, wrappers or behavior the feature does not need; no handling
   of cases that cannot happen; not much more code than the behavior needs.
 - **Reusable**: the module works for another client or company. Values that differ between
@@ -45,8 +46,9 @@ how to fix it.
 - **Scope**: no unrelated changes, no half-done work, no debug leftovers, nothing outside
   the custom modules; no reformatting, renaming or cleanup of code next to the change, and
   no deleted code the feature did not make unused.
-- **Handoff**: PROGRESS.md and DECISIONS.md describe the state; a new session could
-  continue without asking.
+- **Handoff**: the task's notes (`tasks/<task>.md`) describe the state; a new session, or a
+  teammate taking over the branch, could continue without asking. The change touches only
+  its own task's harness files.
 
 ## Report
 

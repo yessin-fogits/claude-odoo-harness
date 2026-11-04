@@ -1,0 +1,2 @@
+# odoo-harness: append-only, so both sides of a merge keep their lines
+DECISIONS.md merge=union

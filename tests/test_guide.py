@@ -39,7 +39,7 @@ def done(trepo):  # noqa: F811
     add_task_feature(trepo, "T2003", 1, "Salesperson creates a discount")
     add_task_feature(trepo, "T2003", 2, "Salesperson applies the discount")
     trepo.commit("features")
-    for fid in ("F-001", "F-002"):
+    for fid in ("F-T2003-1", "F-T2003-2"):
         assert trepo.feature("start", fid).returncode == 0
         finish(trepo, fid)
     return trepo
@@ -57,12 +57,12 @@ def test_task_with_a_feature_not_passing_is_refused(trepo):  # noqa: F811
     add_task_feature(trepo, "T2003", 1)
     add_task_feature(trepo, "T2003", 2)
     trepo.commit("features")
-    trepo.feature("start", "F-001")
-    finish(trepo, "F-001")
+    trepo.feature("start", "F-T2003-1")
+    finish(trepo, "F-T2003-1")
     before = len(trepo.calls())
     result = guide(trepo, "capture", "T2003")
     assert result.returncode == 1
-    assert "task T2003 is not completed: F-002 (not_started)" in result.stderr
+    assert "task T2003 is not completed: F-T2003-2 (not_started)" in result.stderr
     assert "WHY:" in result.stderr and "HOW TO FIX:" in result.stderr
     assert len(trepo.calls()) == before
 
@@ -70,13 +70,13 @@ def test_task_with_a_feature_not_passing_is_refused(trepo):  # noqa: F811
 def test_feature_verified_but_not_committed_is_refused(trepo):  # noqa: F811
     add_task_feature(trepo, "T2003", 1, "Salesperson creates a discount")
     trepo.commit("features")
-    trepo.feature("start", "F-001")
-    change_module(trepo, "F-001")
-    assert trepo.feature("verify", "F-001").returncode == 0
+    trepo.feature("start", "F-T2003-1")
+    change_module(trepo, "F-T2003-1")
+    assert trepo.feature("verify", "F-T2003-1").returncode == 0
     trepo.commit("wip")
     result = guide(trepo, "capture", "T2003")
     assert result.returncode == 1
-    assert "no commit '[T2003] F-001 Salesperson creates a discount'" in result.stderr
+    assert "no commit '[T2003] F-T2003-1 Salesperson creates a discount'" in result.stderr
 
 
 def test_uncommitted_module_changes_are_refused(done):
@@ -117,17 +117,17 @@ def test_capture_replays_each_feature_with_the_guide_plugin(done):
     calls = [c for c in done.calls() if "pytest" in c and any(
         a.startswith("--env=HARNESS_GUIDE_DIR=") for a in c)]
     assert len(calls) == 2
-    assert "e2e/test_F001_x.py" in calls[0] and "e2e/test_F002_x.py" in calls[1]
+    assert "e2e/test_T2003_1_x.py" in calls[0] and "e2e/test_T2003_2_x.py" in calls[1]
     assert "--env=PYTHONPATH=/opt/odoo-harness/e2e_plugins" in calls[0]
     assert calls[0][calls[0].index("-p") + 1] == "harness_guide"
     manifest = json.loads((done.path / ".harness/guide/T2003/steps.json").read_text())
-    assert [f["id"] for f in manifest["features"]] == ["F-001", "F-002"]
+    assert [f["id"] for f in manifest["features"]] == ["F-T2003-1", "F-T2003-2"]
     steps = manifest["features"][0]["tests"][0]["steps"]
     assert [s["caption"] for s in steps] == ["Ouvrir le menu", "Enregistrer"]
-    assert steps[0]["key"] == "F-001/test_F001_x__test_x/01"
+    assert steps[0]["key"] == "F-T2003-1/test_T2003_1_x__test_x/01"
     assert (done.path / steps[0]["image"]).is_file()
     content = json.loads(content_path(done).read_text())
-    assert content["features"]["F-001"]["steps"]["F-001/test_F001_x__test_x/02"] == "À RÉDIGER"
+    assert content["features"]["F-T2003-1"]["steps"]["F-T2003-1/test_T2003_1_x__test_x/02"] == "À RÉDIGER"
     assert "odoo-harness guide build T2003" in result.stdout
 
 
@@ -142,8 +142,8 @@ def test_capture_keeps_the_text_already_written(done):
 def test_a_regressed_feature_stops_the_capture(done):
     result = guide(done, "capture", "T2003", fake_e2e_out="1 failed in 2s\n", fake_e2e_rc=1)
     assert result.returncode == 1
-    assert "F-001 regressed since it was verified" in result.stderr
-    assert "odoo-harness feature start F-001 --reopen" in result.stderr
+    assert "F-T2003-1 regressed since it was verified" in result.stderr
+    assert "odoo-harness feature start F-T2003-1 --reopen" in result.stderr
 
 
 def test_dev_mode_capture_replays_on_the_dev_db(done, tmp_path):
@@ -190,12 +190,12 @@ def test_build_writes_the_pdf_and_records_it(done):
     assert pdf.read_bytes().startswith(b"%PDF")
     page = (done.path / ".harness/guide/T2003/guide.html").read_text()
     assert "<html lang='fr'>" in page and "<b>remise</b>" in page
-    assert "<code>sale.discount</code>" in page and "Étape &lt;F-001/" in page
-    assert "src='" in page and "/test_F001_x__test_x/01.png'" in page
+    assert "<code>sale.discount</code>" in page and "Étape &lt;F-T2003-1/" in page
+    assert "src='" in page and "/test_T2003_1_x__test_x/01.png'" in page
     assert "Détails techniques" in page and "<code>demo_mod</code>" in page
     index = json.loads((done.path / "docs/guides/guides.json").read_text())
     assert index["T2003"]["pdf"] == "docs/guides/T2003.pdf"
-    assert set(index["T2003"]["features"]) == {"F-001", "F-002"}
+    assert set(index["T2003"]["features"]) == {"F-T2003-1", "F-T2003-2"}
     assert "[T2003] Guide utilisateur" in result.stdout
 
 
@@ -216,10 +216,10 @@ def test_check_flags_a_guide_whose_feature_was_reopened(done):
     done.commit("[T2003] Guide utilisateur")
     result = guide(done, "check")
     assert result.returncode == 0 and "✓ T2003: docs/guides/T2003.pdf up to date" in result.stdout
-    assert done.feature("start", "F-002", "--reopen").returncode == 0
+    assert done.feature("start", "F-T2003-2", "--reopen").returncode == 0
     result = guide(done, "check")
     assert result.returncode == 1
-    assert "✗ T2003: stale (F-002 is in_progress)" in result.stdout and ":guide T2003" in result.stdout
+    assert "✗ T2003: stale (F-T2003-2 is in_progress)" in result.stdout and ":guide T2003" in result.stdout
 
 
 def test_check_without_guides(done):
@@ -276,7 +276,7 @@ class FakePage:
 def test_plugin_step_is_a_no_op_outside_guide_mode():
     plugin = load_plugin()
     page = FakePage()
-    recorder = plugin.Guide(page, None, "e2e/test_F001_x.py::test_x")
+    recorder = plugin.Guide(page, None, "e2e/test_T2003_1_x.py::test_x")
     recorder.step("Ouvrir le menu")
     recorder.finish(True)
     assert page.shots == [] and page.viewport is None
@@ -285,9 +285,9 @@ def test_plugin_step_is_a_no_op_outside_guide_mode():
 def test_plugin_records_steps_and_highlights(tmp_path):
     plugin = load_plugin()
     page, button = FakePage(), FakeLocator()
-    out = tmp_path / plugin.test_dir_name("e2e/test_F001_x.py::test_x[chromium]")
-    assert out.name == "test_F001_x__test_x_chromium"
-    recorder = plugin.Guide(page, out, "e2e/test_F001_x.py::test_x")
+    out = tmp_path / plugin.test_dir_name("e2e/test_T2003_1_x.py::test_x[chromium]")
+    assert out.name == "test_T2003_1_x__test_x_chromium"
+    recorder = plugin.Guide(page, out, "e2e/test_T2003_1_x.py::test_x")
     recorder.step("Ouvrir le menu")
     recorder.step("Cliquer sur Nouveau", highlight=button)
     recorder.finish(True)
@@ -301,7 +301,7 @@ def test_plugin_records_steps_and_highlights(tmp_path):
 def test_plugin_takes_the_final_screen_of_a_test_without_steps(tmp_path):
     plugin = load_plugin()
     page = FakePage()
-    recorder = plugin.Guide(page, tmp_path / "t", "e2e/test_F001_x.py::test_x")
+    recorder = plugin.Guide(page, tmp_path / "t", "e2e/test_T2003_1_x.py::test_x")
     recorder.finish(True)
     steps = json.loads((tmp_path / "t" / "steps.json").read_text())["steps"]
     assert [s["caption"] for s in steps] == [plugin.FINAL_CAPTION]
@@ -309,7 +309,7 @@ def test_plugin_takes_the_final_screen_of_a_test_without_steps(tmp_path):
 
 def test_plugin_writes_nothing_for_a_failed_test(tmp_path):
     plugin = load_plugin()
-    recorder = plugin.Guide(FakePage(), tmp_path / "t", "e2e/test_F001_x.py::test_x")
+    recorder = plugin.Guide(FakePage(), tmp_path / "t", "e2e/test_T2003_1_x.py::test_x")
     recorder.step("Ouvrir le menu")
     recorder.finish(False)
     assert not (tmp_path / "t" / "steps.json").exists()

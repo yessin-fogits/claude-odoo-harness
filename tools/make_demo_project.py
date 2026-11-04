@@ -9,7 +9,7 @@ DEST gets the layout of a fogits Odoo project (Dockerfile, odoo-stag.conf, deplo
 compose file, extra-addons/<client>/ and extra-addons/oca/), the demo_mod module
 (tests/fixtures/demo_mod adapted to the version, plus an action and a menu), a git
 repository with a staging branch, the harness installed by detection, and feature
-F-001 with its Playwright test. CI runs the real harness on it (odoo-harness init,
+F-T0001-1 (task T0001) with its Playwright test. CI runs the real harness on it (odoo-harness init,
 feature.py verify).
 """
 
@@ -27,7 +27,7 @@ import install_template  # noqa: E402
 
 ODOO_VERSION = os.environ.get("HARNESS_TEST_ODOO_VERSION", "20.0")
 FIXTURE = ROOT / "tests" / "fixtures" / "demo_mod"
-E2E_FILE = "e2e/test_F001_demo_thing.py"
+E2E_FILE = "e2e/test_T0001_1_demo_thing.py"
 CLIENT = "demo"
 
 LAYOUT = {
@@ -113,7 +113,7 @@ MENUS_XML = """<?xml version="1.0" encoding="utf-8"?>
 </odoo>
 """
 
-E2E_TEST = '''"""F-001: a user creates a demo thing and finds it in the list."""
+E2E_TEST = '''"""F-T0001-1: a user creates a demo thing and finds it in the list."""
 
 import os
 
@@ -185,7 +185,7 @@ def build(dest, feature=True, version=ODOO_VERSION):
     install_template.main([str(dest), "--enterprise-dir", ""])
     if feature:
         (dest / E2E_FILE).write_text(E2E_TEST)
-        run(dest, str(ROOT / "bin" / "odoo-harness"), "feature", "add", "--task", "T0001",
+        run(dest, str(ROOT / "bin" / "odoo-harness"), "feature", "add", "--task", "T0001", "--no-branch",
             "--behavior", "A user creates a demo thing and finds it in the list",
             "--verify", "unit: /demo_mod:TestThing", "--verify", f"e2e: {E2E_FILE}")
     run(dest, "git", "add", "-A")

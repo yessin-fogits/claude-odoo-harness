@@ -141,8 +141,8 @@ def merge_request(task, title=None):
         raise RedPen("features", f"task {task} is not finished: {', '.join(left)} not passing",
                      "A merge request is opened only when every feature of the task is verified.",
                      f"Finish {left[0]}: odoo-harness feature verify {left[0]}")
-    committed = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "feature_list.json"],
-                               cwd=hlib.REPO_ROOT).returncode == 0
+    committed = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", f"tasks/{task}.json",
+                                "harness/evidence"], cwd=hlib.REPO_ROOT).returncode == 0
     if not committed:
         raise RedPen("git", "the passing states are not committed",
                      "The merge request must contain the evidence it lists.",

@@ -51,8 +51,33 @@ def project_dir(payload):
 
 
 def has_harness(root):
-    """The marker of a repository with the harness: its settings and its feature list."""
-    return (root / "harness" / "harness.env").is_file() and (root / "feature_list.json").exists()
+    """The marker of a repository with the harness: its settings and its task files (or the
+    single feature list of an engine before 3.0: the engine then asks for the update)."""
+    return (root / "harness" / "harness.env").is_file() and (
+        (root / "tasks").is_dir() or (root / "feature_list.json").exists())
+
+
+def features(root):
+    """(view, error) from `feature.py list`: {"branch", "here": [ids], "features": [...]}, or
+    None and the red pen when the task files cannot be read."""
+    rc, out = run(root, engine("feature.py", "list"), timeout=30)
+    if rc != 0:
+        return None, out
+    try:
+        return json.loads(out), ""
+    except ValueError:
+        return None, out
+
+
+def current_task(root, view=None):
+    """The task of the current branch, when tasks/<branch>.json exists."""
+    branch = (view or {}).get("branch") or git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    return branch if branch and (root / "tasks" / f"{branch}.json").is_file() else None
+
+
+def notes_path(root, task):
+    """Where the session's progress is written: the task's notes, else PROGRESS.md."""
+    return root / "tasks" / f"{task}.md" if task else root / "PROGRESS.md"
 
 
 def is_legacy(root):
@@ -148,13 +173,6 @@ def sections(text):
 
 def section_text(text, name):
     return "\n".join(sections(text).get(name, [])).strip()
-
-
-def body_without(text, name):
-    """PROGRESS.md content without one section (to detect real edits by the agent)."""
-    parts = sections(text)
-    parts.pop(name, None)
-    return "\n".join(f"{k}\n{chr(10).join(v)}" for k, v in parts.items()).strip()
 
 
 def replace_section(text, name, body_lines):
