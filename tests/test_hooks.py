@@ -181,6 +181,27 @@ def test_guard_denies_enterprise_and_deployment_files(hrepo):
     assert pre(hrepo, "Edit", file_path=str(hrepo.path / "extra-addons/client/demo_mod/x.py")) is None
 
 
+def test_guard_protects_an_enterprise_checkout_set_on_this_machine(hrepo):
+    """A developer whose Enterprise checkout is elsewhere sets it in the local file: the guard
+    reads the same settings as the engine."""
+    (hrepo.path / "harness/dev.local.env").write_text("ENTERPRISE_DIR=../odoo-ee\n")
+    assert denied(pre(hrepo, "Write", file_path=str(hrepo.path.parent / "odoo-ee/web_studio/x.py")))
+
+
+def test_session_start_reports_machine_settings_in_the_shared_file(hrepo):
+    env = hrepo.path / "harness/harness.env"
+    shared = env.read_text()
+    env.write_text(shared + "DEV_DB=client_dev\n")
+    (hrepo.path / "harness/dev.local.env").write_text("TEST_DB=mine\n")
+    context = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "holds this machine's DEV_DB" in context and "/odoo-harness:update moves them" in context
+    assert "sets TEST_DB, ignored" in context
+    env.write_text(shared)
+    (hrepo.path / "harness/dev.local.env").write_text("DEV_DB_PASSWORD=pg-secret\n")
+    context = start_session(hrepo)["hookSpecificOutput"]["additionalContext"]
+    assert "the dev DB mode is off on this machine" in context and "pg-secret" not in context
+
+
 @pytest.mark.parametrize("command,ok", [
     ("git push -u origin T2003", True),
     ("git push origin T2003:T2003", True),
@@ -251,8 +272,8 @@ def test_guard_ignores_dropdb_inside_an_argument(hrepo):
     ("dropdb -U odoo harness_test", True),
 ])
 def test_guard_dev_db_is_updated_never_dropped(hrepo, command, ok):
-    env_file = hrepo.path / "harness/harness.env"
-    env_file.write_text(env_file.read_text().replace("\nDEV_DB=\n", "\nDEV_DB=client_dev\n"))
+    # the dev DB is this developer's: the guard reads it from the local file
+    (hrepo.path / "harness/dev.local.env").write_text("DEV_DB=client_dev\n")
     assert (pre(hrepo, "Bash", command=command) is None) is ok, command
 
 
@@ -263,9 +284,7 @@ def test_guard_dev_db_is_updated_never_dropped(hrepo, command, ok):
     ("dropdb stca-sta-22092026-dup", False),
 ])
 def test_guard_reads_any_database_name_whole(hrepo, command, ok):
-    env_file = hrepo.path / "harness/harness.env"
-    env_file.write_text(env_file.read_text().replace(
-        "\nDEV_DB=\n", "\nDEV_DB=stca-sta-22092026-dup\n"))
+    (hrepo.path / "harness/dev.local.env").write_text("DEV_DB=stca-sta-22092026-dup\n")
     assert (pre(hrepo, "Bash", command=command) is None) is ok, command
 
 

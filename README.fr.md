@@ -193,7 +193,8 @@ contrôles du projet et pylint ne bloquent que sur les lignes modifiées sur la 
 | `tasks/<tâche>.md` | Les notes d'une tâche : ses fonctionnalités, ce qui est fait et ce qui reste, problèmes connus, décisions, prochaines étapes |
 | `.gitattributes` | `DECISIONS.md merge=union`, pour que deux branches qui ajoutent des décisions fusionnent |
 | `e2e/` | Tests Playwright |
-| `harness/harness.env` | Réglages du projet : version et image d'Odoo, dossiers d'addons, base de test et port, branche de base, projet GitLab, chemins protégés, version minimale du harness |
+| `harness/harness.env` | Réglages du projet, partagés par l'équipe : version et image d'Odoo, dossiers d'addons, dépôt Enterprise, base de test, branche de base, projet GitLab, chemins protégés, version minimale du harness |
+| `harness/dev.local.env` | Réglages propres à chaque développeur, ignorés par git : port de l'Odoo du harness, mode base de dev (`DEV_*`), identifiant e2e et mots de passe, dépôt Enterprise ailleurs. Créé par `odoo-harness init` s'il manque |
 | `harness/checks/` | Contrôles propres au projet |
 | `harness/errors_project.py` | Messages « pourquoi / comment corriger » propres au projet |
 | `harness/evidence/` | Un fichier de preuve par fonctionnalité `passing` |

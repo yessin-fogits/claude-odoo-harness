@@ -24,6 +24,9 @@ Deterministic and idempotent. Files have an owner:
 - project (harness.env, e2e/conftest.py, .pylintrc...): created once, then the project's;
   --update keeps them and reports when the template changed. HARNESS_VERSION in harness.env
   is raised to the installed engine's version by --update;
+- local (harness/dev.local.env, git-ignored): this developer's machine, created once and
+  never overwritten. Machine values a harness.env from before engine 3.1 holds (port, dev
+  database mode) move there;
 - merged (CLAUDE.md block, .claude/settings.json, .gitignore, .gitattributes): merged every
   time. The
   `# This project` section of CLAUDE.md is the project's: added when missing, never changed.
@@ -69,12 +72,21 @@ WORKSPACE_BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harnes
 
 TEMPLATE_DIR = PLUGIN_ROOT / "template"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(1, str(PLUGIN_ROOT / "engine"))
 import detect_project  # noqa: E402
+import hlib  # noqa: E402
 
 STATE_FILES = {"PROGRESS.md", "DECISIONS.md", "BOOTSTRAP.md", "ARCHITECTURE.md"}
 PROJECT_FILES = {".pylintrc", ".pre-commit-config.yaml", "e2e/conftest.py", "e2e/test_smoke.py",
                  "harness/harness.env", "harness/errors_project.py"}
 HARNESS_ENV = "harness/harness.env"
+LOCAL_ENV = f"harness/{hlib.LOCAL_ENV_NAME}"
+# The comment of the 3.0 harness.env about the local file, replaced by LOCAL_POINTER.
+LEGACY_LOCAL_COMMENT = (
+    "# Secrets go in harness/dev.local.env (not versioned): DEV_DB_PASSWORD, and DEV_ODOO_LOGIN /",
+    "# DEV_ODOO_PASSWORD, the Odoo user the e2e tests log in with on DEV_DB.")
+LOCAL_POINTER = (f"# Each developer's port, dev database mode (DEV_*) and passwords: {LOCAL_ENV} "
+                 "(not versioned).")
 CLAUDE_MD = "CLAUDE.md"
 SETTINGS = ".claude/settings.json"
 GITIGNORE_FRAGMENT = "gitignore"
@@ -152,6 +164,10 @@ def build_context(args):
     if args.update and not existing:
         raise SystemExit(f"{target / HARNESS_ENV} not found: --update needs an installed "
                          "harness (run the init skill first)")
+    # this machine's port renders the local file only; a local ENTERPRISE_DIR override is
+    # never rendered into the shared files (harness.env, BOOTSTRAP.md, ARCHITECTURE.md)
+    local = read_env(target / LOCAL_ENV)
+    existing.update({k: v for k, v in local.items() if k in hlib.MACHINE_KEYS and v})
     found = detect_project.detect(target)
     version = existing.get("ODOO_VERSION")
     if version and args.odoo_version and args.odoo_version != version:
@@ -211,7 +227,7 @@ def build_context(args):
         "THIRD_PARTY_ADDONS": third,
         "ENTERPRISE_DIR": enterprise,
         "TEST_DB": test_db,
-        "ODOO_PORT": pick(args.port, "ODOO_PORT", "18069"),
+        "ODOO_PORT": pick(args.port, "ODOO_PORT", hlib.DEFAULT_ODOO_PORT) or hlib.DEFAULT_ODOO_PORT,
         "BASE_BRANCH": pick(args.base_branch, "BASE_BRANCH", found["base_branch"]),
         "GITLAB_URL": pick(None, "GITLAB_URL", found["gitlab_url"]),
         "GITLAB_PROJECT": pick(None, "GITLAB_PROJECT", found["gitlab_project"]),
@@ -266,7 +282,7 @@ def install(target, ctx, force=False, update=False):
             if rel == SETTINGS:
                 report.append(merge_settings(dest, content))
                 continue
-            if rel in STATE_FILES:
+            if rel in STATE_FILES or rel == LOCAL_ENV:
                 report.append(("kept", rel))
                 continue
             if update and rel == HARNESS_ENV:
@@ -454,6 +470,48 @@ def merge_env(dest, content):
     return ("merged", HARNESS_ENV)
 
 
+def move_machine_settings(target):
+    """Engine 3.1: this machine's values leave the versioned harness.env, with their comments,
+    for the git-ignored harness/dev.local.env. A value already set there wins."""
+    env_file, local_file = target / HARNESS_ENV, target / LOCAL_ENV
+    keep, comments, moved = [], [], {}
+    for line in env_file.read_text().splitlines():
+        match = ENV_KEY_RE.match(line.strip())
+        if line.startswith("#"):
+            comments.append(line)
+            continue
+        if match and match.group(1) in hlib.MACHINE_KEYS:
+            if match.group(2).strip():
+                moved[match.group(1)] = match.group(2).strip()
+            comments = []
+            continue
+        keep += comments + [line]
+        comments = []
+    keep += comments
+    if LEGACY_LOCAL_COMMENT[0] in keep:
+        keep[keep.index(LEGACY_LOCAL_COMMENT[0])] = LOCAL_POINTER
+    keep = [line for line in keep if line not in LEGACY_LOCAL_COMMENT]
+    text = "\n".join(keep) + "\n"
+    if text == env_file.read_text():
+        return []
+    env_file.write_text(text)
+    report = [("moved", f"{HARNESS_ENV}: {', '.join(moved) or 'machine settings'} -> {LOCAL_ENV}")]
+    lines = local_file.read_text().splitlines() if local_file.is_file() else []
+    current = read_env(local_file)
+    for key, value in moved.items():
+        if current.get(key):
+            continue
+        index = next((i for i, line in enumerate(lines)
+                      if not line.startswith("#") and line.split("=", 1)[0].strip() == key), None)
+        if index is None:
+            lines.append(f"{key}={value}")
+        else:
+            lines[index] = f"{key}={value}"
+    local_file.parent.mkdir(parents=True, exist_ok=True)
+    local_file.write_text("\n".join(lines) + "\n")
+    return report
+
+
 def merge_gitignore(dest, fragment):
     """The fragment's lines missing from dest (.gitignore, .gitattributes) are appended."""
     current = dest.read_text() if dest.exists() else ""
@@ -544,6 +602,7 @@ def main(argv=None):
     report = migrate_legacy(target) if args.update else []
     report += migrate_layout(target)
     report += install(target, ctx, force=args.force, update=args.update)
+    report += move_machine_settings(target)
     if args.update:
         report.append(raise_pin(target))
     if args.workspace:
@@ -562,6 +621,11 @@ def main(argv=None):
             print("migrated: feature_list.json is now one file per task in tasks/ (ids kept). "
                   "Commit it before anyone starts a task branch: a branch from before the "
                   "migration conflicts with it.")
+        if any(action == "moved" for action, _ in report):
+            print(f"moved: this machine's settings are in {LOCAL_ENV} now (not versioned). "
+                  "After this update reaches the base branch, each teammate sets their own "
+                  f"there (port, dev database mode): {LOCAL_ENV} is created by odoo-harness "
+                  "init when missing.")
         if any(action == "kept*" for action, _ in report):
             print("kept*: a project file was kept but the template changed. Compare with:\n"
                   f"  python3 {Path(__file__).resolve()} . --show <file>")

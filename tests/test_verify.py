@@ -368,18 +368,64 @@ DEV_SECRETS = "DEV_DB_PASSWORD=pg-secret\nDEV_ODOO_LOGIN=bot\nDEV_ODOO_PASSWORD=
 
 
 def dev_mode(hrepo, secrets=DEV_SECRETS, **values):
-    """Turn hrepo into a dev DB mode project: DEV_* in harness.env, secrets in dev.local.env."""
+    """Turn hrepo into a dev DB mode project: DEV_* and secrets in this machine's
+    dev.local.env; a project setting (TEST_DB) in harness.env."""
     data = hrepo.path / "devdata"
     data.mkdir(exist_ok=True)
     settings = {"DEV_DB": "client_dev", "DEV_DB_HOST": "pg_dev", "DEV_NETWORK": "client_default",
                 "DEV_DATA_DIR": str(data), **values}
+    machine = {k: v for k, v in settings.items() if k.startswith("DEV_") or k == "ODOO_PORT"}
+    local = "".join(f"{key}={value}\n" for key, value in machine.items())
+    (hrepo.path / "harness/dev.local.env").write_text(local + (secrets or ""))
     env_file = hrepo.path / "harness/harness.env"
     text = env_file.read_text()
     for key, value in settings.items():
-        text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, flags=re.M)
+        if key not in machine:
+            text = re.sub(rf"^{key}=.*$", f"{key}={value}", text, flags=re.M)
     env_file.write_text(text)
-    if secrets:
-        (hrepo.path / "harness/dev.local.env").write_text(secrets)
+
+
+def hlib_cmd(hrepo, *args, **fake):
+    return hrepo.run(sys.executable, str(ROOT / "engine" / "hlib.py"), *args, **fake)
+
+
+def test_machine_settings_come_from_the_local_file(hrepo):
+    """harness.env is shared: the port and the dev DB come from this developer's
+    dev.local.env, the environment winning over both, and a project setting cannot be
+    changed locally. The shell scripts read the same settings as Python, without secrets."""
+    (hrepo.path / "harness/dev.local.env").write_text(
+        "ODOO_PORT=18100\nDEV_DB=client_dev\nTEST_DB=mine\nDEV_DB_PASSWORD=pg-secret\n")
+    out = hlib_cmd(hrepo, "shellenv").stdout
+    assert "export ODOO_PORT=18100\n" in out and "export DEV_DB=client_dev\n" in out
+    assert "export TEST_DB=harness_test\n" in out
+    assert "pg-secret" not in out
+    assert "export ODOO_PORT=18200\n" in hlib_cmd(hrepo, "shellenv", odoo_port="18200").stdout
+    (hrepo.path / "harness/dev.local.env").write_text("")
+    assert "export ODOO_PORT=18069\n" in hlib_cmd(hrepo, "shellenv").stdout
+
+
+def test_compose_interpolates_the_local_settings(hrepo):
+    dev_mode(hrepo, ODOO_PORT="18100")
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import hlib; env = hlib.compose_env(); "
+            "print(env['ODOO_PORT'], env['DEV_DATA_DIR'], env['DEV_NETWORK'], "
+            "'DEV_DB_PASSWORD' in env)")
+    out = hrepo.run(sys.executable, "-c", code, str(ROOT / "engine")).stdout.split()
+    assert out == ["18100", str(hrepo.path / "devdata"), "client_default", "False"]
+
+
+def test_init_creates_the_local_file_only_where_git_ignores_it(hrepo):
+    local = hrepo.path / "harness/dev.local.env"
+    local.unlink()
+    result = hlib_cmd(hrepo, "localenv")
+    assert result.returncode == 0 and "created harness/dev.local.env" in result.stdout
+    assert "ODOO_PORT=18069\n" in local.read_text() and "DEV_DB=\n" in local.read_text()
+    assert hlib_cmd(hrepo, "localenv").stdout == ""  # never overwritten
+    local.unlink()
+    gitignore = hrepo.path / ".gitignore"
+    gitignore.write_text(gitignore.read_text().replace("harness/dev.local.env\n", ""))
+    result = hlib_cmd(hrepo, "localenv")
+    assert result.returncode == 1 and "is not ignored by git" in result.stderr
+    assert not local.exists()
 
 
 def test_without_dev_db_the_harness_keeps_its_own_postgres(hrepo):
@@ -418,7 +464,9 @@ def test_dev_mode_runs_e2e_on_the_dev_db(hrepo, tmp_path):
                                               "HARNESS_E2E_LOGIN": "bot",
                                               "HARNESS_E2E_PASSWORD": "pw"}
     report = json.loads((hrepo.path / ".harness/last-verify.json").read_text())
-    assert report["layers"]["system"]["e2e_db"] == "client_dev"
+    # the report becomes committed evidence: it never names a developer's own database
+    assert report["layers"]["system"]["e2e_db"] == "DEV_DB"
+    assert "client_dev" not in json.dumps(report)
     assert "on 'client_dev'" in result.stdout
 
 

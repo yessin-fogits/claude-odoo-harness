@@ -188,7 +188,8 @@ only on lines changed on the branch.
 | `tasks/<task>.md` | The notes of one task: its features, what is done and left, known issues, decisions, next steps |
 | `.gitattributes` | `DECISIONS.md merge=union`, so two branches that append decisions merge |
 | `e2e/` | Playwright tests |
-| `harness/harness.env` | Project settings: Odoo version and image, addon folders, test database and port, base branch, GitLab project, protected paths, minimum harness version |
+| `harness/harness.env` | Project settings, shared by the team: Odoo version and image, addon folders, Enterprise checkout, test database, base branch, GitLab project, protected paths, minimum harness version |
+| `harness/dev.local.env` | Each developer's own settings, git-ignored: the harness Odoo's port, the dev database mode (`DEV_*`), the e2e login and passwords, an Enterprise checkout elsewhere. Created by `odoo-harness init` when missing |
 | `harness/checks/` | Checks specific to the project |
 | `harness/errors_project.py` | Project-specific "why / how to fix" messages |
 | `harness/evidence/` | One proof file per passing feature |

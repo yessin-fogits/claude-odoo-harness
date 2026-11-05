@@ -91,7 +91,7 @@ def test_the_engine_is_not_copied(repo):
     for rel in install_template.LEGACY_ENGINE_FILES:
         assert not (repo / rel).exists(), rel
     assert sorted(p.name for p in (repo / "harness").iterdir()) == [
-        "checks", "errors_project.py", "evidence", "harness.env"]
+        "checks", "dev.local.env", "errors_project.py", "evidence", "harness.env"]
     env = (repo / "harness/harness.env").read_text()
     assert f"HARNESS_VERSION={install_template.ENGINE_VERSION}\n" in env
     # the project's own deployment files are never replaced by the harness
@@ -114,7 +114,9 @@ def test_layout_is_detected(repo):
     assert "ENTERPRISE_DIR=../enterprise\n" in env
     assert "ODOO_DOCKERFILE=Dockerfile\n" in env and "ODOO_IMAGE=acme-harness-odoo:local" in env
     assert "BASE_BRANCH=staging" in env
-    assert "TEST_DB=my_test" in env and "ODOO_PORT=8070" in env
+    # the port is this developer's: in the git-ignored local file, never in harness.env
+    assert "TEST_DB=my_test" in env and "ODOO_PORT" not in env
+    assert "ODOO_PORT=8070\n" in (repo / "harness/dev.local.env").read_text()
     assert "COMPOSE_PROJECT_NAME=acme-harness" in env  # the repo is checked out in acme/git
     protected = env.split("PROTECTED_PATHS=")[1].splitlines()[0].split(",")
     assert {"Dockerfile", "odoo-stag.conf", "docker_compose_stag.yml", ".gitlab-ci.yml"} <= set(
@@ -227,7 +229,8 @@ def test_update_splits_the_feature_list_into_task_files(repo):
     status = subprocess.run([CLI, "feature", "check"], cwd=repo, capture_output=True, text=True)
     assert status.returncode == 0, status.stderr
     assert "3 features" in status.stdout
-    assert "HARNESS_VERSION=3.0.0" in (repo / "harness/harness.env").read_text()
+    assert f"HARNESS_VERSION={install_template.ENGINE_VERSION}" in (
+        repo / "harness/harness.env").read_text()
     run_install(repo, "--update")  # one-shot: nothing left to migrate
     assert (repo / "tasks/T2003.json").read_text() == json.dumps(t2003, indent=2) + "\n"
 
@@ -398,8 +401,59 @@ def test_update_keeps_the_project_files(repo, capsys):
     assert (repo / "PROGRESS.md").read_text() == "my progress"
     assert conftest.read_text().endswith("# project customization\n")
     env = (repo / "harness/harness.env").read_text()
-    assert "TEST_DB=client_test" in env and "ODOO_PORT=8070" in env
+    assert "TEST_DB=client_test" in env and "ODOO_PORT" not in env
     assert "CUSTOM_ADDONS=extra-addons/acme\n" in env
+    assert "ODOO_PORT=8070\n" in (repo / "harness/dev.local.env").read_text()
+
+
+# The machine settings of a harness.env written by engine 3.0.
+LEGACY_MACHINE_ENV = """# Host port of the harness Odoo (not the dev stack's 8069).
+ODOO_PORT=8070
+# Dev database mode, optional. Empty DEV_DB: the harness has its own PostgreSQL and every test
+# runs on TEST_DB.
+DEV_DB=client_dev
+DEV_DB_HOST=db
+DEV_DB_PORT=5432
+DEV_DB_USER=odoo
+# Docker network of the dev stack (docker network ls), joined by the harness Odoo.
+DEV_NETWORK=
+# Secrets go in harness/dev.local.env (not versioned): DEV_DB_PASSWORD, and DEV_ODOO_LOGIN /
+# DEV_ODOO_PASSWORD, the Odoo user the e2e tests log in with on DEV_DB.
+"""
+
+
+def test_update_moves_machine_settings_to_the_local_file(repo, capsys):
+    """Engine 3.1: the port and the dev database mode leave the versioned harness.env for the
+    git-ignored local file; a value the developer already set there wins."""
+    run_install(repo)
+    env, local = repo / "harness/harness.env", repo / "harness/dev.local.env"
+    env.write_text(env.read_text().replace("# Git: task branches",
+                                           LEGACY_MACHINE_ENV + "# Git: task branches"))
+    local.write_text("DEV_DB_HOST=pg_mine\nDEV_DB_PASSWORD=pg-secret\n")
+    capsys.readouterr()
+    run_install(repo, "--update")
+    assert "each teammate sets their own" in capsys.readouterr().out
+    text = env.read_text()
+    for gone in ("ODOO_PORT", "\nDEV_", "Host port", "Dev database mode", "Docker network",
+                 "Secrets go in"):
+        assert gone not in text, gone
+    assert "TEST_DB=harness_test\n# Each developer's port, dev database mode (DEV_*) and " \
+        "passwords: harness/dev.local.env (not versioned).\n# Git: task branches" in text
+    mine = install_template.read_env(local)
+    assert (mine["ODOO_PORT"], mine["DEV_DB"], mine["DEV_DB_PORT"]) == ("8070", "client_dev", "5432")
+    assert mine["DEV_DB_HOST"] == "pg_mine" and mine["DEV_DB_PASSWORD"] == "pg-secret"
+    before = (env.read_text(), local.read_text())
+    run_install(repo, "--update")
+    assert (env.read_text(), local.read_text()) == before
+
+
+def test_a_local_enterprise_checkout_stays_out_of_the_shared_files(repo):
+    run_install(repo)
+    (repo / "harness/dev.local.env").write_text("ENTERPRISE_DIR=../odoo-ee\n")
+    run_install(repo, "--force")
+    for rel in ("harness/harness.env", "BOOTSTRAP.md", "ARCHITECTURE.md"):
+        assert "odoo-ee" not in (repo / rel).read_text(), rel
+    assert "ENTERPRISE_DIR=../enterprise\n" in (repo / "harness/harness.env").read_text()
 
 
 def test_update_appends_new_settings_to_harness_env(repo):

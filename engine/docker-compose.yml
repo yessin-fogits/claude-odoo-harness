@@ -4,8 +4,8 @@
 #   docker compose --project-directory <repo> -f <engine>/docker-compose.yml
 #     -f <engine>/docker-compose.own-db.yml   (or the dev-db files, see hlib.compose_files)
 #     --env-file <repo>/harness/harness.env
-# with HARNESS_HOME=<engine> and the HARNESS_DB_* / HARNESS_E2E_* variables of
-# hlib.compose_env. Relative paths are relative to the repository root.
+# with the settings (harness.env and this machine's harness/dev.local.env), HARNESS_HOME=<engine>
+# and the HARNESS_DB_* / HARNESS_E2E_* variables of hlib.compose_env in the environment. Relative paths are relative to the repository root.
 services:
   odoo:
     # Built from the project's Dockerfile by odoo-harness init when ODOO_DOCKERFILE is set.
@@ -21,11 +21,11 @@ services:
       PGPASSWORD: ${HARNESS_DB_PASSWORD-odoo}
       ODOO_RC: /etc/odoo/odoo.conf
     ports:
-      - "127.0.0.1:${ODOO_PORT:-8069}:8069"
+      - "127.0.0.1:${ODOO_PORT:-18069}:8069"
     volumes:
       - ./:/mnt/repo:ro
       - ${ENTERPRISE_DIR:-./harness}:/mnt/enterprise:ro
-      # rendered from harness/harness.env before each compose call (hlib.write_runtime)
+      # rendered from the settings before each compose call (hlib.write_runtime)
       - ./.harness/odoo.conf:/etc/odoo/odoo.conf:ro
       - odoo-data:/var/lib/odoo
     healthcheck:

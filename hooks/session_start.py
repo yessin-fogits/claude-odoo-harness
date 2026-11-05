@@ -144,6 +144,8 @@ def version_context(root):
                               "to run on this project.",
                               "Ask the user to update the plugin: claude plugin update "
                               "odoo-harness@odoo-harness, then /reload-plugins."))
+    for note in c.settings_notes(root):
+        lines.append(f"Settings: {note}.")
     lines.append("The harness is the `odoo-harness` command (odoo-harness feature | verify | "
                  "init | gitlab | guide | static | map | compose), run from the repository or "
                  "its workspace.")

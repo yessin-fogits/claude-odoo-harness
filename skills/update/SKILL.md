@@ -50,7 +50,13 @@ Show the user the report. What each action means:
   branch**: a branch from before the migration still has `feature_list.json` and conflicts
   with it;
 - `kept*`: a project file (e2e/conftest.py, .pylintrc...) kept as is, although the template
-  changed.
+  changed;
+- `moved`: this machine's values (`ODOO_PORT`, the dev database mode `DEV_*`) left the versioned
+  `harness/harness.env` for the git-ignored `harness/dev.local.env` of the user running the
+  update (a value already set there is kept). Tell the user: once the update reaches the base
+  branch, each teammate sets their own port and dev database mode in their own
+  `harness/dev.local.env` (`odoo-harness init` creates it from the template when missing);
+  until they do, their harness uses port 18069 and runs the e2e tests on the test DB.
 
 `HARNESS_VERSION` is the oldest engine the project accepts: once this update is committed, a
 teammate whose plugin is older is asked to update it before `odoo-harness` runs. Tell the user.

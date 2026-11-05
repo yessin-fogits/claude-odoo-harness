@@ -7,6 +7,6 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       # replaces the odoo-data volume (same target)
-      - ${DEV_DATA_DIR:?set DEV_DATA_DIR in harness/harness.env}:/var/lib/odoo
+      - ${DEV_DATA_DIR:?set DEV_DATA_DIR in harness/dev.local.env}:/var/lib/odoo
       # the config without demo data of the commands on the dev DB (hlib.write_runtime)
       - ./.harness/odoo-nodemo.conf:/etc/odoo/odoo-nodemo.conf:ro
