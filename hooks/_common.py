@@ -109,16 +109,23 @@ def emit(obj):
     sys.exit(0)
 
 
+def engine_lib():
+    """The engine's hlib module, for what the hooks and the engine must read the same way."""
+    if str(ENGINE_DIR) not in sys.path:
+        sys.path.insert(0, str(ENGINE_DIR))
+    import hlib
+    return hlib
+
+
 def load_env(root):
-    values = {}
-    env_file = root / "harness" / "harness.env"
-    if env_file.is_file():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                values[key.strip()] = value.strip()
-    return values
+    """The project's settings as the engine reads them: harness.env and this machine's
+    harness/dev.local.env (the guard protects a local ENTERPRISE_DIR and DEV_DB too)."""
+    return engine_lib().read_settings(root)[0]
+
+
+def settings_notes(root):
+    """Misplaced settings (hlib.read_settings), for the session context."""
+    return engine_lib().read_settings(root)[1]
 
 
 def custom_roots(env):

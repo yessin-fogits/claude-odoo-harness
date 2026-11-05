@@ -129,10 +129,11 @@ database with demo data, then runs the baseline verification. It must end with
 Dev DB mode (optional): ask the user, in one question, whether the e2e tests should run on
 their dev database (a copy of the client's data from production or staging) instead of the
 test DB. If yes, fill `DEV_DB`, `DEV_DB_HOST`, `DEV_DB_PORT`, `DEV_DB_USER`, `DEV_NETWORK` and
-`DEV_DATA_DIR` in `harness/harness.env` (read them from the dev compose file and
+`DEV_DATA_DIR` in `harness/dev.local.env` (read them from the dev compose file and
 `docker network ls`; the comments there explain each one), and ask the user to write
-`DEV_DB_PASSWORD`, `DEV_ODOO_LOGIN` and `DEV_ODOO_PASSWORD` in `harness/dev.local.env` (git
-ignores it; never write a password yourself). The dev DB must be neutralized: if `init`
+`DEV_DB_PASSWORD`, `DEV_ODOO_LOGIN` and `DEV_ODOO_PASSWORD` there (never write a password
+yourself). That file is this developer's, git-ignored: their port (`ODOO_PORT`), dev stack and
+dev database are never written in `harness/harness.env`, which every teammate shares. The dev DB must be neutralized: if `init`
 reports it is not, the user runs `odoo-bin neutralize` in the dev stack. Never neutralize,
 restore or drop the dev DB yourself.
 
@@ -146,8 +147,12 @@ tests are debt, not a blocker. Then `odoo-harness init` must reach `✓ baseline
 
 ## Step 3: bootstrap contract
 Open `BOOTSTRAP.md` and check every value against what you observed (image, addon folders,
-enterprise, base branch, GitLab project, protected paths, commands, port, test DB). Fix what is
+enterprise, base branch, GitLab project, protected paths, commands, test DB). Fix what is
 wrong, tick the first two boxes of "Ready means", and ask the user to review the contract.
+`BOOTSTRAP.md` is committed and shared by the team: write only the project's values, the ones
+of `harness/harness.env`. Never write this developer's own values in it (their port, a local
+Enterprise checkout, their dev stack or dev database): they belong in `harness/dev.local.env`,
+and the port line stays `<ODOO_PORT>`.
 Tick box 3 only after the user approves it.
 
 ## Step 4: task breakdown

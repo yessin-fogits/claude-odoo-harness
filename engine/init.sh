@@ -3,7 +3,7 @@
 # Builds the test image (the project's Dockerfile), brings the harness stack up,
 # prepares the disposable test DB with demo data, installs every custom module of
 # the project and runs the baseline verification. Safe to run again at any time.
-# In dev DB mode (DEV_DB in harness.env) there is no harness PostgreSQL: the test DB lives on
+# In dev DB mode (DEV_DB in harness/dev.local.env) there is no harness PostgreSQL: the test DB lives on
 # the dev stack's server, and the dev DB is checked (reachable, neutralized), never created,
 # dropped or reset; the baseline verification updates it with -u for its e2e layer.
 #
@@ -44,7 +44,7 @@ require_enterprise() {
     [ -z "${ENTERPRISE_DIR:-}" ] && return 0
     if [ ! -d "$REPO_ROOT/$ENTERPRISE_DIR" ] || [ -z "$(ls -A "$REPO_ROOT/$ENTERPRISE_DIR" 2>/dev/null)" ]; then
         redpen env "Odoo Enterprise not found in $ENTERPRISE_DIR" \
-            "The project uses Enterprise modules (ENTERPRISE_DIR in harness/harness.env); without them the custom modules cannot install." \
+            "The project uses Enterprise modules (ENTERPRISE_DIR in harness/harness.env, or harness/dev.local.env on this machine); without them the custom modules cannot install." \
             "Clone odoo/enterprise branch $ODOO_VERSION into $ENTERPRISE_DIR (next to the repository, as the dev stack does), or empty ENTERPRISE_DIR if the project does not use Enterprise."
         exit 1
     fi
@@ -169,6 +169,8 @@ if [ "$mode" = check ]; then
     exit $?
 fi
 
+# Each developer's own settings (port, dev DB mode), from the plugin's template on a fresh checkout.
+python3 "$ENGINE_DIR/hlib.py" localenv || true
 require_enterprise
 build_image
 

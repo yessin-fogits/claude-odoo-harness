@@ -1,7 +1,9 @@
 """Shared helpers for the harness Python scripts. Standard library only.
 
     hlib.py modules     print the custom modules of the project, comma-separated
-    hlib.py runtime     write .harness/odoo.conf from harness/harness.env
+    hlib.py localenv    create harness/dev.local.env from the template when missing
+    hlib.py shellenv    print the settings as shell exports (lib.sh)
+    hlib.py runtime     write .harness/odoo.conf from the settings
     hlib.py compose ... run docker compose on the harness stack (`odoo-harness compose`)
     hlib.py psql SQL    run one SQL statement on the harness's PostgreSQL server, print the rows
     hlib.py devcheck    check the dev database (DEV_DB) before the e2e layer uses it
@@ -26,11 +28,23 @@ ENGINE_VERSION = (ENGINE_DIR / "VERSION").read_text().strip()
 REPO_ROOT = Path(os.environ.get("HARNESS_REPO") or os.getcwd()).resolve()
 # The project's own harness files: harness.env, project checks, errors_project.py, evidence.
 HARNESS_DIR = REPO_ROOT / "harness"
+# harness.env is versioned: the settings every developer of the project shares.
 HARNESS_ENV = HARNESS_DIR / "harness.env"
-# Secrets of the dev database mode, never versioned (.gitignore): the dev PostgreSQL password
-# and the Odoo login the e2e tests use on DEV_DB. Real environment variables win.
-DEV_SECRETS = HARNESS_DIR / "dev.local.env"
+# This developer's machine, never versioned (.gitignore): read_settings() takes LOCAL_KEYS
+# from it. Real environment variables win over both files.
+LOCAL_ENV_NAME = "dev.local.env"
+LOCAL_ENV = HARNESS_DIR / LOCAL_ENV_NAME
 SECRET_KEYS = ("DEV_DB_PASSWORD", "DEV_ODOO_LOGIN", "DEV_ODOO_PASSWORD")
+# Values that differ between developers (their port, their dev stack and database, their
+# logins): set only in the local file. harness.env of engines before 3.1 still holds some.
+MACHINE_KEYS = ("ODOO_PORT", "DEV_DB", "DEV_DB_HOST", "DEV_DB_PORT", "DEV_DB_USER",
+                "DEV_NETWORK", "DEV_DATA_DIR", *SECRET_KEYS)
+# What the local file may set: the machine keys, and ENTERPRISE_DIR, a shared default (the
+# team's workspace layout) that a developer whose checkout is elsewhere overrides. Any other
+# key is the project's: from the local file it is ignored, so every developer verifies with
+# the same rules.
+LOCAL_KEYS = (*MACHINE_KEYS, "ENTERPRISE_DIR")
+DEFAULT_ODOO_PORT = "18069"
 # The features of each task live in tasks/<task>.json and its notes in tasks/<task>.md: a task
 # is worked on its own branch by one developer, so two branches never write the same file.
 TASKS_DIR = REPO_ROOT / "tasks"
@@ -84,21 +98,77 @@ def print_redpen(layer, what, why, fix):
 
 # --- environment ----------------------------------------------------------
 
-def load_env():
-    """harness.env values, then harness/dev.local.env; real environment variables win."""
+def read_env_file(path):
     values = {}
-    for path in (HARNESS_ENV, DEV_SECRETS):
-        if not path.is_file():
-            continue
+    if path.is_file():
         for line in path.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 values[key.strip()] = value.strip()
+    return values
+
+
+def read_settings(repo_root):
+    """(settings, notes) of a repository: harness.env, then the LOCAL_KEYS of the local file.
+    notes says what is misplaced: a project key in the local file (ignored), a machine value
+    still in harness.env (used until /odoo-harness:update moves it), dev logins without a dev
+    DB (a teammate's file from before 3.1). The hooks use it too."""
+    harness_dir = Path(repo_root) / "harness"
+    values = read_env_file(harness_dir / "harness.env")
+    local = read_env_file(harness_dir / LOCAL_ENV_NAME)
+    notes = []
+    ignored = sorted(set(local) - set(LOCAL_KEYS))
+    if ignored:
+        notes.append(f"harness/{LOCAL_ENV_NAME} sets {', '.join(ignored)}, ignored: these are "
+                     "the project's settings, shared in harness/harness.env")
+    shared = [k for k in MACHINE_KEYS if values.get(k)]
+    if shared:
+        notes.append(f"harness/harness.env (versioned) holds this machine's {', '.join(shared)}: "
+                     f"they belong in harness/{LOCAL_ENV_NAME}; /odoo-harness:update moves them")
+    values.update({k: v for k, v in local.items() if k in LOCAL_KEYS})
+    if not values.get("DEV_DB", "").strip() and any(values.get(k) for k in SECRET_KEYS):
+        notes.append(f"harness/{LOCAL_ENV_NAME} has dev database logins but no DEV_DB: the dev "
+                     "DB mode is off on this machine and the e2e tests run on the test DB; set "
+                     f"DEV_DB and the other DEV_* in harness/{LOCAL_ENV_NAME} to turn it on")
+    if not values.get("ODOO_PORT"):
+        values["ODOO_PORT"] = DEFAULT_ODOO_PORT
+    return values, notes
+
+
+def ensure_local_env():
+    """Create this developer's harness/dev.local.env from the plugin's template when missing,
+    and only where git ignores it. True when it was created."""
+    template = ENGINE_DIR.parent / "template" / "harness" / LOCAL_ENV_NAME
+    if LOCAL_ENV.is_file() or not template.is_file():
+        return False
+    ignored = subprocess.run(["git", "check-ignore", "-q", str(LOCAL_ENV)], cwd=REPO_ROOT,
+                             capture_output=True).returncode == 0
+    if not ignored:
+        raise RedPen("env", f"harness/{LOCAL_ENV_NAME} is not ignored by git",
+                     "It holds this developer's settings and passwords: it must never be "
+                     "committed.",
+                     f"Add harness/{LOCAL_ENV_NAME} to .gitignore (/odoo-harness:update does it), "
+                     "then run the command again.")
+    port = read_settings(REPO_ROOT)[0]["ODOO_PORT"]
+    write_atomic(LOCAL_ENV, template.read_text().replace("{{ODOO_PORT}}", port))
+    return True
+
+
+def load_env():
+    """The settings of read_settings(); real environment variables win."""
+    values = read_settings(REPO_ROOT)[0]
     for key in {*values, *SECRET_KEYS}:
         if key in os.environ:
             values[key] = os.environ[key]
     return values
+
+
+def shell_exports(env):
+    """`export KEY=value` lines of the settings for the shell scripts (lib.sh), secrets
+    excepted: one loader for Python and bash."""
+    return "".join(f"export {key}={shlex.quote(value)}\n" for key, value in sorted(env.items())
+                   if key not in SECRET_KEYS and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key))
 
 
 # --- dev database mode ------------------------------------------------------
@@ -153,7 +223,7 @@ def dev_config_problems(env):
             pass  # a docker volume's Mountpoint: the daemon mounts it, this user cannot read it
     for key in ("DEV_ODOO_LOGIN", "DEV_ODOO_PASSWORD"):
         if not env.get(key):
-            problems.append(f"{key} is not set (harness/dev.local.env)")
+            problems.append(f"{key} is not set (harness/{LOCAL_ENV_NAME})")
     return problems
 
 
@@ -180,23 +250,22 @@ def dev_db_check(env):
     if problems:
         return RedPen("dev db", "the dev database settings are incomplete: " + "; ".join(problems),
                       "The e2e layer runs on the dev database only with complete, safe settings.",
-                      "Fill DEV_* in harness/harness.env and the logins in harness/dev.local.env "
-                      "(see the comments in harness.env), or empty DEV_DB to test on the test DB.")
+                      f"Fill DEV_* and the logins in harness/{LOCAL_ENV_NAME} (see the comments "
+                      "there), or empty DEV_DB to test on the test DB.")
     dev_db = env["DEV_DB"].strip()
     host, port, _user, _password = db_server(env)
     rc, out = psql(env, f"SELECT 1 FROM pg_database WHERE datname = {sql_literal(dev_db)}")
     if rc != 0:
         return RedPen("dev db", f"the dev PostgreSQL {host}:{port} is not reachable",
                       f"The harness uses the dev stack's database server. psql said: {out[-300:]}",
-                      "Start the dev stack, then check DEV_DB_HOST, DEV_DB_PORT, DEV_NETWORK and "
-                      "DEV_DB_USER in harness/harness.env and DEV_DB_PASSWORD in "
-                      "harness/dev.local.env.")
+                      "Start the dev stack, then check DEV_DB_HOST, DEV_DB_PORT, DEV_NETWORK, "
+                      f"DEV_DB_USER and DEV_DB_PASSWORD in harness/{LOCAL_ENV_NAME}.")
     if out != "1":
         return RedPen("dev db", f"the dev database '{dev_db}' does not exist on {host}:{port}",
                       "The harness never creates the dev database: it is the developer's copy of "
                       "the client's data.",
                       "Restore the client copy in the dev stack, or fix DEV_DB in "
-                      "harness/harness.env.")
+                      f"harness/{LOCAL_ENV_NAME}.")
     rc, out = psql(env, "SELECT value FROM ir_config_parameter "
                         "WHERE key = 'database.is_neutralized'", db=dev_db)
     if rc != 0 or out.lower() not in ("true", "1"):
@@ -222,7 +291,7 @@ def compose_files(env):
 
 
 def render_odoo_conf(env, demo=True):
-    """The test runtime's odoo.conf, from the engine template and harness.env values.
+    """The test runtime's odoo.conf, from the engine template and the settings.
     demo=False: the config of the commands on the dev DB, where a module that -u installs
     (a new dependency) must not load demo data into the client's copy."""
     mounts = [f"/mnt/repo/{p}" for p in env_list(env, "CUSTOM_ADDONS")
@@ -245,7 +314,7 @@ def render_odoo_conf(env, demo=True):
 
 
 def write_runtime(env=None):
-    """Files the compose stack reads that are derived from harness.env (not versioned)."""
+    """Files the compose stack reads that are derived from the settings (not versioned)."""
     env = env or load_env()
     files = {ODOO_CONF: render_odoo_conf(env)}
     if dev_mode(env):
@@ -256,11 +325,13 @@ def write_runtime(env=None):
 
 
 def compose_env(env=None):
-    """Environment of every compose call: the engine folder holds the build contexts, the
-    database server comes from db_server(), the e2e tests log in to the test DB."""
+    """Environment of every compose call: the settings (compose interpolates the local ones
+    too, the environment winning over --env-file), the engine folder with the build contexts,
+    the database server of db_server(), the e2e tests logging in to the test DB."""
     env = env or load_env()
     host, port, user, password = db_server(env)
-    return {**os.environ, "HARNESS_HOME": str(ENGINE_DIR), "HARNESS_DB_HOST": host,
+    settings = {k: v for k, v in env.items() if k not in SECRET_KEYS}
+    return {**os.environ, **settings, "HARNESS_HOME": str(ENGINE_DIR), "HARNESS_DB_HOST": host,
             "HARNESS_DB_PORT": port, "HARNESS_DB_USER": user, "HARNESS_DB_PASSWORD": password,
             "HARNESS_E2E_DB": env.get("TEST_DB", "harness_test"),
             "HARNESS_E2E_LOGIN": "admin", "HARNESS_E2E_PASSWORD": "admin"}
@@ -696,6 +767,15 @@ def _append_to_section(lines, section, line):
 if __name__ == "__main__":
     if sys.argv[1:] == ["modules"]:
         print(",".join(custom_modules(load_env())))
+    elif sys.argv[1:] == ["localenv"]:
+        try:
+            if ensure_local_env():
+                print(f"created harness/{LOCAL_ENV_NAME}: this machine's settings (not versioned)")
+        except RedPen as pen:
+            print(pen, file=sys.stderr)
+            sys.exit(1)
+    elif sys.argv[1:] == ["shellenv"]:
+        print(shell_exports(load_env()), end="")
     elif sys.argv[1:] == ["runtime"]:
         write_runtime()
     elif sys.argv[1:2] == ["compose"]:
@@ -710,4 +790,5 @@ if __name__ == "__main__":
             print(pen, file=sys.stderr)
             sys.exit(1)
     else:
-        sys.exit("usage: hlib.py modules | runtime | compose ARGS... | psql SQL | devcheck")
+        sys.exit("usage: hlib.py modules | localenv | shellenv | runtime | compose ARGS... | psql SQL | "
+                 "devcheck")

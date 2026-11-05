@@ -11,10 +11,14 @@ HARNESS_ENV="$HARNESS_DIR/harness.env"
 # The compose file's build contexts and engine mount (see hlib.compose_cmd).
 export HARNESS_HOME="$ENGINE_DIR"
 
-set -a
-# shellcheck source=/dev/null
-. "$HARNESS_ENV"
-set +a
+# The settings: harness.env (shared) and this machine's harness/dev.local.env, through the
+# same loader as the Python scripts (hlib.read_settings), secrets excepted.
+if ! _harness_settings="$(python3 "$ENGINE_DIR/hlib.py" shellenv)"; then
+    printf '✗ [env] the harness settings could not be read (%s)\n' "$HARNESS_ENV" >&2
+    exit 1
+fi
+eval "$_harness_settings"
+unset _harness_settings
 
 # "Red pen" failure: what failed, why, and how to fix it. Agents act on HOW TO FIX.
 redpen() {

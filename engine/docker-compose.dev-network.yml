@@ -10,4 +10,4 @@ services:
 networks:
   dev:
     external: true
-    name: ${DEV_NETWORK:?set DEV_NETWORK in harness/harness.env}
+    name: ${DEV_NETWORK:?set DEV_NETWORK in harness/dev.local.env}

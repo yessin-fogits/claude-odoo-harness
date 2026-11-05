@@ -11,7 +11,8 @@ caller needs to write correct inheritance for the project's Odoo version.
 
 1. **The project**: custom modules are in the `CUSTOM_ADDONS` folders of
    `harness/harness.env`, third-party addons (OCA) in `THIRD_PARTY_ADDONS`, Odoo Enterprise
-   in `ENTERPRISE_DIR` (outside the repository, usually `../enterprise`): search them with
+   in `ENTERPRISE_DIR` (outside the repository, usually `../enterprise`; a developer may
+   override it in `harness/dev.local.env`): search them with
    Grep and Read directly. `odoo-harness map` lists the custom modules with
    the models they define and extend and their dependencies; `ARCHITECTURE.md` describes them.
 2. **The Odoo source of the project's version**: it is inside the `odoo` container.

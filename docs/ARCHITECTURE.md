@@ -25,7 +25,7 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
 | Where | What | Updated by |
 |---|---|---|
 | The plugin (`claude plugin install odoo-harness@odoo-harness`, user scope) | hooks, skills, agents, the engine (`engine/`: feature, verify, init, loop, gitlab, guide, static checks, generic checks, red-pen catalog, Docker files) and the `odoo-harness` command (`bin/`) | the plugin update, for every project at once |
-| The repository | state (`PROGRESS.md`, `DECISIONS.md`, `tasks/`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`), project config (`harness/harness.env`, `harness/errors_project.py`, project checks in `harness/checks/`, `e2e/`, `.pylintrc`), the `CLAUDE.md` block and `.claude/settings.json` | the project |
+| The repository | state (`PROGRESS.md`, `DECISIONS.md`, `tasks/`, `BOOTSTRAP.md`, `ARCHITECTURE.md`, `harness/evidence/`), project config (`harness/harness.env`, shared; the git-ignored `harness/dev.local.env` holds each developer's port, dev DB mode and passwords; `harness/errors_project.py`, project checks in `harness/checks/`, `e2e/`, `.pylintrc`), the `CLAUDE.md` block and `.claude/settings.json` | the project |
 | `~/.odoo-harness/` | `current`, a symlink to the installed plugin, refreshed at each session start; the `odoo-harness` shim in `~/.local/bin` points through it | the session start hook |
 
 - **One command.** `odoo-harness <init|verify|feature|loop|gitlab|guide|map|static>` replaces
@@ -37,7 +37,7 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
 - **Docker.** The compose file is the engine's. Its build contexts and the engine mount
   (`/opt/odoo-harness`, read-only, in the lint and e2e containers) come from `HARNESS_HOME`,
   which every compose call exports through one function. `odoo.conf` is rendered from
-  `harness/harness.env` into `.harness/odoo.conf` before each compose call.
+  `harness/harness.env` and `harness/dev.local.env` into `.harness/odoo.conf` before each compose call.
 - **Engine version.** `engine/VERSION`, not `plugin.json` (a `version` there would change how
   Claude Code detects updates). `harness/harness.env` pins a minimum, `HARNESS_VERSION`:
   the engine refuses to run on a project pinned to a newer engine, so a teammate with an old
@@ -95,14 +95,15 @@ tasks/
   <task>.md          # the task's notes: Features | Notes | Known issues | Decisions | Next steps
 .gitattributes       # DECISIONS.md merge=union
 harness/
-  harness.env        # the project's harness settings, HARNESS_VERSION (engine pin)
+  harness.env        # the project's harness settings, shared: HARNESS_VERSION (engine pin)
+  dev.local.env      # not versioned: this developer's port, dev DB mode (DEV_*), passwords
   checks/            # project checks born from code reviews (one file per mistake type)
   errors_project.py  # the project's red pens
   evidence/          # per-feature evidence (JSON committed; traces gitignored)
 e2e/                 # Playwright (pytest-playwright) tests, one file per feature: test_T2003_1_*.py for F-T2003-1
 .pylintrc (pylint-odoo), .pre-commit-config.yaml
 .claude/settings.json  # deny rules, the odoo-harness command allowed, the plugin enabled
-.harness/            # not versioned: odoo.conf rendered from harness.env, logs, session state, current-state.md
+.harness/            # not versioned: odoo.conf rendered from the settings, logs, session state, current-state.md
 ```
 No engine file is copied: `odoo-harness` (the plugin) runs on this repository.
 

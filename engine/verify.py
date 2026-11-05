@@ -329,7 +329,9 @@ def layer_system(env, e2e_files, full, fresh, modules, run_dir):
     missing = [f for f in targets if not (hlib.REPO_ROOT / f).exists()]
     dev = hlib.dev_mode(env)
     e2e_db = env["DEV_DB"].strip() if dev else env.get("TEST_DB", "harness_test")
-    result = {"status": "fail", "e2e_targets": targets, "full_suite": full, "e2e_db": e2e_db}
+    # the report becomes committed evidence: the setting's name, not this developer's database
+    result = {"status": "fail", "e2e_targets": targets, "full_suite": full,
+              "e2e_db": "DEV_DB" if dev else e2e_db}
     if missing:
         hlib.print_redpen("L3 system", f"e2e test file missing: {', '.join(missing)}",
                           "Every feature needs its own Playwright test; only e2e is real "
