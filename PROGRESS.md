@@ -24,6 +24,7 @@
 - [x] User guide of a completed task: /guide skill, harness/guide.py (gate, e2e replay, French PDF, stale check), harness_guide pytest plugin, odoo-e2e CI step
 
 - [x] Odoo 16.0: guide checked against the 16.0 source, odoo-version-api rules at the 16/17 boundary (both ways) and the @odoo-module header rule (16.0-17.0), CI matrices, engine 3.2.0; the 17.0 guide got the @odoo-module header and lost auth='bearer' (18.0)
+- [x] Fogits dev stack as the test runtime: the installer takes the dev stack's image (docker-compose/first_build, never built by init, which prints the build command when it is missing) and mounts its Odoo source (ODOO_SOURCE_DIR=../addons) read-only; an update moves projects off the image the harness built; the VOLUME warning is removed; checked on evms, engine 3.3.0
 
 ## In progress
 

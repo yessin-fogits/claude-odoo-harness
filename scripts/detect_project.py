@@ -11,6 +11,8 @@ The repository is a whole Odoo project, not a list of modules. Detection reads:
 - which folders are custom (the project's own code) and which are third-party (OCA and
   other vendors); enterprise is outside the repo;
 - the Odoo version and image from the Dockerfile (ARG BASE_IMAGE=odoo:19.0, FROM ...);
+- the fogits dev stack (docker-compose/first_build/Dockerfile): the image of its Odoo service,
+  which the harness uses as it is, and its Odoo source in ../addons;
 - the base branch (staging when it exists) and the GitLab project from the origin remote;
 - deployment files that the agent must not change (compose files, configs, CI).
 Without a config, folders that contain modules are found by scanning the repository.
@@ -28,6 +30,10 @@ from pathlib import Path
 CONF_CANDIDATES = ("odoo-stag.conf", "odoo-main.conf", "docker-compose/config/odoo.conf",
                    "odoo.conf", "config/odoo.conf", "etc/odoo.conf")
 DOCKERFILES = ("Dockerfile", "Dockerfile-stag", "docker/Dockerfile")
+# The fogits dev stack: the launcher builds first_build/ into the image of the compose file's
+# Odoo service, which runs the Odoo source of ~/Project/<client>/addons (../addons).
+DEV_DOCKERFILE = "docker-compose/first_build/Dockerfile"
+DEV_COMPOSES = ("docker-compose/docker-compose.yaml", "docker-compose/docker-compose.yml")
 THIRD_PARTY_NAMES = {"oca", "third_party", "third-party", "thirdparty", "vendor", "external",
                      "addons-external", "community"}
 DEPLOYMENT_GLOBS = ("Dockerfile*", "docker_compose_*.yml", "docker-compose*.yml",
@@ -130,6 +136,22 @@ def detect_image(target):
     return "", "", None
 
 
+def detect_dev_image(target):
+    """Image of the dev stack's Odoo service (the one mounting /mnt/extra-addons), or ''."""
+    if not (target / DEV_DOCKERFILE).is_file():
+        return ""
+    for name in DEV_COMPOSES:
+        text = (target / name).read_text(errors="replace") if (target / name).is_file() else ""
+        indent = re.search(r"^services:\s*\n(?:\s*\n)*( +)\S", text, re.M)
+        if not indent:
+            continue
+        for block in re.split(rf"^{indent.group(1)}(?=[\w.-]+:\s*$)", text, flags=re.M):
+            image = re.search(r"^\s+image:\s*['\"]?([^'\"\s]+)", block, re.M)
+            if image and "/mnt/extra-addons" in block:
+                return image.group(1)
+    return ""
+
+
 def gitlab_remote(target):
     url = git(target, "remote", "get-url", "origin")
     match = (re.match(r"^git@([^:]+):(.+?)(?:\.git)?$", url)
@@ -198,6 +220,9 @@ def detect(target):
             warnings.append("the project uses Odoo Enterprise but ../enterprise does not exist: "
                             "clone it next to the repository (same branch as the Odoo version)")
     dockerfile, base_image, version = detect_image(target)
+    dev_image = detect_dev_image(target)
+    odoo_source = ("../addons" if dev_image and (target.parent / "addons/release.py").is_file()
+                   else "")
     if version is None and conf is not None:
         version = detect_version(conf.read_text(errors="replace"))
     gitlab_url, gitlab_project = gitlab_remote(target)
@@ -214,6 +239,8 @@ def detect(target):
         "odoo_version": version,
         "dockerfile": dockerfile,
         "base_image": base_image,
+        "dev_image": dev_image,
+        "odoo_source_dir": odoo_source,
         "base_branch": base_branch(target),
         "gitlab_url": gitlab_url,
         "gitlab_project": gitlab_project,
@@ -229,6 +256,8 @@ def summary(found):
              f"  config read:        {found['config'] or '(none)'}",
              f"  Odoo version:       {found['odoo_version'] or '(unknown)'}"
              f"{' from ' + found['dockerfile'] if found['dockerfile'] else ''}",
+             f"  test image:         {found['dev_image'] or found['dockerfile'] or 'odoo:<version>'}"
+             f"{' (the dev stack image, never built)' if found['dev_image'] else ''}",
              f"  custom addons:      {', '.join(found['custom_addons']) or '(none)'}"
              f"  ({len(found['custom_modules'])} modules)",
              f"  third-party addons: {', '.join(found['third_party_addons']) or '(none)'}"

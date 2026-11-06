@@ -142,6 +142,78 @@ def test_overrides_win_over_detection(repo):
     assert (repo / "extra-addons/shared").is_dir()
 
 
+DEV_COMPOSE = """services:
+  odoo_acme:
+    shm_size: 1g
+    image: acme:odoo
+    volumes:
+      - ~/Project/acme/git/extra-addons:/mnt/extra-addons
+      - odoo-acme-back-data:/usr/lib/python3/dist-packages/odoo
+  psql_acme:
+    image: "pgvector/pgvector:0.8.1-pg17-trixie"
+volumes:
+  odoo-acme-back-data:
+    driver: local
+"""
+
+
+def dev_stack(repo):
+    """The fogits dev stack: first_build/, the dev compose file, the Odoo source in ../addons."""
+    (repo / "docker-compose/first_build").mkdir(parents=True)
+    (repo / "docker-compose/first_build/Dockerfile").write_text("FROM registry.example.com/acme\n")
+    (repo / "docker-compose/docker-compose.yaml").write_text(DEV_COMPOSE)
+    (repo.parent / "addons").mkdir()
+    (repo.parent / "addons/release.py").write_text("version_info = (19, 0)\n")
+
+
+def test_dev_stack_image_and_odoo_source_are_used_as_they_are(repo):
+    dev_stack(repo)
+    run_install(repo)
+    env = (repo / "harness/harness.env").read_text()
+    assert "ODOO_IMAGE=acme:odoo\n" in env and "ODOO_DOCKERFILE=\n" in env
+    assert "ODOO_SOURCE_DIR=../addons\n" in env
+
+
+def test_update_moves_to_the_dev_stack_image(repo):
+    run_install(repo)
+    env_file = repo / "harness/harness.env"
+    # an install of an older engine: the production Dockerfile, built by the harness
+    env_file.write_text(env_file.read_text().replace("ODOO_SOURCE_DIR=\n", ""))
+    assert "ODOO_IMAGE=acme-harness-odoo:local\n" in env_file.read_text()
+    dev_stack(repo)
+    run_install(repo, "--update")
+    env = env_file.read_text()
+    assert "ODOO_IMAGE=acme:odoo\n" in env and "ODOO_DOCKERFILE=\n" in env
+    assert "ODOO_SOURCE_DIR=../addons\n" in env
+
+
+def test_update_keeps_an_image_chosen_by_hand(repo):
+    run_install(repo)
+    env_file = repo / "harness/harness.env"
+    env_file.write_text(env_file.read_text().replace("ODOO_IMAGE=acme-harness-odoo:local",
+                                                     "ODOO_IMAGE=registry.example.com/acme:ci"))
+    dev_stack(repo)
+    run_install(repo, "--update")
+    env = env_file.read_text()
+    assert "ODOO_IMAGE=registry.example.com/acme:ci\n" in env
+    assert "ODOO_DOCKERFILE=Dockerfile\n" in env
+
+
+def test_init_proposes_to_build_a_missing_dev_stack_image(repo, tmp_path):
+    dev_stack(repo)
+    run_install(repo)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text('#!/bin/sh\n[ "$1 $2" = "image inspect" ] && exit 1\nexit 0\n')
+    docker.chmod(0o755)
+    result = subprocess.run([CLI, "init"], capture_output=True, cwd=repo, text=True,
+                            env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"})
+    assert result.returncode == 1
+    assert "✗ [env] image acme:odoo not found on this machine" in result.stderr
+    assert "docker build docker-compose/first_build --tag acme:odoo" in result.stderr
+
+
 def test_refuses_an_unsupported_odoo_version(repo):
     dockerfile = repo / "Dockerfile"
     dockerfile.write_text(dockerfile.read_text().replace(f"odoo:{VERSION}", "odoo:15.0"))

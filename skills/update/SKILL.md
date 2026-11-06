@@ -36,7 +36,9 @@ Show the user the report. What each action means:
 - `merged`: the CLAUDE.md harness block, `.claude/settings.json` (the old
   `odoo-harness-<N>@odoo-harness` plugin and its `harness/...` rules are removed, the
   `odoo-harness` rules added), `.gitignore`, new settings appended to `harness/harness.env`,
-  or `HARNESS_VERSION` raised to the installed engine. The `# This project` section below the
+  `HARNESS_VERSION` raised to the installed engine, or `ODOO_IMAGE` moved from the image the
+  harness built to the dev stack's image (then offer the user `docker image rm <old image>`;
+  never remove it yourself). The `# This project` section below the
   block is never changed; when CLAUDE.md had none, an empty one is added: fill its `TODO`
   lines as the init skill describes ("Project description");
 - `kept`: unchanged, or project state (PROGRESS.md, DECISIONS.md, tasks/, BOOTSTRAP.md,

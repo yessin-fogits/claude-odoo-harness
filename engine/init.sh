@@ -50,8 +50,25 @@ require_enterprise() {
     fi
 }
 
+# The fogits dev stack's image (detect_project.DEV_DOCKERFILE) is used as it is, never built
+# here: when it is missing, the developer builds it as the dev stack's launcher does.
 build_image() {
-    [ -z "${ODOO_DOCKERFILE:-}" ] && return 0
+    if [ -n "${ODOO_SOURCE_DIR:-}" ] && [ ! -f "$REPO_ROOT/$ODOO_SOURCE_DIR/release.py" ]; then
+        redpen env "no Odoo source in $ODOO_SOURCE_DIR" \
+            "The harness runs the dev stack's Odoo source (ODOO_SOURCE_DIR in harness/harness.env), which the dev stack copies there from its image the first time it starts." \
+            "Start the dev stack once, or empty ODOO_SOURCE_DIR in harness/harness.env to run the image's Odoo."
+        exit 1
+    fi
+    if [ -z "${ODOO_DOCKERFILE:-}" ]; then
+        if [ -f "$REPO_ROOT/docker-compose/first_build/Dockerfile" ] \
+                && ! docker image inspect "$ODOO_IMAGE" >/dev/null 2>&1; then
+            redpen env "image $ODOO_IMAGE not found on this machine" \
+                "The harness tests with the dev stack's image as it is and never builds it." \
+                "Build it as the dev stack does: docker build docker-compose/first_build --tag $ODOO_IMAGE (if its base image is in a private registry, run docker login <registry> first), then re-run odoo-harness init."
+            exit 1
+        fi
+        return 0
+    fi
     local log="$LOG_DIR/build.log"
     step "building $ODOO_IMAGE from $ODOO_DOCKERFILE (log: ${log#"$REPO_ROOT"/})"
     if ! docker build -f "$REPO_ROOT/$ODOO_DOCKERFILE" -t "$ODOO_IMAGE" "$REPO_ROOT" >"$log" 2>&1; then
@@ -62,20 +79,6 @@ build_image() {
         exit 1
     fi
     ok "image $ODOO_IMAGE built"
-}
-
-# The project image may declare VOLUMEs of its own (the fogits images declare one on the
-# Odoo source): Docker copies each into a new volume for every harness container.
-check_image_volumes() {
-    local path
-    for path in $(docker image inspect -f '{{range $p, $_ := .Config.Volumes}}{{$p}} {{end}}' "$ODOO_IMAGE" 2>/dev/null); do
-        case "$path" in /var/lib/odoo|/mnt/extra-addons) continue ;; esac
-        {
-            printf '⚠ [env] %s declares VOLUME %s\n' "$ODOO_IMAGE" "$path"
-            printf 'WHY: %s\n' "Docker copies that folder out of the image into a new volume for each harness container (the Odoo server and every verification step), and the server keeps its old copy when the image is rebuilt."
-            printf 'HOW TO FIX: %s\n' "Remove the VOLUME line from the Dockerfile the image is built from, or from its base image (a human change). A volume the dev stack mounts on that path explicitly keeps working without it."
-        } >&2
-    done
 }
 
 check_dev_db() {
@@ -188,7 +191,6 @@ python3 "$ENGINE_DIR/hlib.py" localenv || true
 python3 "$ENGINE_DIR/hlib.py" prune-images
 require_enterprise
 build_image
-check_image_volumes
 
 if dev_mode; then
     check_dev_db || exit 1

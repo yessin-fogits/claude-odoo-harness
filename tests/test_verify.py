@@ -501,6 +501,15 @@ def test_dev_mode_runs_e2e_on_the_dev_db(hrepo, tmp_path):
     assert "on 'client_dev'" in result.stdout
 
 
+def test_odoo_source_dir_mounts_the_dev_stack_odoo(hrepo):
+    env_file = hrepo.path / "harness/harness.env"
+    env_file.write_text(re.sub(r"^ODOO_SOURCE_DIR=.*$", "ODOO_SOURCE_DIR=../addons",
+                               env_file.read_text(), flags=re.M))
+    assert hrepo.verify().returncode == 0
+    assert hrepo.compose_files() == ["docker-compose.yml", "docker-compose.own-db.yml",
+                                     "docker-compose.odoo-source.yml"]
+
+
 def test_dev_mode_without_network_reaches_postgres_through_the_host(hrepo):
     dev_mode(hrepo, DEV_NETWORK="", DEV_DB_HOST="host.docker.internal")
     assert hrepo.verify().returncode == 0

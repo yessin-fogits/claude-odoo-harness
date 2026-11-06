@@ -281,13 +281,17 @@ def dev_db_check(env):
 
 def compose_files(env):
     """The engine's compose files for this project: the base stack, then the harness's own
-    PostgreSQL, or the dev stack's server (its network when DEV_NETWORK is set)."""
+    PostgreSQL, or the dev stack's server (its network when DEV_NETWORK is set), then the dev
+    stack's Odoo source when ODOO_SOURCE_DIR is set."""
     files = [ENGINE_DIR / "docker-compose.yml"]
     if not dev_mode(env):
-        return files + [ENGINE_DIR / "docker-compose.own-db.yml"]
-    files.append(ENGINE_DIR / "docker-compose.dev-db.yml")
-    if env.get("DEV_NETWORK", "").strip():
-        files.append(ENGINE_DIR / "docker-compose.dev-network.yml")
+        files.append(ENGINE_DIR / "docker-compose.own-db.yml")
+    else:
+        files.append(ENGINE_DIR / "docker-compose.dev-db.yml")
+        if env.get("DEV_NETWORK", "").strip():
+            files.append(ENGINE_DIR / "docker-compose.dev-network.yml")
+    if env.get("ODOO_SOURCE_DIR", "").strip():
+        files.append(ENGINE_DIR / "docker-compose.odoo-source.yml")
     return files
 
 
