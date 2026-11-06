@@ -90,7 +90,8 @@ After a migration from the vendored harness, also tell the user:
 - `odoo-harness static`: new checks may report existing code. List what they report; fix it
   as features or record it in PROGRESS.md "Known issues".
 - `odoo-harness feature check`.
-- `odoo-harness init --check` when Docker is available.
+- `odoo-harness init --check` when Docker is available. After an engine update, a full
+  `odoo-harness init` also removes the tool images older engines built for this project.
 
 ## 4. Record
 

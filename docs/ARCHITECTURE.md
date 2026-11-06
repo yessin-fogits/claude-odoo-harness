@@ -36,7 +36,10 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
   `loop.py`'s headless sessions reach the same engine.
 - **Docker.** The compose file is the engine's. Its build contexts and the engine mount
   (`/opt/odoo-harness`, read-only, in the lint and e2e containers) come from `HARNESS_HOME`,
-  which every compose call exports through one function. `odoo.conf` is rendered from
+  which every compose call exports through one function (`hlib.compose_env`). The lint and
+  e2e images are the machine's, not the project's: one image per Dockerfile
+  (`odoo-harness-<tool>:<hash>`), shared by every project, and `init` removes the ones no
+  project uses any more. `odoo.conf` is rendered from
   `harness/harness.env` and `harness/dev.local.env` into `.harness/odoo.conf` before each compose call.
 - **Engine version.** `engine/VERSION`, not `plugin.json` (a `version` there would change how
   Claude Code detects updates). `harness/harness.env` pins a minimum, `HARNESS_VERSION`:
