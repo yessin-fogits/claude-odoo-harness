@@ -64,6 +64,20 @@ build_image() {
     ok "image $ODOO_IMAGE built"
 }
 
+# The project image may declare VOLUMEs of its own (the fogits images declare one on the
+# Odoo source): Docker copies each into a new volume for every harness container.
+check_image_volumes() {
+    local path
+    for path in $(docker image inspect -f '{{range $p, $_ := .Config.Volumes}}{{$p}} {{end}}' "$ODOO_IMAGE" 2>/dev/null); do
+        case "$path" in /var/lib/odoo|/mnt/extra-addons) continue ;; esac
+        {
+            printf '⚠ [env] %s declares VOLUME %s\n' "$ODOO_IMAGE" "$path"
+            printf 'WHY: %s\n' "Docker copies that folder out of the image into a new volume for each harness container (the Odoo server and every verification step), and the server keeps its old copy when the image is rebuilt."
+            printf 'HOW TO FIX: %s\n' "Remove the VOLUME line from the Dockerfile the image is built from, or from its base image (a human change). A volume the dev stack mounts on that path explicitly keeps working without it."
+        } >&2
+    done
+}
+
 check_dev_db() {
     dev_mode || return 0
     step "checking the dev database '$DEV_DB'"
@@ -171,8 +185,10 @@ fi
 
 # Each developer's own settings (port, dev DB mode), from the plugin's template on a fresh checkout.
 python3 "$ENGINE_DIR/hlib.py" localenv || true
+python3 "$ENGINE_DIR/hlib.py" prune-images
 require_enterprise
 build_image
+check_image_volumes
 
 if dev_mode; then
     check_dev_db || exit 1

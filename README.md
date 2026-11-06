@@ -158,6 +158,13 @@ only on lines changed on the branch.
 | `init --reset` | Drops the test database and rebuilds from scratch |
 | `compose ...` | Runs `docker compose` on the harness stack, such as `compose ps` or `compose logs odoo` |
 
+**Disk.** The lint and e2e tool images (about 1.5 GB) exist once per machine, shared by every
+project; `init` removes the per-project copies older engines built. A project adds only its
+test database and filestore (a few hundred MB): `compose down -v` frees them, `init`
+recreates them. `init` warns when the project's Odoo image declares a `VOLUME` on the Odoo
+source (as the fogits `first_build` Dockerfiles do): Docker then copies that folder, about
+1.3 GB, for every harness container.
+
 ### Delivery
 
 | Command | What it does |

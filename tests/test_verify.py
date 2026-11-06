@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import re
@@ -70,6 +71,36 @@ def test_cross_component(hrepo, monkeypatch, files, expected):
     assert verify.cross_component(env, files) == expected
     assert verify.hlib.dependents(env, ["demo_mod"]) == ["other_mod"]
     assert verify.hlib.dependents(env, ["other_mod"]) == []
+
+
+# --- tool images: one per machine --------------------------------------------------
+
+def test_tool_images_are_shared_and_named_by_recipe():
+    hlib = verify.hlib
+    env = hlib.compose_env({"ODOO_VERSION": ODOO_VERSION})
+    compose = (HARNESS / "docker-compose.yml").read_text()
+    for name in hlib.TOOL_IMAGES:
+        digest = hashlib.sha256((HARNESS / "docker" / f"{name}.Dockerfile").read_bytes())
+        assert env[f"HARNESS_{name.upper()}_IMAGE"] == \
+            f"odoo-harness-{name}:{digest.hexdigest()[:12]}"
+        # without an image name, compose builds a private copy per project
+        assert f"image: ${{HARNESS_{name.upper()}_IMAGE:?" in compose
+
+
+def test_stale_tool_images(monkeypatch):
+    hlib = verify.hlib
+    lint, e2e = hlib.tool_image("lint"), hlib.tool_image("e2e")
+    local = {  # what `docker image ls --filter ...` answers
+        ("reference=acme-harness-lint:latest", "label=com.docker.compose.project=acme-harness",
+         "label=com.docker.compose.service=lint"): ["acme-harness-lint:latest"],
+        ("reference=odoo-harness-lint",): [lint, "odoo-harness-lint:0ld0ld0ld0ld"],
+        ("reference=odoo-harness-e2e",): [e2e],
+    }
+    monkeypatch.setattr(hlib, "docker_refs", lambda *filters: local.get(filters, []))
+    assert hlib.stale_tool_images("acme-harness") == ["acme-harness-lint:latest",
+                                                      "odoo-harness-lint:0ld0ld0ld0ld"]
+    # no project name: only the shared images of an older recipe
+    assert hlib.stale_tool_images("") == ["odoo-harness-lint:0ld0ld0ld0ld"]
 
 
 # --- layers, through the real script with a fake docker compose -------------------

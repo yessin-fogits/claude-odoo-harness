@@ -7,6 +7,7 @@
     hlib.py compose ... run docker compose on the harness stack (`odoo-harness compose`)
     hlib.py psql SQL    run one SQL statement on the harness's PostgreSQL server, print the rows
     hlib.py devcheck    check the dev database (DEV_DB) before the e2e layer uses it
+    hlib.py prune-images  remove the tool images no project uses any more (init)
 
 The engine (this folder) is installed once per machine with the plugin; it works on the
 repository in $HARNESS_REPO, set by the odoo-harness command (default: the current folder).
@@ -327,14 +328,59 @@ def write_runtime(env=None):
 def compose_env(env=None):
     """Environment of every compose call: the settings (compose interpolates the local ones
     too, the environment winning over --env-file), the engine folder with the build contexts,
-    the database server of db_server(), the e2e tests logging in to the test DB."""
+    the database server of db_server(), the e2e tests logging in to the test DB, the tool
+    images (one name per machine, tool_image)."""
     env = env or load_env()
     host, port, user, password = db_server(env)
     settings = {k: v for k, v in env.items() if k not in SECRET_KEYS}
     return {**os.environ, **settings, "HARNESS_HOME": str(ENGINE_DIR), "HARNESS_DB_HOST": host,
             "HARNESS_DB_PORT": port, "HARNESS_DB_USER": user, "HARNESS_DB_PASSWORD": password,
             "HARNESS_E2E_DB": env.get("TEST_DB", "harness_test"),
-            "HARNESS_E2E_LOGIN": "admin", "HARNESS_E2E_PASSWORD": "admin"}
+            "HARNESS_E2E_LOGIN": "admin", "HARNESS_E2E_PASSWORD": "admin",
+            **{f"HARNESS_{name.upper()}_IMAGE": tool_image(name) for name in TOOL_IMAGES}}
+
+
+# --- tool images ------------------------------------------------------------
+
+# The lint and e2e images are the engine's, not a project's: every project of the machine
+# shares one image per Dockerfile. Without a name, compose builds a private copy per project
+# (<project>-e2e, 1.2 GB each).
+TOOL_IMAGES = ("lint", "e2e")
+
+
+def tool_image(name):
+    """odoo-harness-<name>:<hash of its Dockerfile>: rebuilt only when the recipe changes."""
+    recipe = (ENGINE_DIR / "docker" / f"{name}.Dockerfile").read_bytes()
+    return f"odoo-harness-{name}:{hashlib.sha256(recipe).hexdigest()[:12]}"
+
+
+def docker_refs(*filters):
+    """repository:tag of the local images matching every filter kind (`docker image ls`)."""
+    out = subprocess.run(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}",
+                          *(f"--filter={f}" for f in filters)], capture_output=True, text=True)
+    return out.stdout.split()
+
+
+def stale_tool_images(project):
+    """Tool images no project uses any more: the copies of `project` that engines before
+    3.1.1 built (<project>-lint, <project>-e2e), and the shared images of an older recipe."""
+    stale = []
+    for name in TOOL_IMAGES:
+        if project:
+            stale += docker_refs(f"reference={project}-{name}:latest",
+                                 f"label=com.docker.compose.project={project}",
+                                 f"label=com.docker.compose.service={name}")
+        current = tool_image(name)
+        stale += [ref for ref in docker_refs(f"reference={current.split(':')[0]}")
+                  if ref != current]
+    return stale
+
+
+def prune_tool_images(project):
+    for ref in stale_tool_images(project):
+        # by reference: only that tag goes, and an image a container still uses is kept
+        if subprocess.run(["docker", "image", "rm", ref], capture_output=True).returncode == 0:
+            print(f"✓ removed unused tool image {ref}")
 
 
 def dev_e2e_env(env):
@@ -784,6 +830,8 @@ if __name__ == "__main__":
     elif len(sys.argv) == 3 and sys.argv[1] == "psql":
         cmd = compose_cmd() + psql_args(load_env(), sys.argv[2])
         os.execvpe(cmd[0], cmd, compose_env())
+    elif sys.argv[1:] == ["prune-images"]:
+        prune_tool_images(load_env().get("COMPOSE_PROJECT_NAME", ""))
     elif sys.argv[1:] == ["devcheck"]:
         pen = dev_db_check(load_env())
         if pen:
@@ -791,4 +839,4 @@ if __name__ == "__main__":
             sys.exit(1)
     else:
         sys.exit("usage: hlib.py modules | localenv | shellenv | runtime | compose ARGS... | psql SQL | "
-                 "devcheck")
+                 "devcheck | prune-images")

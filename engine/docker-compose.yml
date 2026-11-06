@@ -5,7 +5,8 @@
 #     -f <engine>/docker-compose.own-db.yml   (or the dev-db files, see hlib.compose_files)
 #     --env-file <repo>/harness/harness.env
 # with the settings (harness.env and this machine's harness/dev.local.env), HARNESS_HOME=<engine>
-# and the HARNESS_DB_* / HARNESS_E2E_* variables of hlib.compose_env in the environment. Relative paths are relative to the repository root.
+# and the HARNESS_DB_* / HARNESS_E2E_* / HARNESS_*_IMAGE variables of hlib.compose_env in the
+# environment. Relative paths are relative to the repository root.
 services:
   odoo:
     # Built from the project's Dockerfile by odoo-harness init when ODOO_DOCKERFILE is set.
@@ -37,6 +38,9 @@ services:
   # Tools, run on demand by the verification (docker compose run --rm <service> ...).
   # The engine is mounted read-only on /opt/odoo-harness.
   lint:
+    # one image per machine, shared by every project (hlib.tool_image)
+    image: ${HARNESS_LINT_IMAGE:?run through odoo-harness}
+    pull_policy: never  # a local name: built when missing, never pulled
     build:
       context: ${HARNESS_HOME:?run through odoo-harness}/docker
       dockerfile: lint.Dockerfile
@@ -47,6 +51,9 @@ services:
       - ${HARNESS_HOME:?run through odoo-harness}:/opt/odoo-harness:ro
 
   e2e:
+    # one image per machine, shared by every project (hlib.tool_image)
+    image: ${HARNESS_E2E_IMAGE:?run through odoo-harness}
+    pull_policy: never  # a local name: built when missing, never pulled
     build:
       context: ${HARNESS_HOME:?run through odoo-harness}/docker
       dockerfile: e2e.Dockerfile
