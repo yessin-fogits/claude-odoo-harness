@@ -161,9 +161,10 @@ only on lines changed on the branch.
 **Disk.** The lint and e2e tool images (about 1.5 GB) exist once per machine, shared by every
 project; `init` removes the per-project copies older engines built. A project adds only its
 test database and filestore (a few hundred MB): `compose down -v` frees them, `init`
-recreates them. `init` warns when the project's Odoo image declares a `VOLUME` on the Odoo
-source (as the fogits `first_build` Dockerfiles do): Docker then copies that folder, about
-1.3 GB, for every harness container.
+recreates them. With the fogits dev stack (`docker-compose/first_build`), the harness builds
+and copies no Odoo image: it uses the dev stack's image as it is and mounts its Odoo source
+(`ODOO_SOURCE_DIR`, `../addons`) read-only. When that image is missing, `init` prints the
+`docker build` command to run and stops.
 
 ### Delivery
 

@@ -1,0 +1,8 @@
+# ODOO_SOURCE_DIR set (the fogits dev stack): the harness Odoo runs the dev stack's Odoo source,
+# read-only. The mount also stands in for the VOLUME the fogits images declare on that path,
+# which Docker would otherwise fill with a copy of the image's Odoo for every container.
+# Added to docker-compose.yml by hlib.compose_files.
+services:
+  odoo:
+    volumes:
+      - ${ODOO_SOURCE_DIR:?set ODOO_SOURCE_DIR in harness/harness.env}:/usr/lib/python3/dist-packages/odoo:ro

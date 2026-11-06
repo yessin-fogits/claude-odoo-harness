@@ -166,9 +166,11 @@ contrôles du projet et pylint ne bloquent que sur les lignes modifiées sur la 
 **Disque.** Les images d'outils lint et e2e (environ 1,5 Go) existent une fois par machine,
 partagées par tous les projets ; `init` supprime les copies par projet construites par les
 anciens moteurs. Un projet n'ajoute que sa base de test et son filestore (quelques centaines
-de Mo) : `compose down -v` les libère, `init` les recrée. `init` avertit quand l'image Odoo du
-projet déclare un `VOLUME` sur les sources d'Odoo (comme les Dockerfiles `first_build` de
-fogits) : Docker copie alors ce dossier, environ 1,3 Go, pour chaque conteneur du harness.
+de Mo) : `compose down -v` les libère, `init` les recrée. Avec la stack de dev fogits
+(`docker-compose/first_build`), le harness ne construit ni ne copie aucune image Odoo : il
+utilise l'image de la stack de dev telle quelle et monte ses sources d'Odoo
+(`ODOO_SOURCE_DIR`, `../addons`) en lecture seule. Quand cette image manque, `init` affiche la
+commande `docker build` à lancer et s'arrête.
 
 ### Livraison
 

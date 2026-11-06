@@ -117,10 +117,14 @@ instead of keeping two. Show the section to the user; initialization does not fi
 `TODO` line is left in it.
 
 ## Step 1: executable environment
-Run `odoo-harness init`. It builds the project image, starts the harness stack (its own
+Run `odoo-harness init`. It builds the project image, or with the fogits dev stack uses the
+dev stack's image and Odoo source as they are, starts the harness stack (its own
 database and port, never the dev stack), installs every custom module on a fresh test
 database with demo data, then runs the baseline verification. It must end with
 `✓ baseline OK`.
+- When the dev stack's image is missing, init prints the `docker build` command: give it to
+  the user, never run it yourself. Do not pass `--dockerfile` to the installer when it
+  detected a dev stack image: it would build the production Dockerfile instead.
 - On failure, read the `WHY:` and `HOW TO FIX:` lines and fix the cause, then run it again.
 - A custom module that does not install on a fresh database is a finding: tell the user. Fix
   it only if they agree (it becomes the first feature); never weaken the harness to pass.

@@ -209,8 +209,12 @@ def build_context(args):
         raise SystemExit(f"invalid --test-db {test_db!r}: no spaces or shell characters, "
                          "harness.env is sourced by bash")
     image = existing.get("ODOO_IMAGE", "")
-    if not image or (dockerfile and image.startswith("odoo:")):
-        # never build the project's Dockerfile into an official image name
+    dev_image = found["dev_image"]
+    if dev_image and args.dockerfile is None and image in ("", f"{name}-odoo:local", dev_image):
+        # the dev stack's image as it is (also over the image older installs built): no build
+        image, dockerfile = dev_image, ""
+    elif not image or (dockerfile and (image.startswith("odoo:") or image == dev_image)):
+        # never build the project's Dockerfile into an official image name or the dev image
         image = f"{name}-odoo:local" if dockerfile else f"odoo:{version}"
     pinned = existing.get("HARNESS_VERSION", "")
     if args.update and version_tuple(pinned) > version_tuple(ENGINE_VERSION):
@@ -226,6 +230,8 @@ def build_context(args):
         "CUSTOM_ADDONS": custom,
         "THIRD_PARTY_ADDONS": third,
         "ENTERPRISE_DIR": enterprise,
+        "ODOO_SOURCE_DIR": clean_paths(pick(None, "ODOO_SOURCE_DIR", found["odoo_source_dir"]),
+                                       "ODOO_SOURCE_DIR", allow_outside=True),
         "TEST_DB": test_db,
         "ODOO_PORT": pick(args.port, "ODOO_PORT", hlib.DEFAULT_ODOO_PORT) or hlib.DEFAULT_ODOO_PORT,
         "BASE_BRANCH": pick(args.base_branch, "BASE_BRANCH", found["base_branch"]),
@@ -408,6 +414,22 @@ def migrate_legacy(target):
             precommit.write_text(new)
             report.append(("migrated", ".pre-commit-config.yaml"))
     return report
+
+
+def write_image(target, ctx):
+    """ODOO_IMAGE and ODOO_DOCKERFILE as build_context chose them, which merge_env keeps
+    otherwise: an update moves a project from the image the harness built to the dev stack's."""
+    env_file = target / HARNESS_ENV
+    current = read_env(env_file)
+    changed = [k for k in ("ODOO_IMAGE", "ODOO_DOCKERFILE") if current.get(k, ctx[k]) != ctx[k]]
+    if not changed:
+        return []
+    text = env_file.read_text()
+    for key in changed:
+        text = re.sub(rf"^{key}=.*$", f"{key}={ctx[key]}", text, flags=re.M)
+    env_file.write_text(text)
+    return [("merged", f"{HARNESS_ENV}: ODOO_IMAGE {current.get('ODOO_IMAGE')} -> "
+                       f"{ctx['ODOO_IMAGE']}, ODOO_DOCKERFILE={ctx['ODOO_DOCKERFILE']}")]
 
 
 def raise_pin(target):
@@ -602,6 +624,7 @@ def main(argv=None):
     report = migrate_legacy(target) if args.update else []
     report += migrate_layout(target)
     report += install(target, ctx, force=args.force, update=args.update)
+    report += write_image(target, ctx)
     report += move_machine_settings(target)
     if args.update:
         report.append(raise_pin(target))
