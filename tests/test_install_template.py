@@ -144,8 +144,8 @@ def test_overrides_win_over_detection(repo):
 
 def test_refuses_an_unsupported_odoo_version(repo):
     dockerfile = repo / "Dockerfile"
-    dockerfile.write_text(dockerfile.read_text().replace(f"odoo:{VERSION}", "odoo:16.0"))
-    with pytest.raises(SystemExit, match="Odoo 16.0 is not supported"):
+    dockerfile.write_text(dockerfile.read_text().replace(f"odoo:{VERSION}", "odoo:15.0"))
+    with pytest.raises(SystemExit, match="Odoo 15.0 is not supported"):
         run_install(repo)
 
 

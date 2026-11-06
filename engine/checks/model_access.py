@@ -2,7 +2,7 @@
 
 A concrete model (models.Model / TransientModel with its own _name) that has no
 line in the module's security CSV can only be used by the superuser: forms open
-for admin in tests but fail for real users. Odoo only logs a WARNING (17-19) or
+for admin in tests but fail for real users. Odoo only logs a WARNING (16-19) or
 nothing (20), so the harness checks it statically.
 """
 

@@ -1,6 +1,6 @@
 # claude-odoo-harness
 
-A [Claude Code](https://claude.com/claude-code) plugin for working on Odoo projects, from 17.0
+A [Claude Code](https://claude.com/claude-code) plugin for working on Odoo projects, from 16.0
 to 20.0.
 
 > 🇫🇷 [Version française](README.fr.md)
@@ -379,8 +379,10 @@ python -m pytest -q
 ```
 
 - **Add an Odoo version:** add it to `versions.json`, write its guide in
-  `skills/odoo/versions/<version>/` with the help of `tools/odoo-skill-extract/`, and add it to
-  the CI matrix in `.github/workflows/ci.yml`.
+  `skills/odoo/versions/<version>/` with the help of `tools/odoo-skill-extract/`, add
+  `odoo-version-api` rules for what changes at its boundary with the next version
+  (`engine/checks/odoo_version_api.py`, each checked against the core of both versions), and
+  add it to the CI matrix in `.github/workflows/ci.yml`.
 - **Change the engine:** bump `engine/VERSION` whenever a change can alter a verdict or a
   command.
 

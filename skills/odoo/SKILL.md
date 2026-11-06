@@ -1,6 +1,6 @@
 ---
 name: odoo
-description: Odoo 17.0, 18.0, 19.0 and 20.0 development reference, each checked against the Odoo source of its version. Use when writing, reviewing or fixing Odoo module code (models and fields, views XML, security, controllers, OWL components, tests, migrations) so the code matches the project's Odoo version and not another one.
+description: Odoo 16.0, 17.0, 18.0, 19.0 and 20.0 development reference, each checked against the Odoo source of its version. Use when writing, reviewing or fixing Odoo module code (models and fields, views XML, security, controllers, OWL components, tests, migrations) so the code matches the project's Odoo version and not another one.
 ---
 
 # Odoo, by version
@@ -15,6 +15,6 @@ version. Use only the guide of the project's version.
    wrong and routes to its `references/` (ORM, views, security, OWL, controllers, tests,
    migrations, version notes, the exact API facts).
 
-Guides: `versions/17.0/`, `versions/18.0/`, `versions/19.0/`, `versions/20.0/`. Moving a project
-to another version is a migration: read `references/migrations.md` and `references/version-notes.md`
-of the target version.
+Guides: `versions/16.0/`, `versions/17.0/`, `versions/18.0/`, `versions/19.0/`, `versions/20.0/`.
+Moving a project to another version is a migration: read `references/migrations.md` and
+`references/version-notes.md` of the target version.

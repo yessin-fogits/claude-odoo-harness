@@ -3,7 +3,8 @@
 Agents often write the Odoo API of another version (from training data). Each
 rule applies to a version range [min, max) and is grounded in the Odoo source
 (odoo/upgrade_code scripts, DeprecationWarnings, RNG schemas, OWL exports).
-The version comes from ODOO_VERSION in harness/harness.env.
+RULES are patterns; FILE_RULES judge a whole file (what it lacks, the value of an
+attribute). The version comes from ODOO_VERSION in harness/harness.env.
 """
 
 import re
@@ -91,6 +92,14 @@ RULES = [
      "name_get()",
      "name_get was removed in Odoo 17.0; the display name is the computed field display_name.",
      "Override _compute_display_name() and set record.display_name."),
+    ("sql-wrapper", (0, 0), (17, 0), {".py"}, r"from odoo\.tools(?:\.sql)? import [^\n]*\bSQL\b",
+     "SQL imported from odoo.tools",
+     "odoo.tools.SQL arrives in Odoo 17.0.",
+     "Pass the values as query parameters: self.env.cr.execute(query, (value,))."),
+    ("search-fetch", (0, 0), (17, 0), {".py"}, r"\.search_fetch\(",
+     "search_fetch()",
+     "search_fetch arrives in Odoo 17.0.",
+     "Use search(domain), or search_read(domain, fields) for the values."),
     ("single-transaction-case", (20, 0), None, {".py"}, r"\bSingleTransactionCase\b",
      "SingleTransactionCase",
      "SingleTransactionCase was removed in Odoo 20.0.",
@@ -131,9 +140,106 @@ def owl3_imports(text):
                 yield match.start(), name
 
 
+# The constants of odoo.tools.str2bool: before 17.0 the only modifier values not evaluated
+# against the context.
+MODIFIER_CONSTANTS = {"y", "yes", "1", "true", "t", "on", "n", "no", "0", "false", "f", "off"}
+MODIFIERS = r"invisible|readonly|required|column_invisible"
+# The attribute on the element, or set by an inherited view (position="attributes").
+MODIFIER_RES = (
+    re.compile(rf"""(?<![\w:.@-])(?P<attr>{MODIFIERS})=(["'])(?P<value>.*?)\2"""),
+    re.compile(rf"""<attribute\s+name=(["'])(?P<attr>{MODIFIERS})\1\s*>"""
+               r"(?P<value>[^<]*)</attribute>"),
+)
+ATTRS_STATES_RE = re.compile(r"""(?<![\w:.@-])(?:attrs|states)=["']|"""
+                             r"""<attribute\s+name=["'](?:attrs|states)["']\s*>""")
+# odoo/tools/js_transpiler.py ODOO_MODULE_RE: the comment must open the file.
+ODOO_MODULE_RE = re.compile(r"\s*/(?:\*|/).*\s*@odoo-module")
+ES_MODULE_RE = re.compile(r"""^\s*(?:import\s+[\w{*"']|import[{*"']|export\s)""", re.M)
+
+
+def record_modifiers(path, text):
+    """Modifiers of view XML with an expression on the record (17.0 syntax). OWL templates
+    (static/) are not views; HTML boolean attributes (required="required") are not modifiers."""
+    if "static" in path.parts:
+        return []
+    found = []
+    for regex in MODIFIER_RES:
+        for m in regex.finditer(text):
+            attr, value = m["attr"], m["value"].strip()
+            constant = value.lower() in MODIFIER_CONSTANTS or value in ("", attr)
+            if attr == "column_invisible" or not (constant or "context" in value):
+                found.append(m.start())
+    return sorted(found)
+
+
+def attrs_or_states(path, text):
+    """attrs/states on a view element or set by an inherited view; OWL templates are not views."""
+    return [] if "static" in path.parts else [m.start() for m in ATTRS_STATES_RE.finditer(text)]
+
+
+def display_name_without_name_get(path, text):
+    if re.search(r"^\s+def name_get\(", text, re.M):
+        return []
+    return [m.start() for m in re.finditer(r"^\s+def _compute_display_name\(", text, re.M)]
+
+
+def field_widget_object(path, text):
+    """A field widget registered as a {component, supportedTypes...} object (17.0)."""
+    if not re.search(r"""registry\.category\(\s*["']fields["']\s*\)\.add\(""", text):
+        return []
+    return [m.start() for m in re.finditer(r"(?<![.\w])supportedTypes\s*:", text)]
+
+
+def untranspiled_module(path, text):
+    """Only module assets are bundled (static/), and libraries (static/lib/) are not modules."""
+    if "static" not in path.parts or "/static/lib/" in path.as_posix() or \
+            ODOO_MODULE_RE.match(text):
+        return []
+    match = ES_MODULE_RE.search(text)
+    return [match.start()] if match else []
+
+
+# (id, min_version, max_version (exclusive) or None, suffix, finder(path, text) -> positions,
+#  detail, why, fix)
+FILE_RULES = [
+    ("view-modifier-expression", (0, 0), (17, 0), ".xml", record_modifiers,
+     "view modifier with an expression on the record",
+     "Before Odoo 17.0, invisible/readonly/required take only 1/0/True/False or a context "
+     "expression (the view fails when opened), and column_invisible is not an attribute.",
+     "Use attrs=\"{'invisible': [('state', '!=', 'draft')]}\" or states=\"draft\"; in a list, "
+     "attrs=\"{'column_invisible': [('parent.state', '!=', 'draft')]}\"."),
+    ("view-attrs-states", (17, 0), None, ".xml", attrs_or_states,
+     "attrs / states on a view element",
+     "Since Odoo 17.0 views have no attrs and states attributes: the view fails to load.",
+     "Write the condition itself: invisible=\"state != 'draft'\", readonly=\"...\", "
+     "required=\"...\"; in a list, column_invisible=\"...\"."),
+    ("display-name-compute", (0, 0), (17, 0), ".py", display_name_without_name_get,
+     "_compute_display_name without name_get()",
+     "Before Odoo 17.0 the display name is name_get(): name_search and the many2one dropdowns "
+     "call it, so they keep showing the old name.",
+     "Override name_get() and return [(record.id, name), ...]."),
+    ("field-widget-object", (0, 0), (17, 0), ".js", field_widget_object,
+     "field widget registered as an object",
+     "Before Odoo 17.0 the fields registry takes the component class; its supportedTypes, "
+     "displayName and extractProps are static members.",
+     "Set MyField.supportedTypes = [...] and add MyField itself: "
+     "registry.category(\"fields\").add(\"my_widget\", MyField)."),
+    ("odoo-module-header", (0, 0), (18, 0), ".js", untranspiled_module,
+     "ES module without the @odoo-module comment",
+     "Before Odoo 18.0 a JS file is transpiled only when it starts with the @odoo-module "
+     "comment; otherwise its import/export break the whole asset bundle.",
+     "Make /** @odoo-module **/ the first line of the file."),
+]
+
+
+def in_range(rule, version):
+    return version >= rule[1] and (rule[2] is None or version < rule[2])
+
+
 def detect(files):
     version = hlib.version_tuple(hlib.load_env().get("ODOO_VERSION"))
-    rules = [r for r in RULES if version >= r[1] and (r[2] is None or version < r[2])]
+    rules = [r for r in RULES if in_range(r, version)]
+    file_rules = [r for r in FILE_RULES if in_range(r, version)]
     found = []
     for path in files:
         if path.suffix not in {".py", ".xml", ".js"}:
@@ -145,6 +251,11 @@ def detect(files):
             for match in re.finditer(pattern, text, re.M):
                 line = text.count("\n", 0, match.start()) + 1
                 found.append((path, line, detail, why, fix))
+        for _id, _min, _max, suffix, finder, detail, why, fix in file_rules:
+            if path.suffix != suffix:
+                continue
+            for pos in finder(path, text):
+                found.append((path, text.count("\n", 0, pos) + 1, detail, why, fix))
         if path.suffix == ".js" and version >= (20, 0):
             for pos, name in owl3_imports(text):
                 line = text.count("\n", 0, pos) + 1

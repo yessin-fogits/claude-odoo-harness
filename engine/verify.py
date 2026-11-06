@@ -43,7 +43,7 @@ PYLINT_RE = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+): \[(?P<id>\w+)\((?P<sy
 ODOO_LOG_RE = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ \d+ (?P<level>[A-Z]+) ")
 ODOO_RESULT_RE = re.compile(r"(\d+) failed, (\d+) error\(s\) of (\d+) tests")
 ODOO_RAN_RE = re.compile(r"Ran (\d+) tests?")
-# Test summary records (17.0-20.0) that Odoo logs at ERROR level after real failures.
+# Test summary records (16.0-20.0) that Odoo logs at ERROR level after real failures.
 ODOO_SUMMARY_RE = re.compile(r"odoo\.tests\.result: |Module \w+: \d+ failures?, \d+ errors? of "
                              r"\d+ tests|At least one test failed when loading the modules")
 PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|failed|errors?)\b")

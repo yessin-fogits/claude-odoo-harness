@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        odoo: ["17.0", "18.0", "19.0", "20.0"]
+        odoo: ["16.0", "17.0", "18.0", "19.0", "20.0"]
     env:
       HARNESS_TEST_ODOO_VERSION: ${{ matrix.odoo }}
     steps:
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        odoo: ["17.0", "18.0", "19.0", "20.0"]
+        odoo: ["16.0", "17.0", "18.0", "19.0", "20.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        odoo: ["17.0", "18.0", "19.0", "20.0"]
+        odoo: ["16.0", "17.0", "18.0", "19.0", "20.0"]
     defaults:
       run:
         working-directory: ${{ github.workspace }}/demo

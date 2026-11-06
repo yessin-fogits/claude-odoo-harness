@@ -71,13 +71,14 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
 - **Distribution**: one Claude Code plugin, `odoo-harness`, installed once per machine (user
   scope). See "Install once per machine" below. Per-project state lives in the repo, which is
   the system of record.
-- **Versions**: one plugin for every Odoo version (17.0 to 20.0); the version is data.
+- **Versions**: one plugin for every Odoo version (16.0 to 20.0); the version is data.
   - `versions.json` lists the supported versions and their PostgreSQL image.
   - The project's version is `ODOO_VERSION` in `harness/harness.env`, detected by `init`.
   - The `odoo` skill holds one guide per version: `skills/odoo/versions/<version>/`.
   - CI runs the tests, the skill check and the e2e demo for each version (a matrix).
   - The old `17.0`...`20.0` branches are frozen: they serve the deprecated
-    `odoo-harness-<N>` plugins until every project is migrated.
+    `odoo-harness-<N>` plugins until every project is migrated. 16.0 came later and never
+    had a branch: it exists only in the one plugin.
 - **Runtime**: Docker Compose with these services:
   - `odoo`, using the image of the project's version.
   - `db`, running Postgres.

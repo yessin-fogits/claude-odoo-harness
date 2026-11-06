@@ -27,17 +27,17 @@ def test_fixture_module_is_clean(hrepo):
 
 def test_manifest_version_and_missing_data_file(hrepo):
     write(hrepo, "extra-addons/client/demo_mod/__manifest__.py",
-          '{"name": "D", "version": "16.0.1.0.0", "license": "LGPL-3", "depends": ["base"],'
+          '{"name": "D", "version": "15.0.1.0.0", "license": "LGPL-3", "depends": ["base"],'
           ' "data": ["views/missing.xml"]}')
     result = run_static(hrepo)
     assert result.returncode == 1
-    assert f"'16.0.1.0.0' is not a version of Odoo {ODOO_VERSION}" in result.stderr
+    assert f"'15.0.1.0.0' is not a version of Odoo {ODOO_VERSION}" in result.stderr
     assert "'data' lists 'views/missing.xml', which does not exist" in result.stderr
 
 
 @pytest.mark.parametrize("version,ok", [
     ("1.0", True), (ODOO_VERSION, True), (f"{ODOO_VERSION}.1.0.0", True), ("0.1.5", True),
-    ("16.0.1.0.0", False), ("1.0-beta", False),
+    ("15.0.1.0.0", False), ("1.0-beta", False),
 ])
 def test_manifest_versions_odoo_accepts(hrepo, version, ok):
     """Odoo prefixes plain versions with its series; only other series and text are wrong."""
@@ -124,7 +124,7 @@ def test_catalog_patterns_compile_and_expand():
 
 
 def test_catalog_underscored_group():
-    # exact message of odoo/modules/loading.py (17.0 - 19.0)
+    # exact message of odoo/modules/loading.py (16.0 - 19.0)
     found = errors.explain("WARNING db odoo.modules.loading: The models ['demo.thing'] have no "
                            "access rules in module demo_mod, consider adding some, like:")
     assert found[0][0] == "model-no-access-rules"
