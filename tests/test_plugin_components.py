@@ -31,7 +31,8 @@ def test_marketplace_serves_the_plugin_and_keeps_the_old_ones():
     # HTTPS, so no SSH key is needed to install
     assert current["source"] == "url" and current["url"].startswith("https://")
     assert current["ref"] == "main"
-    for version in json.loads((ROOT / "versions.json").read_text()):
+    # the frozen branches of the vendored harness; versions added later (16.0) never had one
+    for version in ("17.0", "18.0", "19.0", "20.0"):
         old = plugins[f"odoo-harness-{version.split('.')[0]}"]
         assert old["source"]["ref"] == version and "Deprecated" in old["description"]
 

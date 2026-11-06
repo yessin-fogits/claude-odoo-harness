@@ -32,7 +32,8 @@ class DiscountController(http.Controller):
 - `type='http'`: form posts and pages; POST requests need a CSRF token unless `csrf=False`
   (only for machine-to-machine endpoints, with their own authentication).
 - `auth='user'` (logged in), `auth='public'` (public user if not logged in), `auth='none'`
-  (no environment user, rare), `auth='bearer'` (API key in `Authorization: Bearer ...`).
+  (no environment user, rare). There is no `auth='bearer'` (18.0): an endpoint for another
+  system checks its own token.
 - `request.env` is the environment (`request.env.cr`, `request.env.uid`,
   `request.env.context`); `request.params`, `request.httprequest` for the raw request.
 - Routes run with the user's rights. Do not `sudo()` user-provided ids; check access with

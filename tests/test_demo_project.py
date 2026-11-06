@@ -33,7 +33,7 @@ def test_build_demo_project(tmp_path):
     assert findings == expected, result.stderr
 
 
-@pytest.mark.parametrize("version", ["17.0", "18.0", "19.0", "20.0"])
+@pytest.mark.parametrize("version", ["16.0", "17.0", "18.0", "19.0", "20.0"])
 def test_demo_module_is_valid_for_each_version(hrepo, version):
     """The adapted module passes the static and version checks of every version."""
     module = hrepo.path / "extra-addons" / "client" / "demo_mod"

@@ -4,9 +4,21 @@ Odoo 17.0 ships OWL 2 (see `version-facts.md` for the exact version and exports)
 Do not copy OWL 3 code from Odoo 20 (`useProps`, `signal`, `proxy`, plugins): it does not
 exist here. Patterns below come from Odoo 17.0's own `web` module.
 
+## Every JS file starts with `@odoo-module`
+
+```javascript
+/** @odoo-module **/
+```
+
+Odoo 17.0 transpiles a file to an Odoo module only when this comment is at its top;
+without it, `import`/`export` reach the browser untranspiled and the whole asset bundle
+fails to load (from 18.0 every file in `static/src` is transpiled).
+
 ## A component
 
 ```javascript
+/** @odoo-module **/
+
 import { Component, onWillStart, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
@@ -81,6 +93,8 @@ export class DiscountSummary extends Component {
 ## Field widget
 
 ```javascript
+/** @odoo-module **/
+
 import { Component } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";

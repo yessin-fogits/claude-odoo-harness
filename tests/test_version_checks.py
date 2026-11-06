@@ -15,6 +15,7 @@ def check(repo, rel, text, version):
 PY = "extra-addons/client/demo_mod/models/other.py"
 XML = "extra-addons/client/demo_mod/views/other.xml"
 JS = "extra-addons/client/demo_mod/static/src/other.js"
+ROOT_JS = "eslint.config.js"
 
 
 @pytest.mark.parametrize("rel,text,flagged_in,clean_in", [
@@ -41,11 +42,46 @@ JS = "extra-addons/client/demo_mod/static/src/other.js"
     (XML, '<odoo><record id="a" model="ir.attachment"><field name="datas" type="base64" '
           'file="demo_mod/static/x.png"/></record></odoo>', ["20.0"], ["19.0"]),
     (XML, '<odoo><template id="t"><span t-esc="x"/></template></odoo>', ["20.0"], ["19.0"]),
-    (JS, 'import { Component, useState } from "@odoo/owl";\n', ["20.0"], ["19.0", "17.0"]),
+    (JS, '/** @odoo-module **/\nimport { Component, useState } from "@odoo/owl";\n', ["20.0"],
+     ["19.0", "17.0"]),
     (PY, "class A:\n    rate = fields.Float(group_operator='avg')\n", ["18.0", "20.0"], ["17.0"]),
     (PY, "class A:\n    rate = fields.Float(aggregator='avg')\n", ["17.0"], ["18.0"]),
     (PY, "def f(self):\n    return self.env._('Hello')\n", ["17.0"], ["18.0"]),
     (PY, "def f(self):\n    return self.env.user.groups_id\n", ["19.0"], ["18.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml"><form>'
+          '<field name="a" invisible="state != \'draft\'"/></form></field></record></odoo>',
+     ["16.0"], ["17.0", "20.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml"><tree>'
+          '<field name="a" column_invisible="True"/></tree></field></record></odoo>', ["16.0"],
+     ["17.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml"><form>'
+          '<field name="a" invisible="1" readonly="context.get(\'x\')"/></form></field></record>'
+          '<template id="t"><input name="b" required="required"/></template></odoo>', [],
+     ["16.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml"><form>'
+          '<field name="a" attrs="{\'invisible\': [(\'b\', \'=\', 1)]}"/></form></field>'
+          '</record></odoo>', ["17.0", "20.0"], ["16.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml"><form>'
+          '<button name="x" type="object" states="draft"/></form></field></record></odoo>',
+     ["17.0"], ["16.0"]),
+    (PY, "from odoo.tools import SQL, ormcache\n", ["16.0"], ["17.0"]),
+    (PY, "def f(self):\n    return self.search_fetch([], ['name'])\n", ["16.0"], ["17.0"]),
+    (PY, "class A:\n    def _compute_display_name(self):\n        pass\n", ["16.0"], ["17.0"]),
+    (PY, "class A:\n    def _compute_display_name(self):\n        pass\n\n"
+         "    def name_get(self):\n        return []\n", [], ["16.0"]),
+    (JS, '/** @odoo-module **/\nregistry.category("fields").add("x", {\n'
+         '    component: X,\n    supportedTypes: ["char"],\n});\n', ["16.0"], ["17.0"]),
+    (JS, '/** @odoo-module **/\nX.supportedTypes = ["char"];\n'
+         'registry.category("fields").add("x", X);\n', [], ["16.0"]),
+    (JS, 'import { Component } from "@odoo/owl";\n', ["16.0", "17.0"], ["18.0", "20.0"]),
+    (JS, '/* @odoo-module */\nexport const x = 1;\n', [], ["16.0", "17.0"]),
+    (ROOT_JS, 'export default [];\n', [], ["16.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml">'
+          '<field name="a" position="attributes"><attribute name="invisible">state != \'draft\''
+          '</attribute></field></field></record></odoo>', ["16.0"], ["17.0"]),
+    (XML, '<odoo><record id="v" model="ir.ui.view"><field name="arch" type="xml">'
+          '<field name="a" position="attributes"><attribute name="attrs">{}</attribute></field>'
+          '</field></record></odoo>', ["17.0"], ["16.0"]),
 ])
 def test_version_rules(hrepo, rel, text, flagged_in, clean_in):
     for version in flagged_in:

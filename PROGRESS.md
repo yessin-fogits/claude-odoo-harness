@@ -2,7 +2,7 @@
 
 ## Current state
 - Last commit: Phase 7 (full-project mode for fogits Odoo projects)
-- Test status: 236 passed on each version branch; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 (`python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`
+- Test status: 430 passed for each Odoo version 16.0 to 20.0 (`HARNESS_TEST_ODOO_VERSION=<v> python -m pytest -q`), including pylint-odoo run on a real module and the compose file validated with `docker compose config`; odoo-e2e (real Odoo + Playwright) passing on 17.0, 18.0, 19.0, 20.0 in CI, and on 16.0 run locally with the CI steps
 - Lint: shellcheck clean on template scripts
 
 ## Completed tasks
@@ -22,6 +22,8 @@
 - [x] Client workspace launch: Claude Code started in ~/Project/<client> finds the harness in git/ (hooks, guard, SessionStart context); init/update write the workspace CLAUDE.md and settings (installer --workspace, --workspace-only)
 
 - [x] User guide of a completed task: /guide skill, harness/guide.py (gate, e2e replay, French PDF, stale check), harness_guide pytest plugin, odoo-e2e CI step
+
+- [x] Odoo 16.0: guide checked against the 16.0 source, odoo-version-api rules at the 16/17 boundary (both ways) and the @odoo-module header rule (16.0-17.0), CI matrices, engine 3.2.0; the 17.0 guide got the @odoo-module header and lost auth='bearer' (18.0)
 
 ## In progress
 
