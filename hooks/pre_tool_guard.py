@@ -232,7 +232,7 @@ def dropdb_targets(command):
     return targets
 
 
-def check_bash(env, command):
+def check_bash(root, env, command):
     check_state_commands(command)
     test_db = env.get("TEST_DB", "harness_test")
     drops = dropdb_targets(command)
@@ -257,15 +257,17 @@ def check_bash(env, command):
         deny("command deletes docker volumes",
              "Volumes hold the databases and filestore; deleting them is not reversible.",
              "To start from a clean test DB use `odoo-harness init --reset`.")
-    check_push(env, command)
+    check_push(root, env, command)
     if re.search(r"\bgit\b[^;&|\n]*\bcommit\b[^;&|\n]*--no-verify", command):
         deny("git commit --no-verify",
              "Pre-commit runs the feature list integrity check and the static checks.",
              "Commit without --no-verify and fix what the hooks report.")
 
 
-def check_push(env, command):
+def check_push(root, env, command):
     protected = {"main", "master", "production", env.get("BASE_BRANCH") or "staging"}
+    # A shared submodule's branch (.gitmodules, 19.0) is what every project using it pulls.
+    protected |= {s["branch"] for s in c.engine_lib().submodules(root) if s["branch"]}
     for segment in shell_segments(command) or []:
         sub, args = git_subcommand(segment)
         if sub != "push":
@@ -297,7 +299,7 @@ def main():
     if tool in FILE_TOOLS:
         check_file_tool(root, env, payload, tool_input)
     elif tool == "Bash":
-        check_bash(env, tool_input.get("command", ""))
+        check_bash(root, env, tool_input.get("command", ""))
     sys.exit(0)
 
 

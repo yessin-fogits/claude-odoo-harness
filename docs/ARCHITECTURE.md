@@ -158,6 +158,54 @@ without conflict, whatever the order.
   notes and drops its "Current state". It must land in the base branch before anyone opens a
   task branch.
 
+### Shared submodules
+Some addons folders are git submodules: GitLab projects that several projects include, each
+pinned to a commit of the `branch` set in `.gitmodules` (bpa19 and moveandconnect-19 both
+include `extra-addons/l10n_tn_account`, branch `19.0`). A task can change one of them along
+with the project's own modules. The project's git sees a submodule only as one path, its
+pointer (a gitlink), so the harness looks inside it:
+- **Changes.** `hlib.diff_scopes` diffs each checked-out submodule against its commit at the
+  base. `changed_files` and `changed_lines` then return the files inside it, never the
+  pointer, so scope, L1, dependents and `cross_component` need no change. The harness gives a
+  red pen, never a silent miss, when:
+  - a changed submodule is not checked out;
+  - its base commit is missing from its clone;
+  - a nested submodule changed (one level only).
+- **What was tested.** The verify report records the tree of each submodule as it was on disk
+  (`hlib.working_tree`), committed or not, under `submodules`.
+- **Branches.** `feature add/start` check out the submodule commit the task branch records,
+  for the submodules with no work in progress. `init` and `init --check` refuse an addons
+  submodule that is not checked out. The guard protects every `.gitmodules` branch from
+  pushes.
+- **Shipping in two merge requests, merged in this order.** `gitlab mr` runs twice:
+  - **Pass 1:** it pushes each moved pointer's commit to the branch `<task>` of the
+    submodule's project, opens its merge request to the `.gitmodules` branch, and opens the
+    project's merge request as Draft. It links them.
+  - **Pass 2:** once GitLab says the submodule's merge request is merged, it does the pull:
+    the pointer moves to that branch, then it commits and pushes. The `Draft:` prefix is
+    dropped only when each pointer's tree equals the tree the task's latest evidence tested.
+    Otherwise someone else's merge came in, and the feature is verified again.
+
+  The project therefore never merges a pointer to a task-branch commit, whatever the
+  submodule's merge mode. A pointer moved to a commit already on the branch (another project
+  taking the change) needs no submodule merge request.
+- **Refusals before anything is pushed:**
+  - a submodule outside `GITLAB_URL` (an OCA one on GitHub);
+  - no `branch` in `.gitmodules`;
+  - a submodule merge request still needed but the knowledge files missing.
+- **Knowledge files.** `CLAUDE.md`, `DECISIONS.md` and `ARCHITECTURE.md` (with a "Projects
+  using it" section kept by people) live in the shared project, from `shared-template/`
+  (`install_template.py --shared <path>`, missing files only). Its decisions travel with its
+  code: the session start of every project that uses it names it in one line, with its last
+  decisions when the current branch changes it (pointer moved since the base branch, or work
+  in progress inside), and Claude Code loads its `CLAUDE.md` when it reads files there. Task features and evidence stay in the project where
+  verify ran.
+- **Not done:**
+  - no registry of the projects that use a submodule;
+  - no verification of those projects from this one (each one's verify covers the change when
+    it moves its pointer);
+  - no full harness in the shared project.
+
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
 1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly. In dev DB mode (`DEV_DB`) the harness has no PostgreSQL of its own: the test DB lives on the dev stack's server, and the e2e layer runs on the dev DB after checking it is neutralized and updating it with `-u` (never dropped or reset).
 2. **Verifiable test frame**: `verify.sh` runs pylint-odoo, the `odoo-bin --test-enable` unit and integration tests, and the Playwright e2e tests. A sample passing test exists at each level.
@@ -280,6 +328,7 @@ skills/{init, update, guide, add-harness-check}/   skills/odoo/ (SKILL.md + vers
 agents/{odoo-explorer.md, odoo-reviewer.md}
 scripts/{detect_project.py, install_template.py}
 template/                        # the project files init writes (state, config, CLAUDE.md block)
+shared-template/                 # the knowledge files of a shared submodule (install_template --shared)
 versions.json                    # supported Odoo versions and their settings
 tools/{odoo-skill-extract/, make_demo_project.py}
 tests/                           # pytest, run once per Odoo version (HARNESS_TEST_ODOO_VERSION)

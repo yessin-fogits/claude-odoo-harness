@@ -50,6 +50,12 @@ This is a whole Odoo project. Its own modules are in `{{CUSTOM_ADDONS}}`; third-
 - Commit each verified feature with the message `[T2003] F-T2003-1 <behavior>` (`odoo-harness feature verify` prints it).
 - When every feature of the task passes and is committed: `odoo-harness gitlab mr T2003` pushes the branch and opens the merge request to `{{BASE_BRANCH}}`. Never push to `{{BASE_BRANCH}}` or `main` yourself.
 
+# Shared submodules
+- A git submodule under the addons folders (`.gitmodules`) is a GitLab project that other projects include too. Its modules are verified like this project's, but a change there reaches every project that uses it: keep it backward compatible (never rename or remove a field, method, XML id, menu or view; add instead; new behavior users see stays off by default).
+- Before changing one, read its own `CLAUDE.md`, `ARCHITECTURE.md` and `DECISIONS.md` (the session start shows its last decisions once this branch changes it). Record the decisions about its modules in its `DECISIONS.md`, not this project's.
+- Commit inside it first, with the task's message (`git -C <path> add -A && git -C <path> commit -m "[T2003] F-T2003-1 <behavior>"`), then commit this project, its new pointer included.
+- `odoo-harness gitlab mr T2003` ships it in two merge requests, merged in this order: the submodule's (branch `T2003` of its project, to its `.gitmodules` branch), then this project's, opened as Draft meanwhile. Once the submodule's is merged, run `odoo-harness gitlab mr T2003` again: it pulls the submodule's branch into this branch (the pointer moves to the merged commit) and marks the merge request ready. Never push to the submodule's branch yourself.
+
 # Feature List Rules
 - `tasks/<task>.json` is changed only through `odoo-harness feature`. Never edit it by hand. The task's notes, `tasks/<task>.md`, are yours to write (the harness keeps the lines under Features).
 - Each feature has: `id` (`F-T2003-1`, numbered within its task), `behavior`, `verification`, `state`, `evidence`; its task is the file it is in.
@@ -65,7 +71,7 @@ A feature is done only when ALL of these are true:
 3. The task's notes, `tasks/<task>.md`, are updated (what is done and left, known issues, next steps).
 4. Any decision taken is recorded: under Decisions in the task's notes, or in `DECISIONS.md` when it concerns the whole project.
 5. The work is committed (`[T2003] F-T2003-1 <behavior>`).
-6. When it was the last feature of its task: the merge request is open (`odoo-harness gitlab mr <task>`).
+6. When it was the last feature of its task: the merge request is open (`odoo-harness gitlab mr <task>`); it stays Draft while the merge request of a shared submodule waits.
 
 "It should work" or "the code looks right" is not done. Evidence is done.
 

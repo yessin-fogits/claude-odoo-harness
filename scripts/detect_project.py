@@ -213,6 +213,13 @@ def detect(target):
                             "scanning the repository")
     for entry in unmapped:
         warnings.append(f"addons_path entry {entry} matches no folder of the repository")
+    # `git submodule status` marks a submodule that is not checked out with "-"
+    empty = [line.split()[1] for line in git(target, "submodule", "status").splitlines()
+             if line.startswith("-") and len(line.split()) > 1]
+    for path in empty:
+        if any(f == path or f.startswith(path + "/") for f in custom + third):
+            warnings.append(f"the addons folder {path} is a submodule that is not checked out: "
+                            f"run git submodule update --init {path}, then detect again")
     enterprise = ""
     if enterprise_seen or (target.parent / "enterprise").is_dir():
         enterprise = "../enterprise"

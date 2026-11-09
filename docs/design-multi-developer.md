@@ -214,7 +214,8 @@ The migration is one-shot. No code path reads both layouts.
 
 - **Base branch detection** (it picks `staging` even where MRs go to `staging19` or
   `post-upgrade`): a separate fix in `detect_project.py`.
-- **Edits inside git submodules:** not seen by verification.
+- **Edits inside git submodules:** not seen by verification. Done in engine 3.4.0: see
+  "Shared submodules" in `docs/ARCHITECTURE.md`.
 - **ai-workflow is dropped.** Rollout step: remove its global commands and agents from
   `~/.claude/commands` and `~/.claude/agents` on each machine (`/task`, `/implement`, `/pre-mr`,
   `/review`, `odoo-analyst`, ...), so they don't run beside the harness.

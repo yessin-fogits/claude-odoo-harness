@@ -259,7 +259,26 @@ def catch_up_with_origin(task, doing):
     print(f"✓ {task} fast-forwarded to origin/{task}")
 
 
+def clean_submodules():
+    """Submodules checked out at the commit the project records, without changes: those a
+    branch switch moves along (the others hold work in progress, left as they are)."""
+    return [s["path"] for s in hlib.submodules() if s["initialized"]
+            and hlib.git("rev-parse", "HEAD", cwd=hlib.REPO_ROOT / s["path"])
+            == hlib.git("rev-parse", f"HEAD:{s['path']}")
+            and not hlib.git("status", "--porcelain", cwd=hlib.REPO_ROOT / s["path"])]
+
+
 def switch_to_task_branch(task, doing):
+    """Check out the task's branch (see checkout_task_branch), and the submodule commits it
+    records: git checkout leaves the submodules where they were, so the tests would run on
+    another commit of a shared module."""
+    before, clean = hlib.head_commit(), clean_submodules()
+    checkout_task_branch(task, doing)
+    if clean and hlib.head_commit() != before:
+        git_or_redpen("submodule", "update", "-q", "--", *clean, doing=doing)
+
+
+def checkout_task_branch(task, doing):
     """Check out the task's branch: the local one, else a teammate's from origin, else a new
     one from the base branch. `doing` names the command for the red pens."""
     fetch_task_branch(task)
@@ -433,6 +452,17 @@ def cmd_verify(args):
     print(f"\n✓ {feat['id']} passing. Evidence: {feat['evidence']['file']}")
     print(f"Before moving on: update tasks/{feat['task']}.md (Notes, Known issues, Decisions, "
           f"Next steps), commit with the message: {hlib.commit_message(feat)}")
+    clean = clean_submodules()
+    for sub in hlib.submodules():
+        if sub["initialized"] and sub["path"] not in clean:
+            path = sub["path"]
+            missing = [f for f in hlib.SHARED_FILES if not (hlib.REPO_ROOT / path / f).is_file()]
+            first = (f"add its knowledge files (python3 {hlib.INSTALL_TEMPLATE} --shared {path}, "
+                     "then fill its ARCHITECTURE.md), " if missing else "")
+            print(f"The shared submodule {path} changed: {first}record the decisions about it "
+                  f"in its DECISIONS.md, commit inside it first (git -C {path} add -A "
+                  f"&& git -C {path} commit -m \"{hlib.commit_message(feat)}\"), then "
+                  "commit the project (its pointer included).")
     left = [f["id"] for f in hlib.task_features(data, feat["task"]) if f["state"] != "passing"]
     if left:
         print(f"Task {feat['task']}: {', '.join(left)} still to do.")

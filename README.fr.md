@@ -312,6 +312,33 @@ avant que quiconque ouvre une branche de tâche.
 Si le plugin est plus ancien que le `HARNESS_VERSION` du projet, `odoo-harness` refuse de
 s'exécuter et vous demande de le mettre à jour.
 
+### Sous-modules partagés
+
+Certains modules vivent dans un projet GitLab que plusieurs projets incluent comme sous-module
+git (par exemple `extra-addons/l10n_tn_account`, branche `19.0` dans `.gitmodules`). Une tâche
+peut modifier à la fois le projet et un tel module. Le harness gère ce cas :
+
+- La vérification regarde dans le sous-module. Un module partagé modifié est analysé, mis à
+  jour et testé comme un module du projet, avec les modules du projet qui en dépendent.
+- `odoo-harness gitlab mr <tâche>` le livre en deux merge requests :
+  - **Premier lancement :** il pousse le commit du sous-module sur la branche `<tâche>` de son
+    projet et ouvre la merge request de ce projet (cible : la branche de `.gitmodules`). Il
+    ouvre aussi la merge request du projet en Draft.
+  - **Une fois la merge request du sous-module fusionnée :** relancez la commande. Elle tire la
+    branche dans la branche de la tâche (le pointeur passe au commit fusionné), commite, pousse
+    et marque la merge request du projet comme prête. Si le pull a apporté des changements que
+    la preuve n'a pas testés, elle reste en Draft jusqu'à une nouvelle vérification.
+- Le projet partagé porte ses propres `CLAUDE.md`, `DECISIONS.md` et `ARCHITECTURE.md` : ses
+  règles et ses décisions voyagent avec son code. La première tâche qui le modifie les ajoute,
+  dans le même commit que sa modification (`feature verify` donne la commande ; `gitlab mr`
+  refuse sans eux). Le début de session nomme chaque sous-module partagé en une ligne, et
+  n'affiche ses dernières décisions que si la branche de la tâche en cours le modifie.
+- Le garde refuse les push sur la branche du sous-module, et `feature start` récupère le commit
+  du sous-module que chaque branche de tâche enregistre.
+
+Un autre projet reçoit la modification quand il déplace son propre pointeur. Sa vérification
+teste alors les modules partagés modifiés avec ses propres modules.
+
 ## Mise à jour
 
 **Le plugin** se met à jour automatiquement. Claude Code vous demande ensuite de lancer

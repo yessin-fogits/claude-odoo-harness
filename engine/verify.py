@@ -431,6 +431,12 @@ def main(argv=None):
     report["changed_modules"] = changed
     report["changed_third_party_modules"] = third_party
     report["tested_modules"] = scope
+    # The tree of each submodule as the run tested it (committed or not): gitlab mr marks a
+    # merge request ready only when the pointers it ships hold that code.
+    subs = {s["path"]: hlib.working_tree(hlib.REPO_ROOT / s["path"])
+            for s in hlib.submodules() if s["initialized"]}
+    if subs:
+        report["submodules"] = subs
     if args.feature and not full:
         is_cross, touched, shared = cross_component(
             env, hlib.changed_files(start or hlib.base_ref(env)))
@@ -475,4 +481,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except hlib.RedPen as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)

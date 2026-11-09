@@ -302,6 +302,33 @@ opens a task branch.
 If the plugin is older than the project's `HARNESS_VERSION`, `odoo-harness` refuses to run and
 asks you to update it.
 
+### Shared submodules
+
+Some modules live in a GitLab project that several projects include as a git submodule (for
+example `extra-addons/l10n_tn_account`, branch `19.0` in `.gitmodules`). A task may change
+both the project and such a module. The harness handles that case:
+
+- Verify looks inside the submodule. A changed shared module is linted, upgraded and tested
+  like a custom one, along with the project's modules that depend on it.
+- `odoo-harness gitlab mr <task>` ships it in two merge requests:
+  - **First run:** it pushes the submodule's commit to the branch `<task>` of its project and
+    opens that project's merge request (target: the `.gitmodules` branch). It also opens this
+    project's merge request as Draft.
+  - **Once the submodule's merge request is merged:** run the command again. It pulls the
+    branch into the task branch (the pointer moves to the merged commit), commits, pushes, and
+    marks the project's merge request ready. If the pull brought changes the evidence did not
+    test, it stays Draft until you verify again.
+- The shared project carries its own `CLAUDE.md`, `DECISIONS.md` and `ARCHITECTURE.md`, so its
+  rules and decisions travel with its code. The first task that changes it adds them, in the
+  same commit as its change (`feature verify` gives the command; `gitlab mr` refuses without
+  them). The session start names each shared submodule in one line, and shows its last
+  decisions only when the current task branch changes it.
+- The guard denies pushes to the submodule's branch, and `feature start` checks out the
+  submodule commit that each task branch records.
+
+Another project gets the change when it moves its own pointer. Its verify then tests the
+changed shared modules with its own modules.
+
 ## Update
 
 **The plugin** updates automatically. Claude Code then asks you to run `/reload-plugins`. To

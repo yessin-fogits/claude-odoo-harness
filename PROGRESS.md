@@ -26,6 +26,18 @@
 - [x] Odoo 16.0: guide checked against the 16.0 source, odoo-version-api rules at the 16/17 boundary (both ways) and the @odoo-module header rule (16.0-17.0), CI matrices, engine 3.2.0; the 17.0 guide got the @odoo-module header and lost auth='bearer' (18.0)
 - [x] Fogits dev stack as the test runtime: the installer takes the dev stack's image (docker-compose/first_build, never built by init, which prints the build command when it is missing) and mounts its Odoo source (ODOO_SOURCE_DIR=../addons) read-only; an update moves projects off the image the harness built; the VOLUME warning is removed; checked on evms, engine 3.3.0
 
+- [x] Shared submodules (engine 3.4.0):
+  - verify sees inside the submodules (scope, L1, dependents, what was tested);
+  - `gitlab mr` ships in two merge requests: the submodule's first, then the pull into the project's (Draft until the pointer holds the verified code);
+  - the shared project's knowledge files (`shared-template/`, `install_template --shared`), shown at session start when the task changes the submodule;
+  - push guard on `.gitmodules` branches; submodule sync on task switch; init check for submodules that are not checked out.
+
+  Checked:
+  - pytest on 20.0 and 16.0, with local bare repositories and a fake GitLab;
+  - a real run on Odoo 19.0 with Docker: a demo project with a bare-repo shared submodule, `init`, `feature verify` (L1 on the shared module, its dependent tested, e2e, fresh install), then `gitlab push` (the submodule commit first, then the project).
+
+  The two merge requests are tested against the fake GitLab only.
+
 ## In progress
 
 ## Known issues
