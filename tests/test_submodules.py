@@ -3,6 +3,7 @@ branch 19.0). Its changes are verified in the project, shipped as its own merge 
 first, then pulled into the project's; its knowledge files travel with it."""
 
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -505,3 +506,168 @@ def test_a_foreign_submodule_moved_to_a_published_commit_needs_nothing(srepo, gi
     assert gitlab.mrs["k8s/acme"][0]["title"] == "[T11] Use the new shared rate"
     assert "none: the pointer moves to a commit already on a branch of its origin" \
         in gitlab.mrs["k8s/acme"][0]["description"]
+
+
+# --- the knowledge files of every shared submodule, before any task changes it -------
+
+KNOWLEDGE = f".harness/shared/{SUB}"
+
+
+def shared_git(repo, *args):
+    return run(repo.path, "git", "--git-dir", str(repo.shared), *args)
+
+
+def remote_branch(repo, task):
+    return shared_git(repo, "ls-remote", str(repo.shared), f"refs/heads/{task}").split()[:1]
+
+
+def advance_shared(repo):
+    """Another project's change reaches 19.0 after this project's pointer."""
+    run(repo.work, "git", "pull", "-q", str(repo.shared), "19.0")
+    (repo.work / "shared_mod/other.py").write_text("OTHER = 1\n")
+    run(repo.work, "git", "add", "-A")
+    run(repo.work, "git", "commit", "-q", "-m", "another project's change")
+    run(repo.work, "git", "push", "-q", str(repo.shared), "19.0")
+    return run(repo.work, "git", "rev-parse", "HEAD")
+
+
+def add_knowledge(repo, task="T9"):
+    """The runs of gitlab shared, ARCHITECTURE.md filled before the last one."""
+    if not (repo.path / KNOWLEDGE).exists():
+        assert repo.run(CLI, "gitlab", "shared", task).returncode == 0
+    architecture = repo.path / KNOWLEDGE / "ARCHITECTURE.md"
+    architecture.write_text(architecture.read_text().replace(
+        "## Modules\n", "## Modules\n- shared_mod: the rates every project uses.\n"))
+    result = repo.run(CLI, "gitlab", "shared", task)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result
+
+
+def test_shared_adds_the_knowledge_files_in_two_runs(srepo, gitlab):
+    tip = advance_shared(srepo)
+    pointer = git(srepo, "rev-parse", f"HEAD:{SUB}")
+    # run 1: the files, written in a worktree of the branch tip; nothing pushed
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    folder = srepo.path / KNOWLEDGE
+    assert f"✓ {SUB}: knowledge files written in {KNOWLEDGE} (19.0)" in result.stdout
+    assert "Next: fill the ARCHITECTURE.md" in result.stdout
+    assert "# Shared Odoo modules: shared" in (folder / "CLAUDE.md").read_text()
+    assert (folder / "shared_mod/other.py").is_file()  # the branch tip, not the pointer
+    assert not [r for r in gitlab.requests if r["method"] == "POST"]
+    assert not remote_branch(srepo, "T9")
+    # the project and the submodule's checkout are left as they are
+    assert git(srepo, "status", "--porcelain") == ""
+    assert sub_git(srepo, "rev-parse", "HEAD") == pointer
+    assert not (srepo.path / SUB / "CLAUDE.md").exists()
+    # run 2 with ARCHITECTURE.md still the template: refused, nothing pushed
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1
+    assert f"not filled yet: {KNOWLEDGE}/ARCHITECTURE.md" in result.stderr
+    assert not remote_branch(srepo, "T9")
+    # filled: one commit on the branch tip, pushed to T9, merge request to 19.0
+    result = add_knowledge(srepo)
+    pushed = remote_branch(srepo, "T9")[0]
+    assert shared_git(srepo, "rev-parse", f"{pushed}~1") == tip
+    assert shared_git(srepo, "diff", "--name-only", tip, pushed).split() == [
+        ".gitattributes", "ARCHITECTURE.md", "CLAUDE.md", "DECISIONS.md"]
+    assert "- shared_mod: the rates" in shared_git(srepo, "show", f"{pushed}:ARCHITECTURE.md")
+    mr = gitlab.mrs["k8s/shared"][0]
+    assert (mr["source_branch"], mr["target_branch"], mr["title"]) == (
+        "T9", "19.0", "[T9] odoo-harness knowledge files")
+    assert "`k8s/acme`" in mr["description"]
+    assert f"✓ {SUB}: pushed T9, merge request opened: {mr['web_url']}" in result.stdout
+    assert not folder.exists()
+    assert git(srepo, "status", "--porcelain") == ""
+    assert sub_git(srepo, "rev-parse", "HEAD") == pointer
+    # again: its open merge request; once merged, its branch has them
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert f"✓ {SUB}: merge request open: {mr['web_url']}" in result.stdout
+    merge_in_shared(srepo, gitlab)
+    result = srepo.run(CLI, "gitlab", "shared", "T10")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"✓ {SUB}: its branch 19.0 has the knowledge files" in result.stdout
+    assert len(gitlab.mrs["k8s/shared"]) == 1
+
+
+def test_shared_skips_the_submodules_that_are_not_shared_modules(srepo, gitlab):
+    env_file = srepo.path / "harness/harness.env"
+    env_file.write_text(env_file.read_text().replace(f",{SUB}", ""))
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"- {SUB}: skipped (not in CUSTOM_ADDONS)" in result.stdout
+    srepo.git("checkout", "--", "harness/harness.env")
+    srepo.git("config", "-f", ".gitmodules", f"submodule.{SUB}.url", "git@github.com:OCA/x.git")
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"- {SUB}: skipped (not a project of http://127.0.0.1" in result.stdout
+    assert "No shared submodule: nothing to do." in result.stdout
+    assert gitlab.requests == [] and not (srepo.path / ".harness/shared").exists()
+
+
+def test_shared_refuses_before_writing_anything(srepo, gitlab):
+    result = srepo.run(CLI, "gitlab", "shared", "staging")
+    assert result.returncode == 1 and "a task cannot be named staging" in result.stderr
+    sub_git(srepo, "push", "-q", "origin", "HEAD:refs/heads/T9")  # a change of T9, made by hand
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1
+    assert f"the branch T9 already exists in the project of {SUB}" in result.stderr
+    srepo.git("config", "-f", ".gitmodules", "--unset", f"submodule.{SUB}.branch")
+    result = srepo.run(CLI, "gitlab", "shared", "T10")
+    assert result.returncode == 1 and f"no branch for the submodule {SUB}" in result.stderr
+    assert not (srepo.path / ".harness/shared").exists()
+    assert not [r for r in gitlab.requests if r["method"] != "GET"]
+
+
+def test_a_refused_run_never_hides_the_filled_file(srepo, gitlab):
+    """A refusal of the second run leaves nothing staged that the next run would take for the
+    template; a worktree folder removed by hand is written again."""
+    assert srepo.run(CLI, "gitlab", "shared", "T9").returncode == 0
+    folder = srepo.path / KNOWLEDGE
+    shutil.rmtree(folder)
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (folder / "ARCHITECTURE.md").is_file()
+    (folder / "shared_mod/x.py").write_text("X = 1\n")
+    architecture = folder / "ARCHITECTURE.md"
+    architecture.write_text(architecture.read_text() + "- shared_mod\n")
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1
+    assert "changes more than the knowledge files: shared_mod/x.py" in result.stderr
+    (folder / "shared_mod/x.py").unlink()
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "merge request opened" in result.stdout
+
+
+def test_shared_needs_the_gitlab_settings(srepo, gitlab):
+    srepo.env["GITLAB_URL"] = ""
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1 and "GITLAB_URL or GITLAB_PROJECT is empty" in result.stderr
+
+
+def test_the_guard_and_the_stop_gate_let_claude_fill_the_knowledge_files(srepo, gitlab):
+    start_session(srepo)
+    assert srepo.run(CLI, "gitlab", "shared", "T9").returncode == 0
+    architecture = srepo.path / KNOWLEDGE / "ARCHITECTURE.md"
+    assert pre(srepo, "Edit", file_path=str(architecture), old_string="## Modules\n",
+               new_string="## Modules\n- shared_mod\n") is None
+    architecture.write_text(architecture.read_text() + "- shared_mod\n")
+    assert stop(srepo) is None
+
+
+def test_knowledge_files_merged_after_the_pointer_are_not_asked_for_again(srepo, gitlab):
+    """The knowledge files reached 19.0 after this project's pointer: a task that changes the
+    module from that pointer ships without a copy of its own."""
+    add_knowledge(srepo)
+    merge_in_shared(srepo, gitlab)
+    sub_git(srepo, "fetch", "-q", "origin", "19.0")
+    change_shared(srepo)
+    assert "are on 19.0, not in this checkout: rebase it onto origin/19.0" \
+        in shared_section(srepo, "s1")
+    srepo.git("checkout", "--", ".")
+    sub_git(srepo, "checkout", "--", ".")
+    finish_shared_task(srepo, task="T10", knowledge=False)
+    result = srepo.run(CLI, "gitlab", "mr", "T10")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [mr["source_branch"] for mr in gitlab.mrs["k8s/shared"]] == ["T9", "T10"]

@@ -38,6 +38,8 @@
 
   The two merge requests are tested against the fake GitLab only.
 
+- [x] Knowledge files for every shared submodule at once: `gitlab shared <task>` (engine 3.5.0). The first run writes the files in a worktree of the branch tip; the second run, once `ARCHITECTURE.md` is filled, pushes the branch `<task>` and opens a merge request in each shared project. Files merged after a project's pointer are not asked for again. Tested with pytest against bare repositories and the fake GitLab only, not yet on a real GitLab.
+
 ## In progress
 
 ## Known issues

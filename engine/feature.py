@@ -94,25 +94,9 @@ def e2e_example(fid):
     return f"e2e/test_{fid.removeprefix('F-').replace('-', '_')}_discount.py"
 
 
-def check_task_name(task):
-    """A task name is also its git branch and part of file names; a shared branch is refused."""
-    if not hlib.TASK_RE.match(task):
-        raise RedPen("features", f"invalid task name {task!r}",
-                     "A task name is also its git branch and part of file names: only letters, "
-                     "digits, - and _.",
-                     "Use the Odoo task code (T2003), or a short name until the task exists "
-                     "(remise-devis).")
-    shared = {"HEAD", "main", "master", "production", hlib.load_env().get("BASE_BRANCH") or "staging"}
-    if task in shared:
-        raise RedPen("features", f"a task cannot be named {task}",
-                     "A task is worked on the branch of the same name, and this one is shared.",
-                     "Use the Odoo task code (T2003), or a short name until the task exists "
-                     "(remise-devis).")
-
-
 def cmd_add(args):
     task = args.task.strip()
-    check_task_name(task)
+    hlib.check_task_name(task)
     data = hlib.load_features()
     # An Odoo code may already have its branch; a free name may be an environment (preprod).
     if (not hlib.task_features(data, task) and branch_exists(task)
@@ -348,7 +332,7 @@ def cmd_rename_task(args):
         raise RedPen("features", f"no feature belongs to task {old}",
                      "Only a task with a file in tasks/ can be renamed.",
                      "Run `odoo-harness feature status` to list the tasks.")
-    check_task_name(new)
+    hlib.check_task_name(new)
     if hlib.task_features(data, new) or branch_exists(new):
         raise RedPen("features", f"task or branch {new} already exists",
                      "Renaming onto it would mix two tasks.",
@@ -457,8 +441,14 @@ def cmd_verify(args):
         if sub["initialized"] and sub["path"] not in clean:
             path = sub["path"]
             missing = [f for f in hlib.SHARED_FILES if not (hlib.REPO_ROOT / path / f).is_file()]
-            first = (f"add its knowledge files (python3 {hlib.INSTALL_TEMPLATE} --shared {path}, "
-                     "then fill its ARCHITECTURE.md), " if missing else "")
+            first = ""
+            if missing and hlib.shared_files_upstream(sub):
+                first = (f"its knowledge files are on {sub['branch']}, not in this checkout: "
+                         f"rebase it before recording its decisions (git -C {path} rebase "
+                         f"origin/{sub['branch']}), verify again, ")
+            elif missing:
+                first = (f"add its knowledge files (python3 {hlib.INSTALL_TEMPLATE} --shared "
+                         f"{path}, then fill its ARCHITECTURE.md), ")
             print(f"The shared submodule {path} changed: {first}record the decisions about it "
                   f"in its DECISIONS.md, commit inside it first (git -C {path} add -A "
                   f"&& git -C {path} commit -m \"{hlib.commit_message(feat)}\"), then "

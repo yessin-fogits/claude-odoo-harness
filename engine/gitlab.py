@@ -4,6 +4,9 @@
     odoo-harness gitlab push TASK                 push the task branch (git push -u origin TASK)
     odoo-harness gitlab mr TASK [--title TEXT]    push, then open (or update) the merge request
                                                 TASK -> BASE_BRANCH
+    odoo-harness gitlab shared TASK               add the knowledge files to each shared
+                                                submodule: a branch TASK and a merge request
+                                                in each one's project (run it twice)
 
 `mr` is refused until every feature of the task passes (odoo-harness feature verify) and
 the work is committed: the merge request lists the features with their evidence.
@@ -14,6 +17,13 @@ the project's. The first `mr` pushes the submodule's commit, opens its merge req
 opens the project's as Draft. Once the submodule's is merged, `mr` again does the pull (the
 pointer moves to the submodule's branch, committed and pushed) and marks the project's ready,
 when the pointers hold the code the task's evidence verified.
+
+`shared` gives every shared submodule its knowledge files (CLAUDE.md, DECISIONS.md,
+ARCHITECTURE.md) before any task changes it. The first run writes the missing ones in a
+worktree of its branch tip, .harness/shared/<path>; once each ARCHITECTURE.md is filled from
+the code beside it, the second run commits them, pushes the branch TASK of the submodule's
+project and opens its merge request to the .gitmodules branch. The project and its pointers
+are left as they are: the files reach it when its pointer moves.
 
 Settings come from harness/harness.env (GITLAB_URL, GITLAB_PROJECT, BASE_BRANCH). The
 token is GITLAB_TOKEN, from the environment or the git-ignored .env file of the
@@ -56,8 +66,8 @@ def token():
     return value
 
 
-def api(env, method, path, payload=None, project=None):
-    """GitLab API call on the project (default: GITLAB_PROJECT, the repository's)."""
+def settings(env, project=None):
+    """(GITLAB_URL, the project: default GITLAB_PROJECT, the repository's)."""
     base = env.get("GITLAB_URL", "").rstrip("/")
     project = project or env.get("GITLAB_PROJECT", "")
     if not base or not project:
@@ -65,6 +75,12 @@ def api(env, method, path, payload=None, project=None):
                      "The harness does not know which GitLab project the repository belongs to.",
                      "Set GITLAB_URL=https://gitlab.example.com and GITLAB_PROJECT=group/project "
                      "in harness/harness.env.")
+    return base, project
+
+
+def api(env, method, path, payload=None, project=None):
+    """GitLab API call on the project (default: GITLAB_PROJECT, the repository's)."""
+    base, project = settings(env, project)
     url = f"{base}/api/v4/projects/{urllib.parse.quote(project, safe='')}{path}"
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={
@@ -145,12 +161,10 @@ def check_submodule(env, sub, task, knowledge=True):
     pointer only moves to a commit already published elsewhere (an OCA update on GitHub).
     Otherwise a red pen: nobody would push that commit."""
     path = sub["path"]
-    host, project = hlib.git_host_project(sub["url"])
     gitlab = env.get("GITLAB_URL", "")
-    ours = bool(project) and host == urllib.parse.urlparse(gitlab).hostname
-    if not (ours and sub["branch"]) and published(sub, task):
+    if not (ours(env, sub) and sub["branch"]) and published(sub, task):
         return False
-    if not ours:
+    if not ours(env, sub):
         raise RedPen("gitlab", f"the submodule {path} is not a project of {gitlab or 'GITLAB_URL'}",
                      f"Its URL is {sub['url'] or '(none)'}: the harness pushes and opens merge "
                      "requests on the project's GitLab only, and this commit is on no branch of "
@@ -165,7 +179,8 @@ def check_submodule(env, sub, task, knowledge=True):
                      f"{env.get('ODOO_VERSION') or '<branch>'}, commit .gitmodules, then run the "
                      "command again.")
     missing = [f for f in hlib.SHARED_FILES if not (hlib.REPO_ROOT / path / f).is_file()]
-    if knowledge and missing and not on_branch(sub):
+    # on_branch fetches the branch: files merged there since the pointer need no adding
+    if knowledge and missing and not on_branch(sub) and not hlib.shared_files_upstream(sub):
         raise RedPen("shared", f"the shared submodule {path} has no {', '.join(missing)}",
                      "Its rules, decisions and map travel with its code to every project that "
                      "uses it.",
@@ -173,6 +188,12 @@ def check_submodule(env, sub, task, knowledge=True):
                      f"(Modules, Dependencies, Projects using it); commit the files inside "
                      f"{path}, then the pointer in the project; then run the command again.")
     return True
+
+
+def ours(env, sub):
+    """The submodule is a project of the repository's GitLab (GITLAB_URL)."""
+    host, project = hlib.git_host_project(sub["url"])
+    return bool(project) and host == urllib.parse.urlparse(env.get("GITLAB_URL", "")).hostname
 
 
 def published(sub, task):
@@ -451,6 +472,194 @@ def merge_request(task, title=None):
     return mr
 
 
+# --- the knowledge files of the shared submodules ------------------------------
+
+KNOWLEDGE_DIR = hlib.STATE_DIR / "shared"
+KNOWLEDGE_PATHS = (*hlib.SHARED_FILES, ".gitattributes")
+
+
+def knowledge_targets(env, task):
+    """The shared submodules (in a CUSTOM_ADDONS folder, on the project's GitLab), after the
+    checks that need nothing written. The other submodules are printed as skipped: an OCA
+    mirror or an Odoo checkout hosted on the same GitLab is not shared modules."""
+    shared = {sub["path"] for sub in hlib.addon_submodules(env, keys=("CUSTOM_ADDONS",))}
+    if shared:
+        settings(env)  # without GITLAB_URL every submodule would look foreign
+    targets = []
+    for sub in hlib.submodules():
+        path = sub["path"]
+        if path not in shared:
+            print(f"- {path}: skipped (not in CUSTOM_ADDONS)")
+            continue
+        if not ours(env, sub):
+            print(f"- {path}: skipped (not a project of {env.get('GITLAB_URL') or 'GITLAB_URL'}: "
+                  f"{sub['url'] or 'no URL'})")
+            continue
+        if not sub["branch"]:
+            raise RedPen("gitlab", f"no branch for the submodule {path} in .gitmodules",
+                         "Its merge request targets the branch every project using it follows.",
+                         f"git config -f .gitmodules submodule.{sub['name']}.branch "
+                         f"{env.get('ODOO_VERSION') or '<branch>'}, commit .gitmodules, then run "
+                         "the command again.")
+        if sub["branch"] == task:
+            raise RedPen("gitlab", f"the task {task} is the branch of the submodule {path}",
+                         "The command pushes the branch TASK: that would be the branch every "
+                         "project using it pulls.",
+                         "Use the Odoo task code (T2003).")
+        if not sub["initialized"]:
+            raise RedPen("git", f"the submodule {path} is not checked out",
+                         "Its files are written from its own git repository.",
+                         f"git submodule update --init {path}, then run the command again.")
+        targets.append(sub)
+    return targets
+
+
+def knowledge_plan(env, task, sub):
+    """(state, merge request) of one shared submodule, nothing written yet:
+    - "has": its branch has every knowledge file;
+    - "open": the task's merge request is open in its project;
+    - "write": pass 1, the files are to be written;
+    - "unfilled": pass 2, its new ARCHITECTURE.md is still the template;
+    - "ship": pass 2, ARCHITECTURE.md is filled: commit, push, open the merge request."""
+    path, branch = sub["path"], sub["branch"]
+    folder = KNOWLEDGE_DIR / path
+    fetch_branch(sub)
+    if hlib.shared_files_upstream(sub):
+        return "has", None
+    mr = find_mr(env, task, hlib.git_host_project(sub["url"])[1])
+    if mr:
+        return "open", mr
+    started = (folder / ".git").exists()
+    remote = hlib.git("ls-remote", "--heads", "origin", f"refs/heads/{task}",
+                      cwd=hlib.REPO_ROOT / path).split()
+    if remote and not (started and remote[0] == hlib.git("rev-parse", "HEAD", cwd=folder)):
+        raise RedPen("gitlab", f"the branch {task} already exists in the project of {path}",
+                     "It holds commits this command did not make (a change of the task, or a "
+                     "merge request closed without merge).",
+                     f"Add the knowledge files with that change (python3 {hlib.INSTALL_TEMPLATE} "
+                     f"--shared {path}), or delete the branch on GitLab if it is a leftover, "
+                     "then run the command again.")
+    if not started:
+        return "write", None
+    if unfilled(folder):
+        return "unfilled", None
+    changed = hlib.git("diff", "--name-only", "HEAD", cwd=folder).splitlines() \
+        + hlib.git("ls-files", "--others", "--exclude-standard", cwd=folder).splitlines()
+    other = set(changed) - set(KNOWLEDGE_PATHS)
+    if other:
+        raise RedPen("gitlab", f"{folder.relative_to(hlib.REPO_ROOT)} changes more than the "
+                     f"knowledge files: {', '.join(sorted(other))}",
+                     "This merge request adds the knowledge files only: a change of the "
+                     "modules is a task's, verified with the project's modules.",
+                     f"git -C {folder} checkout HEAD -- {' '.join(sorted(other))} (or remove "
+                     "the new ones), then run the command again.")
+    return "ship", None
+
+
+def unfilled(folder):
+    """ARCHITECTURE.md is new on the branch and still the template pass 1 wrote."""
+    if hlib.git("rev-parse", "--verify", "-q", "HEAD:ARCHITECTURE.md", cwd=folder):
+        return False
+    template = (hlib.SHARED_TEMPLATE_DIR / "ARCHITECTURE.md").read_text()
+    path = folder / "ARCHITECTURE.md"
+    return path.is_file() and path.read_text() == template.replace("{{NAME}}", folder.name)
+
+
+def ship_knowledge(env, task, sub):
+    """Commit the files written in pass 1, push the branch TASK, open the merge request."""
+    path, branch = sub["path"], sub["branch"]
+    folder = KNOWLEDGE_DIR / path
+    message = f"[{task}] odoo-harness knowledge files"
+    rc, out = git("add", "-A", "--", *KNOWLEDGE_PATHS, cwd=folder)
+    if rc == 0 and hlib.git("diff", "--cached", "--name-only", cwd=folder):
+        rc, out = git("commit", "-q", "-m", message, cwd=folder)
+    if rc != 0:
+        raise RedPen("git", f"cannot commit the knowledge files of {path}", out[-400:],
+                     "Fix the cause (a pre-commit check of the shared project), then run the "
+                     "command again.")
+    rc, out = git("push", "origin", f"HEAD:refs/heads/{task}", cwd=folder)
+    if rc != 0:
+        raise RedPen("git", f"cannot push {path} to its branch {task}", out[-400:],
+                     "Fix the cause (credentials, network), then run the command again.")
+    body = (f"Adds the odoo-harness knowledge files of these shared modules, from Odoo task "
+            f"**{task}** of the project `{env.get('GITLAB_PROJECT', '')}`:\n\n"
+            "- `CLAUDE.md`: the rules for changing them (backward compatible, decisions "
+            "recorded);\n"
+            "- `DECISIONS.md`: the decisions about them, append-only;\n"
+            "- `ARCHITECTURE.md`: their map (modules, dependencies, projects using them).\n\n"
+            "No module changes. Every project that includes this repository as a submodule "
+            "gets these files when it moves its pointer; its developers' sessions then read "
+            "them before changing these modules.")
+    mr = api(env, "POST", "/merge_requests", {
+        "source_branch": task, "target_branch": branch, "title": message,
+        "description": body, "remove_source_branch": True},
+        project=hlib.git_host_project(sub["url"])[1])
+    remove_worktree(sub)
+    return mr
+
+
+def remove_worktree(sub):
+    folder = KNOWLEDGE_DIR / sub["path"]
+    if folder.exists():
+        git("worktree", "remove", "--force", str(folder), cwd=hlib.REPO_ROOT / sub["path"])
+
+
+def knowledge(task):
+    hlib.check_task_name(task)
+    env = hlib.load_env()
+    targets = knowledge_targets(env, task)
+    if not targets:
+        print("No shared submodule: nothing to do.")
+        return
+    # every refusal before anything is written or pushed
+    plans = [(sub, *knowledge_plan(env, task, sub)) for sub in targets]
+    unfilled = [str(KNOWLEDGE_DIR.relative_to(hlib.REPO_ROOT) / sub["path"] / "ARCHITECTURE.md")
+                for sub, state, _mr in plans if state == "unfilled"]
+    if unfilled:
+        raise RedPen("shared", f"not filled yet: {', '.join(unfilled)}",
+                     "The map of the shared modules is what every project's sessions read "
+                     "before changing them: an empty template tells them nothing.",
+                     "Fill its sections (Modules, Dependencies, Projects using it, Risks and "
+                     "debt) from the code in the same folder, then run the command again.")
+    written = []
+    for sub, state, mr in plans:
+        path, branch = sub["path"], sub["branch"]
+        if state in ("has", "open"):
+            remove_worktree(sub)
+        if state == "has":
+            print(f"✓ {path}: its branch {branch} has the knowledge files")
+        elif state == "open":
+            print(f"✓ {path}: merge request open: {mr.get('web_url')}")
+        elif state == "write":
+            folder = KNOWLEDGE_DIR / path
+            folder.parent.mkdir(parents=True, exist_ok=True)
+            git("worktree", "prune", cwd=hlib.REPO_ROOT / path)  # a folder removed by hand
+            rc, out = git("worktree", "add", "-q", "--detach", str(folder), f"origin/{branch}",
+                          cwd=hlib.REPO_ROOT / path)
+            if rc != 0:
+                raise RedPen("git", f"cannot check out {branch} of {path} in {folder}",
+                             out[-300:], "Fix the cause, then run the command again.")
+            installed = subprocess.run([sys.executable, str(hlib.INSTALL_TEMPLATE), "--shared",
+                                        str(folder)], capture_output=True, text=True)
+            if installed.returncode != 0:
+                raise RedPen("shared", f"cannot write the knowledge files of {path}",
+                             (installed.stdout + installed.stderr)[-300:],
+                             "Fix the cause, then run the command again.")
+            written.append(str(folder.relative_to(hlib.REPO_ROOT)))
+            print(f"✓ {path}: knowledge files written in {written[-1]} ({branch})")
+        else:
+            mr = ship_knowledge(env, task, sub)
+            print(f"✓ {path}: pushed {task}, merge request opened: {mr.get('web_url')}")
+    if written:
+        print(f"Next: fill the ARCHITECTURE.md of {', '.join(written)} (Modules, "
+              "Dependencies, Projects using it, Risks and debt) from the code beside it, then "
+              f"run odoo-harness gitlab shared {task} again: it commits the files, pushes the "
+              "branch and opens the merge request of each.")
+    elif any(state == "ship" for _sub, state, _mr in plans):
+        print("Get them merged on GitLab. This project gets the files when its pointer moves "
+              "(a task that changes the submodule, or a pointer update); nothing changes here.")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -459,10 +668,13 @@ def main(argv=None):
     mr = sub.add_parser("mr")
     mr.add_argument("task")
     mr.add_argument("--title", help="merge request title after [TASK] (default: first feature)")
+    sub.add_parser("shared").add_argument("task")
     args = p.parse_args(argv)
     try:
         if args.command == "push":
             push(args.task)
+        elif args.command == "shared":
+            knowledge(args.task)
         else:
             merge_request(args.task, args.title)
     except RedPen as exc:

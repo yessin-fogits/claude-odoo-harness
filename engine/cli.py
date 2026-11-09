@@ -8,6 +8,8 @@
                                                 tasks/<task>.json
     odoo-harness loop run|status                the autonomous maker-checker loop
     odoo-harness gitlab push|mr TASK            push the task branch, open its merge request
+    odoo-harness gitlab shared TASK             add the knowledge files to the shared
+                                                submodules: one merge request in each
     odoo-harness guide capture|build|check      user guides of completed tasks
     odoo-harness map [--json]                   the project map (modules, models, dependencies)
     odoo-harness static [--all | FILE...]       the static checks of layer 1
