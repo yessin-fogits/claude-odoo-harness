@@ -5,6 +5,7 @@ engine of this plugin on it. The plugin is installed once per machine, so the ho
 every session: in a folder without the harness they do nothing, after a cheap file check.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -214,12 +215,30 @@ def write_json(path, data):
 
 
 def dirty_files(root):
-    """{path: blob hash} of files modified or untracked right now (content fingerprint)."""
+    """{path: blob hash} of files modified or untracked right now (content fingerprint). A
+    changed submodule is fingerprinted by its commit and its own changes."""
     names = set(git(root, "diff", "--name-only", "HEAD").splitlines())
     names |= set(git(root, "ls-files", "--others", "--exclude-standard").splitlines())
+    names |= changed_submodules(root)
+    subs = {n: submodule_fingerprint(root / n) for n in names if n and (root / n / ".git").exists()}
     names = sorted(n for n in names if n and (root / n).is_file())
     if not names:
-        return {}
+        return subs
     rc, out = run(root, ["git", "hash-object", "--", *names], timeout=60)
     hashes = out.splitlines() if rc == 0 else []
-    return dict(zip(names, hashes)) if len(hashes) == len(names) else {}
+    return {**dict(zip(names, hashes)), **subs} if len(hashes) == len(names) else subs
+
+
+def changed_submodules(root):
+    """Paths of the submodules with changes the project does not record: git diff misses a
+    submodule whose only changes are new files."""
+    return {s["path"] for s in engine_lib().submodules(root) if s["initialized"] and (
+        git(root / s["path"], "status", "--porcelain")
+        or git(root / s["path"], "rev-parse", "HEAD")
+        != git(root, "rev-parse", f"HEAD:{s['path']}"))}
+
+
+def submodule_fingerprint(folder):
+    state = "\n".join(git(folder, *args) for args in (
+        ("rev-parse", "HEAD"), ("diff", "HEAD"), ("ls-files", "--others", "--exclude-standard")))
+    return hashlib.sha256(state.encode()).hexdigest()

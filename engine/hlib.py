@@ -7,6 +7,7 @@
     hlib.py compose ... run docker compose on the harness stack (`odoo-harness compose`)
     hlib.py psql SQL    run one SQL statement on the harness's PostgreSQL server, print the rows
     hlib.py devcheck    check the dev database (DEV_DB) before the e2e layer uses it
+    hlib.py submodules  check that the submodules holding addons are checked out
     hlib.py prune-images  remove the tool images no project uses any more (init)
 
 The engine (this folder) is installed once per machine with the plugin; it works on the
@@ -20,8 +21,10 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ENGINE_DIR = Path(__file__).resolve().parent
@@ -469,42 +472,95 @@ def module_of(env, path, roots=None):
     return None
 
 
-def base_ref(env):
-    """The commit this branch started from: merge-base with origin/BASE_BRANCH or BASE_BRANCH."""
+def base_ref(env, root=None):
+    """The commit this branch started from: merge-base with origin/BASE_BRANCH or BASE_BRANCH
+    (in the repository at root, default: the project)."""
     branch = env.get("BASE_BRANCH", "")
     for ref in (f"origin/{branch}", branch) if branch else ():
-        if git("rev-parse", "--verify", "-q", ref):
-            return git("merge-base", "HEAD", ref) or None
+        if git("rev-parse", "--verify", "-q", ref, cwd=root):
+            return git("merge-base", "HEAD", ref, cwd=root) or None
     return None
 
 
+def diff_scopes(since=None):
+    """(prefix, folder, base, gitlinks) of the repository and of each submodule checked out in
+    it. The repository's git sees a submodule as one path, its pointer (a gitlink), so what
+    changed is diffed in each git repository against base, its commit at `since` (default:
+    HEAD); base is None when the submodule did not exist then (all its files are new).
+    gitlinks are the submodule paths of the scope's own repository, left out of its changes."""
+    since = since or "HEAD"
+    subs = submodules()
+    scopes = [("", REPO_ROOT, since, {s["path"] for s in subs})]
+    for sub in subs:
+        path = sub["path"]
+        old = git("rev-parse", "--verify", "-q", f"{since}:{path}") or None
+        if not sub["initialized"]:
+            if old != (git("rev-parse", "--verify", "-q", f"HEAD:{path}") or None):
+                raise RedPen("git", f"the submodule {path} changed but is not checked out",
+                             "Its modules cannot be checked or tested without their code.",
+                             f"git submodule update --init {path}, then run the command again.")
+            continue
+        folder = REPO_ROOT / path
+        if old and git("cat-file", "-t", old, cwd=folder) != "commit":
+            raise RedPen("git", f"commit {old[:12]} of the submodule {path} is missing from "
+                         "its clone",
+                         f"The harness diffs the submodule against the commit {since} points "
+                         "to, to find the files this branch changed in it.",
+                         f"git -C {path} fetch origin, then run the command again.")
+        scopes.append((path + "/", folder, old, {s["path"] for s in submodules(folder)}))
+    return scopes
+
+
+def _no_nested_change(prefix, gitlinks, names):
+    nested = sorted(set(names) & gitlinks)
+    if prefix and nested:
+        raise RedPen("git", f"a submodule inside the submodule {prefix.rstrip('/')} changed: "
+                     f"{', '.join(nested)}",
+                     "The harness looks into one level of submodules only: the change would be "
+                     "neither checked nor tested.",
+                     "Make that change from a project that has it as a direct submodule.")
+
+
 def changed_files(since=None):
-    """Paths changed since a commit (default: HEAD), staged or not, plus untracked files."""
-    names = set(git("diff", "--name-only", since or "HEAD").splitlines())
-    names |= set(git("ls-files", "--others", "--exclude-standard").splitlines())
-    return {n for n in names if n}
+    """Paths changed since a commit (default: HEAD), staged or not, plus untracked files. A
+    changed submodule gives the files that changed inside it, not its pointer."""
+    names = set()
+    for prefix, folder, base, gitlinks in diff_scopes(since):
+        found = set(git("diff", "--name-only", base, cwd=folder).splitlines() if base
+                    else git("ls-files", cwd=folder).splitlines())
+        found |= set(git("ls-files", "--others", "--exclude-standard", cwd=folder).splitlines())
+        _no_nested_change(prefix, gitlinks, found)
+        names |= {prefix + n for n in found - gitlinks if n}
+    return names
 
 
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.M)
 
 
 def changed_lines(since=None):
-    """{repo-relative path: set of changed line numbers, or None for a whole new file}."""
+    """{repo-relative path: set of changed line numbers, or None for a whole new file}, inside
+    the changed submodules too."""
     out = {}
-    current = None
-    for line in git("diff", "-U0", "--no-color", "--no-ext-diff", since or "HEAD").splitlines():
-        if line.startswith("+++ "):
-            current = line[6:] if line.startswith("+++ b/") else None
-            if current:
-                out.setdefault(current, set())
-            continue
-        match = HUNK_RE.match(line)
-        if match and current:
-            start, count = int(match.group(1)), int(match.group(2) or 1)
-            out[current].update(range(start, start + count))
-    for name in git("ls-files", "--others", "--exclude-standard").splitlines():
-        if name:
-            out[name] = None
+    for prefix, folder, base, gitlinks in diff_scopes(since):
+        found = {}
+        if base is None:
+            found = dict.fromkeys(git("ls-files", cwd=folder).splitlines())
+        current = None
+        for line in (git("diff", "-U0", "--no-color", "--no-ext-diff", base, cwd=folder)
+                     .splitlines() if base else ()):
+            if line.startswith("+++ "):
+                current = line[6:] if line.startswith("+++ b/") else None
+                if current:
+                    found.setdefault(current, set())
+                continue
+            match = HUNK_RE.match(line)
+            if match and current:
+                start, count = int(match.group(1)), int(match.group(2) or 1)
+                found[current].update(range(start, start + count))
+        for name in git("ls-files", "--others", "--exclude-standard", cwd=folder).splitlines():
+            found[name] = None
+        _no_nested_change(prefix, gitlinks, found)
+        out.update({prefix + n: lines for n, lines in found.items() if n and n not in gitlinks})
     return out
 
 
@@ -527,13 +583,89 @@ def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
 
-def git(*args):
+def git(*args, cwd=None):
+    """Output of a git command in the repository (or in cwd, a submodule), "" when it fails."""
     try:
-        out = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True,
-                             check=True)
+        out = subprocess.run(["git", *args], cwd=cwd or REPO_ROOT, capture_output=True,
+                             text=True, check=True)
     except (OSError, subprocess.CalledProcessError):
         return ""
     return out.stdout.strip()
+
+
+# --- git submodules -----------------------------------------------------------
+# A submodule is a git repository of its own inside the project, often a GitLab project that
+# several projects share (extra-addons/l10n_tn_account, branch 19.0). Its changes are diffed
+# inside it (diff_scopes), shipped as a merge request of its own project (gitlab.py), and its
+# knowledge files (CLAUDE.md, DECISIONS.md, ARCHITECTURE.md) travel with it.
+
+SHARED_FILES = ("CLAUDE.md", "DECISIONS.md", "ARCHITECTURE.md")
+INSTALL_TEMPLATE = ENGINE_DIR.parent / "scripts" / "install_template.py"  # --shared <path>
+GIT_URL_RE = re.compile(r"^(?:[\w.+-]+://)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?/?$")
+
+
+def submodules(root=None):
+    """[{name, path, url, branch, initialized}] of the submodules of the git repository in
+    root (default: the project), read from its .gitmodules."""
+    root = Path(root or REPO_ROOT)
+    if not (root / ".gitmodules").is_file():
+        return []
+    found = {}
+    for line in git("config", "-f", ".gitmodules", "--get-regexp",
+                    r"^submodule\..+\.(path|url|branch)$", cwd=root).splitlines():
+        key, _, value = line.partition(" ")
+        name, _, field = key.removeprefix("submodule.").rpartition(".")
+        found.setdefault(name, {"name": name, "url": "", "branch": ""})[field] = value.strip()
+    subs = []
+    for sub in found.values():
+        if sub.get("path"):
+            sub["path"] = sub["path"].strip("/")
+            sub["initialized"] = (root / sub["path"] / ".git").exists()
+            subs.append(sub)
+    return sorted(subs, key=lambda s: s["path"])
+
+
+def working_tree(folder):
+    """Hash of the git tree of a repository's files as they are on disk (changes and new files
+    included, ignored ones excluded): what a verification tested, committed or not. Its index
+    is left untouched (a copy is used)."""
+    index = Path(folder) / git("rev-parse", "--git-path", "index", cwd=folder)
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "index"
+        if index.is_file():
+            shutil.copyfile(index, copy)
+        env = {**os.environ, "GIT_INDEX_FILE": str(copy)}
+        for args in (["add", "-A"], ["write-tree"]):
+            out = subprocess.run(["git", *args], cwd=folder, env=env, capture_output=True,
+                                 text=True)
+            if out.returncode != 0:
+                return ""
+    return out.stdout.strip()
+
+
+def git_host_project(url):
+    """(host, group/project) of a git remote URL (git@host:group/project.git,
+    https://host/group/project.git, ssh://git@host:2222/group/project), ("", "") for a path."""
+    match = GIT_URL_RE.match(url.strip())
+    return (match.group(1), match.group(2)) if match else ("", "")
+
+
+def addon_submodules(env, root=None):
+    """The submodules that hold an addons folder (CUSTOM_ADDONS, THIRD_PARTY_ADDONS) or sit in
+    one."""
+    roots = env_list(env, "CUSTOM_ADDONS") + env_list(env, "THIRD_PARTY_ADDONS")
+    return [sub for sub in submodules(root)
+            if any(r == sub["path"] or r.startswith(sub["path"] + "/")
+                   or sub["path"].startswith(r + "/") for r in roots)]
+
+
+def submodule_problems(env):
+    """Red pens for the submodules the addons folders need but that are not checked out."""
+    return [RedPen("env", f"the submodule {sub['path']} is not checked out",
+                   "Its folder is empty: Odoo cannot load its modules, so the install and the "
+                   "tests miss them.",
+                   f"git submodule update --init {sub['path']}, then run odoo-harness init.")
+            for sub in addon_submodules(env) if not sub["initialized"]]
 
 
 def head_commit():
@@ -841,6 +973,11 @@ if __name__ == "__main__":
         if pen:
             print(pen, file=sys.stderr)
             sys.exit(1)
+    elif sys.argv[1:] == ["submodules"]:
+        pens = submodule_problems(load_env())
+        for pen in pens:
+            print(pen, file=sys.stderr)
+        sys.exit(1 if pens else 0)
     else:
         sys.exit("usage: hlib.py modules | localenv | shellenv | runtime | compose ARGS... | psql SQL | "
-                 "devcheck | prune-images")
+                 "devcheck | submodules | prune-images")

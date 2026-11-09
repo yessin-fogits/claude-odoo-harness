@@ -7,6 +7,14 @@
 
 `mr` is refused until every feature of the task passes (odoo-harness feature verify) and
 the work is committed: the merge request lists the features with their evidence.
+
+A task that changes a shared submodule (a GitLab project other projects include) ships in two
+merge requests, merged in this order: the submodule's (TASK -> its .gitmodules branch), then
+the project's. The first `mr` pushes the submodule's commit, opens its merge request, and
+opens the project's as Draft. Once the submodule's is merged, `mr` again does the pull (the
+pointer moves to the submodule's branch, committed and pushed) and marks the project's ready,
+when the pointers hold the code the task's evidence verified.
+
 Settings come from harness/harness.env (GITLAB_URL, GITLAB_PROJECT, BASE_BRANCH). The
 token is GITLAB_TOKEN, from the environment or the git-ignored .env file of the
 repository (a personal or project access token with the api scope); never commit it.
@@ -15,6 +23,7 @@ repository (a personal or project access token with the api scope); never commit
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -27,6 +36,7 @@ import hlib  # noqa: E402
 from hlib import RedPen  # noqa: E402
 
 MR_DIR = hlib.STATE_DIR / "mr"
+DRAFT_RE = re.compile(r"^\s*(draft:|\[draft\]|\(draft\)|draft\s+-|wip:)\s*", re.I)
 
 
 def token():
@@ -46,9 +56,10 @@ def token():
     return value
 
 
-def api(env, method, path, payload=None):
+def api(env, method, path, payload=None, project=None):
+    """GitLab API call on the project (default: GITLAB_PROJECT, the repository's)."""
     base = env.get("GITLAB_URL", "").rstrip("/")
-    project = env.get("GITLAB_PROJECT", "")
+    project = project or env.get("GITLAB_PROJECT", "")
     if not base or not project:
         raise RedPen("gitlab", "GITLAB_URL or GITLAB_PROJECT is empty in harness/harness.env",
                      "The harness does not know which GitLab project the repository belongs to.",
@@ -74,8 +85,9 @@ def api(env, method, path, payload=None):
                      "Check GITLAB_URL and the network (VPN, proxy).")
 
 
-def git(*args):
-    proc = subprocess.run(["git", *args], cwd=hlib.REPO_ROOT, capture_output=True, text=True)
+def git(*args, cwd=None):
+    proc = subprocess.run(["git", *args], cwd=cwd or hlib.REPO_ROOT, capture_output=True,
+                          text=True)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
@@ -85,14 +97,17 @@ def check_branch(task):
                      "A task is shipped from its own branch.",
                      f"git checkout {task}, then run the command again.")
     if hlib.working_tree_dirty():
+        subs = [s["path"] for s in hlib.submodules()
+                if hlib.git("status", "--porcelain", "--", s["path"])]
         raise RedPen("git", "uncommitted changes",
                      "Only committed work is pushed; the merge request would miss them.",
-                     "Commit the verified work (message: [TASK] F-xxx behavior), then run the "
-                     "command again.")
+                     (f"Commit inside the submodule {subs[0]} first (git -C {subs[0]} add -A && "
+                      f"git -C {subs[0]} commit -m '[TASK] F-xxx behavior'), then " if subs
+                      else "") + "commit the verified work (message: [TASK] F-xxx behavior), "
+                     "then run the command again.")
 
 
-def push(task):
-    check_branch(task)
+def push_project(task):
     rc, out = git("push", "-u", "origin", task)
     if rc != 0:
         raise RedPen("git", f"git push -u origin {task} failed", out[-400:],
@@ -101,7 +116,223 @@ def push(task):
     print(f"✓ pushed {task}")
 
 
-def description(task, features):
+def push(task):
+    """The task branch, after the submodule commits its pointers need: a pointer to a commit
+    that is only on this machine would break every clone of the branch."""
+    check_branch(task)
+    env = hlib.load_env()
+    for sub in shipped_submodules(env):
+        if check_submodule(env, sub, task, knowledge=False):
+            push_submodule(sub, task)
+    push_project(task)
+
+
+# --- shared submodules --------------------------------------------------------
+
+def shipped_submodules(env):
+    """The submodules whose pointer this task branch moves (since the base branch)."""
+    base = hlib.base_ref(env)
+    if not base:
+        return []
+    return [sub for sub in hlib.submodules()
+            if hlib.git("rev-parse", "--verify", "-q", f"HEAD:{sub['path']}")
+            not in ("", hlib.git("rev-parse", "--verify", "-q", f"{base}:{sub['path']}"))]
+
+
+def check_submodule(env, sub, task, knowledge=True):
+    """True when the harness ships the submodule: a project of GITLAB_URL with its branch in
+    .gitmodules (and, when its merge request is needed, its knowledge files). False when its
+    pointer only moves to a commit already published elsewhere (an OCA update on GitHub).
+    Otherwise a red pen: nobody would push that commit."""
+    path = sub["path"]
+    host, project = hlib.git_host_project(sub["url"])
+    gitlab = env.get("GITLAB_URL", "")
+    ours = bool(project) and host == urllib.parse.urlparse(gitlab).hostname
+    if not (ours and sub["branch"]) and published(sub, task):
+        return False
+    if not ours:
+        raise RedPen("gitlab", f"the submodule {path} is not a project of {gitlab or 'GITLAB_URL'}",
+                     f"Its URL is {sub['url'] or '(none)'}: the harness pushes and opens merge "
+                     "requests on the project's GitLab only, and this commit is on no branch of "
+                     "its origin.",
+                     f"Push the commit of {path} to its repository yourself and get it merged "
+                     "there; the project's merge request is opened by hand meanwhile.")
+    if not sub["branch"]:
+        raise RedPen("gitlab", f"no branch for the submodule {path} in .gitmodules",
+                     "Its merge request targets the branch every project using it follows, "
+                     "and the pointer moves there once it is merged.",
+                     f"git config -f .gitmodules submodule.{sub['name']}.branch "
+                     f"{env.get('ODOO_VERSION') or '<branch>'}, commit .gitmodules, then run the "
+                     "command again.")
+    missing = [f for f in hlib.SHARED_FILES if not (hlib.REPO_ROOT / path / f).is_file()]
+    if knowledge and missing and not on_branch(sub):
+        raise RedPen("shared", f"the shared submodule {path} has no {', '.join(missing)}",
+                     "Its rules, decisions and map travel with its code to every project that "
+                     "uses it.",
+                     f"python3 {hlib.INSTALL_TEMPLATE} --shared {path}; fill its ARCHITECTURE.md "
+                     f"(Modules, Dependencies, Projects using it); commit the files inside "
+                     f"{path}, then the pointer in the project; then run the command again.")
+    return True
+
+
+def published(sub, task):
+    """The pointer is on a branch of the submodule's origin, other than the task's own."""
+    folder = hlib.REPO_ROOT / sub["path"]
+    rc, out = git("fetch", "-q", "origin", cwd=folder)
+    if rc != 0:
+        raise RedPen("git", f"cannot fetch the origin of the submodule {sub['path']}",
+                     out[-300:], "Fix the cause (credentials, network), then run the command "
+                     "again.")
+    rc, out = git("branch", "-r", "--format=%(refname)", "--contains", pointer(sub), cwd=folder)
+    return rc == 0 and any(ref.startswith("refs/remotes/origin/") and not ref.endswith("/HEAD")
+                           and ref != f"refs/remotes/origin/{task}" for ref in out.split())
+
+
+def fetch_branch(sub):
+    rc, out = git("fetch", "-q", "origin", sub["branch"], cwd=hlib.REPO_ROOT / sub["path"])
+    if rc != 0:
+        raise RedPen("git", f"cannot fetch {sub['branch']} of the submodule {sub['path']}",
+                     out[-300:], "Fix the cause (credentials, network), then run the command "
+                     "again.")
+
+
+def is_ancestor(sub, commit, of):
+    return git("merge-base", "--is-ancestor", commit, of,
+               cwd=hlib.REPO_ROOT / sub["path"])[0] == 0
+
+
+def pointer(sub):
+    return hlib.git("rev-parse", f"HEAD:{sub['path']}")
+
+
+def on_branch(sub):
+    """The pointer is a commit of the submodule's branch on GitLab: already shared."""
+    fetch_branch(sub)
+    return is_ancestor(sub, pointer(sub), f"origin/{sub['branch']}")
+
+
+def push_submodule(sub, task):
+    """Push the pointer's commit to the task's branch of the submodule's project, unless it is
+    on the submodule's branch already. True when pushed."""
+    if on_branch(sub):
+        return False
+    rc, out = git("push", "origin", f"{pointer(sub)}:refs/heads/{task}",
+                  cwd=hlib.REPO_ROOT / sub["path"])
+    if rc != 0:
+        raise RedPen("git", f"cannot push {sub['path']} to its branch {task}", out[-400:],
+                     f"If a teammate pushed to it: git -C {sub['path']} pull --rebase origin "
+                     f"{task}, commit the pointer, then run the command again.")
+    print(f"✓ pushed {sub['path']} to {task}")
+    return True
+
+
+def find_mr(env, task, project=None, state="opened"):
+    """The task's most recent merge request in the project (any state when state is None)."""
+    query = "/merge_requests?source_branch=" + urllib.parse.quote(task)
+    found = api(env, "GET", query + (f"&state={state}" if state else ""), project=project)
+    return found[0] if found else None
+
+
+def ship_submodule(env, sub, task):
+    """(state, merge request) of one shipped submodule:
+    - "waiting": pass 1, its merge request is open (opened or updated here);
+    - "pulled": pass 2, it was merged, the pointer moved to its branch here (not committed);
+    - "merged": the pointer already holds the merged change;
+    - "on-branch": no merge request, the pointer moved to a commit already on its branch."""
+    project = hlib.git_host_project(sub["url"])[1]
+    path, branch = sub["path"], sub["branch"]
+    folder = hlib.REPO_ROOT / path
+    mr = find_mr(env, task, project, state=None)
+    if mr and mr.get("state") == "merged":
+        fetch_branch(sub)
+        here, shared = pointer(sub), f"origin/{branch}"
+        merged = mr.get("merge_commit_sha") or mr.get("squash_commit_sha") or mr.get("sha")
+        if merged and is_ancestor(sub, merged, here):
+            if is_ancestor(sub, here, shared):
+                return "merged", mr
+            mr = None  # new commits after the merged one: they get a merge request of their own
+        elif is_ancestor(sub, here, shared) or here == mr.get("sha"):
+            rc, out = git("checkout", "-q", "--detach", shared, cwd=folder)
+            if rc != 0:
+                raise RedPen("git", f"cannot check out {branch} in {path}", out[-300:],
+                             "Fix the submodule's state, then run the command again.")
+            print(f"✓ {path} on {branch} after its merge request !{mr.get('iid')}")
+            return "pulled", mr
+        else:
+            raise RedPen("git", f"{path} has commits after its merged merge request "
+                         f"!{mr.get('iid')}",
+                         f"The pull would move the pointer to {branch} and leave them out.",
+                         f"git -C {path} rebase {shared}, commit the pointer, verify the "
+                         "feature again, then run the command again: they get a merge request "
+                         "of their own.")
+    if mr and mr.get("state") == "closed":
+        raise RedPen("gitlab", f"the merge request of {path} was closed without merge: "
+                     f"{mr.get('web_url')}",
+                     "The project's merge request needs that change merged in the shared "
+                     "project first.",
+                     "Reopen it on GitLab (or undo the change of the submodule and its pointer "
+                     "on this branch), then run the command again.")
+    if not push_submodule(sub, task) and not mr:
+        return "on-branch", None
+    body = (f"Part of Odoo task **{task}**, made and verified in the project "
+            f"`{env.get('GITLAB_PROJECT', '')}` (branch `{task}`): its merge request waits "
+            "for this one.\n\n"
+            "These modules are shared: every project that includes this repository as a "
+            "submodule gets this change when it moves its pointer (see \"Projects using it\" in "
+            "ARCHITECTURE.md). Merge this request first; then `odoo-harness gitlab mr "
+            f"{task}` in the project moves its pointer to `{branch}` and marks its merge "
+            "request ready.")
+    if mr:
+        mr = api(env, "PUT", f"/merge_requests/{mr['iid']}", {"description": body},
+                 project=project)
+        print(f"✓ merge request of {path} updated: {mr.get('web_url')}")
+    else:
+        title = f"[{task}] " + hlib.git("log", "-1", "--format=%s", pointer(sub),
+                                        cwd=folder).removeprefix(f"[{task}] ")
+        mr = api(env, "POST", "/merge_requests", {
+            "source_branch": task, "target_branch": branch, "title": title,
+            "description": body, "remove_source_branch": True}, project=project)
+        print(f"✓ merge request of {path} opened: {mr.get('web_url')}")
+    return "waiting", mr
+
+
+def commit_pulled(task, pulled):
+    """Commit the pointers the pull moved."""
+    paths = [sub["path"] for sub, _mr in pulled]
+    message = f"[{task}] " + ", ".join(f"{sub['path']} on {sub['branch']} after !{mr.get('iid')}"
+                                        for sub, mr in pulled)
+    for args in (("add", "--", *paths), ("commit", "-q", "-m", message)):
+        rc, out = git(*args)
+        if rc != 0:
+            raise RedPen("git", f"cannot commit the pointer of {', '.join(paths)}", out[-400:],
+                         "Fix the cause (a pre-commit check), commit the pointer yourself "
+                         f"with the message \"{message}\", then run the command again.")
+    print(f"✓ committed: {message}")
+
+
+def verified_trees(features):
+    """{submodule path: git tree} that the task's latest evidence tested."""
+    tested = {}
+    for feat in sorted(features, key=lambda f: f["evidence"].get("verified_at", "")):
+        try:
+            record = json.loads((hlib.REPO_ROOT / feat["evidence"]["file"]).read_text())
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        tested.update(record.get("report", {}).get("submodules") or {})
+    return tested
+
+
+def unverified(subs, features):
+    """The shipped submodules whose pointer does not hold the code the evidence tested: the
+    pull brought someone else's changes, or the pointer moved after the verification."""
+    tested = verified_trees(features)
+    return [sub["path"] for sub in subs
+            if not tested.get(sub["path"]) or tested[sub["path"]] != hlib.git(
+                "rev-parse", "--verify", "-q", f"{pointer(sub)}^{{tree}}",
+                cwd=hlib.REPO_ROOT / sub["path"])]
+
+
+def description(task, features, shipped=()):
     rows = ["| Feature | Behavior | Verified | Tests |", "|---|---|---|---|"]
     modules = set()
     for feat in features:
@@ -125,7 +356,26 @@ def description(task, features):
     if modules:
         lines.append(f"Modules tested: {', '.join(sorted(modules))}.")
     lines.append("Evidence: `harness/evidence/<feature>.json` in this branch.")
+    if shipped:
+        lines += ["", "### Shared submodules", "",
+                  "Merge their merge requests first: `odoo-harness gitlab mr "
+                  f"{task}` then moves the pointers to their branch and marks this one ready.",
+                  "", "| Submodule | Merge request |", "|---|---|"]
+        for sub, state, mr in shipped:
+            link = f"[!{mr.get('iid')}]({mr.get('web_url')})" if mr else ""
+            branch = f"`{sub['branch']}`" if sub["branch"] else "a branch of its origin"
+            lines.append(f"| `{sub['path']}` | " + {
+                "waiting": f"{link} open: merge it first",
+                "pulled": f"{link} merged, pointer on {branch}",
+                "merged": f"{link} merged, pointer on {branch}",
+                "on-branch": f"none: the pointer moves to a commit already on {branch}",
+            }[state] + " |")
     return "\n".join(lines)
+
+
+def draft_title(title, draft):
+    bare = DRAFT_RE.sub("", title)
+    return f"Draft: {bare}" if draft else bare
 
 
 def merge_request(task, title=None):
@@ -147,23 +397,57 @@ def merge_request(task, title=None):
         raise RedPen("git", "the passing states are not committed",
                      "The merge request must contain the evidence it lists.",
                      "Commit the work, then run the command again.")
-    push(task)
+    check_branch(task)
+    subs = shipped_submodules(env)
+    # every refusal before anything is pushed
+    ships = {sub["path"]: check_submodule(env, sub, task) for sub in subs}
+    shipped = [(sub, *(ship_submodule(env, sub, task) if ships[sub["path"]]
+                       else ("on-branch", None))) for sub in subs]
+    pulled = [(sub, mr) for sub, state, mr in shipped if state == "pulled"]
+    if pulled:
+        commit_pulled(task, pulled)
+    push_project(task)
+    waiting = [sub["path"] for sub, state, _mr in shipped if state == "waiting"]
+    stale = [] if waiting else unverified(subs, features)
+    draft = bool(waiting or stale)
     base = env.get("BASE_BRANCH") or "staging"
-    title = f"[{task}] {title or features[0]['behavior']}"
-    body = description(task, features)
-    existing = api(env, "GET", "/merge_requests?state=opened&source_branch="
-                   + urllib.parse.quote(task))
+    body = description(task, features, shipped)
+    existing = find_mr(env, task)
     if existing:
-        mr = api(env, "PUT", f"/merge_requests/{existing[0]['iid']}", {"description": body})
-        print(f"✓ merge request updated: {mr.get('web_url')}")
+        update = {"description": body}
+        if draft != bool(DRAFT_RE.match(existing.get("title", ""))):
+            update["title"] = draft_title(existing.get("title", ""), draft)
+        mr = api(env, "PUT", f"/merge_requests/{existing['iid']}", update)
+        print(f"✓ merge request updated{' (Draft)' if draft else ''}: {mr.get('web_url')}")
     else:
         mr = api(env, "POST", "/merge_requests", {
-            "source_branch": task, "target_branch": base, "title": title,
+            "source_branch": task, "target_branch": base,
+            "title": draft_title(f"[{task}] {title or features[0]['behavior']}", draft),
             "description": body, "remove_source_branch": True})
-        print(f"✓ merge request opened: {mr.get('web_url')}")
+        print(f"✓ merge request opened{' (Draft)' if draft else ''}: {mr.get('web_url')}")
     hlib.write_atomic(MR_DIR / f"{task}.json", json.dumps(
-        {"task": task, "iid": mr.get("iid"), "url": mr.get("web_url"),
-         "features": [f["id"] for f in features], "at": hlib.now_iso()}, indent=2) + "\n")
+        {"task": task, "iid": mr.get("iid"), "url": mr.get("web_url"), "draft": draft,
+         "features": [f["id"] for f in features],
+         "submodules": {sub["path"]: {"state": state, "url": (sub_mr or {}).get("web_url")}
+                        for sub, state, sub_mr in shipped},
+         "at": hlib.now_iso()}, indent=2) + "\n")
+    if waiting:
+        print(f"Next: get the merge request of {', '.join(waiting)} reviewed and merged, then "
+              f"run odoo-harness gitlab mr {task} again: it moves the pointer to its branch and "
+              "marks this merge request ready.")
+    elif stale:
+        last = features[-1]["id"]
+        raise RedPen("gitlab", f"the merge request stays Draft: {', '.join(stale)} not verified "
+                     "with the commit it points to",
+                     "The pull brought changes of the shared branch this task's evidence did "
+                     "not test (someone else's merge), or the pointer moved after the "
+                     "verification.",
+                     f"odoo-harness feature start {last} --reopen, then odoo-harness feature "
+                     f"verify {last} (it tests the shared modules with this project's), commit, "
+                     f"then odoo-harness gitlab mr {task} again.")
+    elif subs:
+        print("✓ ready to merge: the shared submodules are merged and their pointers hold the "
+              "verified code")
     return mr
 
 

@@ -17,7 +17,8 @@ how to fix it.
    only; the `odoo` skill of the plugin (`references/version-facts.md`,
    `references/version-notes.md`) lists its real API.
 3. Get the changes of the feature: the start commit is in `.harness/state.json` under the
-   feature id. Run `git diff <start_commit>` and `git status --porcelain` for new files.
+   feature id. Run `git diff --submodule=diff <start_commit>` (it shows the changes inside
+   the shared submodules too) and `git status --porcelain` for new files.
 4. Read the last verification report, `.harness/last-verify.json`, and the feature's
    evidence in `harness/evidence/` if it is passing.
 
@@ -43,6 +44,10 @@ how to fix it.
   clients (rates, thresholds, accounts, journals, products, partners, emails, URLs, record
   ids or names) come from configuration (`ir.config_parameter` setting, `res.company` field,
   editable data record), not literals in the code.
+- **Shared submodules**: a change inside a submodule (listed in `.gitmodules`) reaches every
+  project that uses it. It stays backward compatible: no field, method, XML id, menu or view
+  renamed or removed, and new behavior that users see is off by default. Its decisions are
+  in the submodule's own `DECISIONS.md`.
 - **Scope**: no unrelated changes, no half-done work, no debug leftovers, nothing outside
   the custom modules; no reformatting, renaming or cleanup of code next to the change, and
   no deleted code the feature did not make unused.

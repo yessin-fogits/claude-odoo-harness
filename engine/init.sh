@@ -90,6 +90,7 @@ check_dev_db() {
 
 check() {
     local failed=0 running svc services=(db odoo)
+    python3 "$ENGINE_DIR/hlib.py" submodules || failed=1
     dev_mode && services=(odoo)
     running="$(dc ps --status running --services 2>/dev/null)"
     for svc in "${services[@]}"; do
@@ -189,6 +190,8 @@ fi
 # Each developer's own settings (port, dev DB mode), from the plugin's template on a fresh checkout.
 python3 "$ENGINE_DIR/hlib.py" localenv || true
 python3 "$ENGINE_DIR/hlib.py" prune-images
+# A submodule holding addons (often a GitLab project several projects share) must be checked out.
+python3 "$ENGINE_DIR/hlib.py" submodules || exit 1
 require_enterprise
 build_image
 

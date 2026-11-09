@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _common as c  # noqa: E402
 
 MAX_DECISIONS = 10
+MAX_SHARED_DECISIONS = 5
 
 
 def feature_summary(view, error):
@@ -159,6 +160,42 @@ def recent_decisions(root):
     return [ln for ln in path.read_text().splitlines() if ln.startswith("- ")][-MAX_DECISIONS:]
 
 
+def shared_submodules(root):
+    """The submodules holding addons: GitLab projects other projects use too, one line each.
+    The last decisions of their own DECISIONS.md only for those the current branch changes
+    (pointer moved since the base branch, or work in progress inside): the others would only
+    take room. Their CLAUDE.md is loaded by Claude Code when it reads their files."""
+    hlib = c.engine_lib()
+    env = c.load_env(root)
+    base = hlib.base_ref(env, root)
+    in_progress = c.changed_submodules(root)
+    lines = []
+    for sub in hlib.addon_submodules(env, root):
+        if not sub["initialized"]:
+            continue  # the baseline health reports it
+        path = sub["path"]
+        project = hlib.git_host_project(sub["url"])[1] or sub["url"]
+        lines.append(f"- `{path}`: GitLab project {project}, branch "
+                     f"{sub['branch'] or '(not set in .gitmodules)'}. A change here reaches "
+                     "every project that uses it; read its CLAUDE.md, ARCHITECTURE.md and "
+                     "DECISIONS.md before changing it, and record its decisions in its "
+                     "DECISIONS.md.")
+        moved = bool(base) and (c.git(root, "rev-parse", f"HEAD:{path}")
+                                != c.git(root, "rev-parse", f"{base}:{path}"))
+        if not (moved or path in in_progress):
+            continue
+        lines.append("  This task changes it.")
+        missing = [f for f in hlib.SHARED_FILES if not (root / path / f).is_file()]
+        if missing:
+            lines.append(f"  No {', '.join(missing)} yet: the first task that changes it adds "
+                         "them (odoo-harness feature verify says how).")
+        decisions = root / path / "DECISIONS.md"
+        recent = ([ln for ln in decisions.read_text().splitlines() if ln.startswith("- ")]
+                  if decisions.is_file() else [])[-MAX_SHARED_DECISIONS:]
+        lines += [f"  {ln}" for ln in recent]
+    return lines
+
+
 def workspace_context(launch, root):
     """When Claude Code runs in the client workspace, not in the repository itself."""
     rel = root.relative_to(launch).as_posix()
@@ -227,6 +264,9 @@ def main():
     decisions = recent_decisions(root)
     if decisions:
         parts.append(f"## Last {len(decisions)} decisions (DECISIONS.md)\n" + "\n".join(decisions))
+    shared = shared_submodules(root)
+    if shared:
+        parts.append("## Shared submodules\n" + "\n".join(shared))
 
     pending = unchecked_bootstrap(root)
     if pending:

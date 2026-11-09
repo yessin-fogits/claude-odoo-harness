@@ -78,7 +78,13 @@ The goal: the next session, human or agent, understands the project from the rep
    facts from `odoo-harness map`, the dependency graph and what to watch, and the risks
    and debt. Debt includes modules without tests, findings of `--all` (group them; list
    hard-coded secrets first, without their values), version problems, and unfinished
-   branches. Facts come from the tools and the code, never from memory.
+   branches. Facts come from the tools and the code, never from memory. List the **shared
+   submodules** too (`.gitmodules`: the path, its GitLab project, its `branch`): other
+   projects include them, so a change there reaches them all. Do not write their knowledge
+   files (`CLAUDE.md`, `DECISIONS.md`, `ARCHITECTURE.md` inside the submodule) now: they
+   belong to the shared project, and the first task that changes one adds them
+   (`odoo-harness feature verify` says how). A submodule that is not checked out is a
+   `git submodule update --init <path>` before `odoo-harness init`.
 4. **CLAUDE.md.** Fill the `# This project` section from what you read (see "Project
    description" below): the key modules, the conventions you saw, the risky modules (many
    dependents, no tests). Keep it short: details belong in ARCHITECTURE.md.

@@ -10,6 +10,9 @@
                                                     generated in the client workspace DIR
     install_template.py --allow-command             allow `odoo-harness` in the user's Claude
                                                     Code settings (once per machine)
+    install_template.py --shared FOLDER             write the knowledge files of a shared
+                                                    submodule (CLAUDE.md, DECISIONS.md,
+                                                    ARCHITECTURE.md) in FOLDER, missing ones only
 
 TARGET is the root of an Odoo project repository. Its layout (custom and third-party
 addon folders, Odoo Enterprise, Dockerfile, Odoo version, base branch, GitLab project,
@@ -71,6 +74,8 @@ WORKSPACE_BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harnes
                                 re.S)
 
 TEMPLATE_DIR = PLUGIN_ROOT / "template"
+# The knowledge files of a shared submodule: a GitLab project several projects include.
+SHARED_TEMPLATE_DIR = PLUGIN_ROOT / "shared-template"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(1, str(PLUGIN_ROOT / "engine"))
 import detect_project  # noqa: E402
@@ -124,6 +129,9 @@ def parse_args(argv):
                    "old harness generated there")
     p.add_argument("--allow-command", action="store_true",
                    help="add Bash(odoo-harness:*) to the user's Claude Code settings and exit")
+    p.add_argument("--shared", type=Path, metavar="FOLDER",
+                   help="write the missing knowledge files of the shared submodule checked out "
+                   "in FOLDER and exit")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--force", action="store_true",
                       help="overwrite every existing file except state files")
@@ -131,7 +139,7 @@ def parse_args(argv):
                       help="update the harness files, keep project and state files")
     mode.add_argument("--show", metavar="FILE", help="print the rendered template of FILE")
     args = p.parse_args(argv)
-    if args.target is None and not args.allow_command:
+    if args.target is None and not (args.allow_command or args.shared):
         p.error("TARGET is required")
     return args
 
@@ -310,6 +318,26 @@ def install(target, ctx, force=False, update=False):
         report.append((action, rel))
     for folder in ctx["CUSTOM_ADDONS"].split(","):
         (target / folder).mkdir(parents=True, exist_ok=True)
+    return report
+
+
+def install_shared(folder):
+    """The knowledge files of a shared submodule, written when missing: then they are the
+    shared project's own, never overwritten. Returns a list of (action, relpath)."""
+    folder = folder.resolve()
+    if not (folder / ".git").exists():
+        raise SystemExit(f"{folder} is not a checked-out git submodule")
+    ctx = {"NAME": folder.name}
+    report = []
+    for src in sorted(SHARED_TEMPLATE_DIR.iterdir()):
+        content = render(src.read_text(), ctx)
+        if src.name == GITATTRIBUTES_FRAGMENT:
+            report.append(merge_gitignore(folder / ".gitattributes", content))
+        elif (folder / src.name).exists():
+            report.append(("kept", src.name))
+        else:
+            (folder / src.name).write_text(content)
+            report.append(("created", src.name))
     return report
 
 
@@ -613,6 +641,12 @@ def main(argv=None):
     if args.allow_command:
         action, path = allow_command(user_settings_file())
         print(f"{action:8} {path}")
+        return 0
+    if args.shared:
+        for action, rel in install_shared(args.shared):
+            print(f"{action:8} {rel}")
+        print(f"\nNext: fill ARCHITECTURE.md (Modules, Dependencies, Projects using it), then "
+              f"commit these files inside {args.shared} with the task's commit.")
         return 0
     target, ctx = build_context(args)
     if args.show:

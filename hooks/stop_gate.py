@@ -69,6 +69,7 @@ def session_changes(root, session):
         names |= set(c.git(root, "diff", "--name-only", start).splitlines())
     names |= set(c.git(root, "diff", "--name-only", "HEAD").splitlines())
     names |= set(c.git(root, "ls-files", "--others", "--exclude-standard").splitlines())
+    names |= c.changed_submodules(root)
     before = session.get("dirty_at_start") or {}
     if before and names:
         now = c.dirty_files(root)
@@ -78,10 +79,11 @@ def session_changes(root, session):
 
 
 def session_changed_code(env, names):
-    """Files under the custom or third-party addons or e2e/ among the session's changes."""
+    """Files under the custom or third-party addons or e2e/ among the session's changes. A
+    submodule shows as its path: one that is, or is under, an addons folder is code."""
     roots = c.custom_roots(env) + c.env_paths(env, "THIRD_PARTY_ADDONS")
     prefixes = tuple(r + "/" for r in roots) + ("e2e/",)
-    return sorted(n for n in names if n.startswith(prefixes))
+    return sorted(n for n in names if (n + "/").startswith(prefixes))
 
 
 def notes_changed(names):
