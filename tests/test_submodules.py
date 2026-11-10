@@ -264,7 +264,7 @@ def test_install_shared_writes_the_missing_knowledge_files_only(srepo):
 
 class FakeGitLab(BaseHTTPRequestHandler):
     """Merge requests per project; a test merges one by changing its state."""
-    mrs, requests = {}, []
+    mrs, requests, fail_posts = {}, [], 0
 
     def log_message(self, *args):
         pass
@@ -289,9 +289,11 @@ class FakeGitLab(BaseHTTPRequestHandler):
         if self.command == "GET":
             query = parse_qs(url.query)
             found = [mr for mr in reversed(mrs)
-                     if mr["source_branch"] == query["source_branch"][0]
-                     and mr["state"] == query.get("state", [mr["state"]])[0]]
+                     if all(mr.get(key) == values[0] for key, values in query.items())]
             return self.reply(200, found)
+        if self.command == "POST" and FakeGitLab.fail_posts:
+            FakeGitLab.fail_posts -= 1
+            return self.reply(500, {"message": "try again"})
         if self.command == "POST":
             mr = {**payload, "iid": len(mrs) + 1, "state": "opened",
                   "web_url": f"https://gitlab.test/{project}/-/merge_requests/{len(mrs) + 1}"}
@@ -307,7 +309,7 @@ class FakeGitLab(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def gitlab(srepo):
-    FakeGitLab.mrs, FakeGitLab.requests = {}, []
+    FakeGitLab.mrs, FakeGitLab.requests, FakeGitLab.fail_posts = {}, [], 0
     server = HTTPServer(("127.0.0.1", 0), FakeGitLab)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     srepo.env.update({"GITLAB_URL": f"http://127.0.0.1:{server.server_port}",
@@ -331,6 +333,7 @@ def finish_shared_task(repo, task="T9", knowledge=True):
     sub_git(repo, "add", "-A")
     sub_git(repo, "commit", "-qm", f"[{task}] F-{task}-1 Rates come from the settings")
     repo.commit(f"[{task}] F-{task}-1 Rates come from the settings")
+    return result
 
 
 def merge_in_shared(repo, gitlab, extra=False):
@@ -661,13 +664,79 @@ def test_knowledge_files_merged_after_the_pointer_are_not_asked_for_again(srepo,
     module from that pointer ships without a copy of its own."""
     add_knowledge(srepo)
     merge_in_shared(srepo, gitlab)
+    stale = sub_git(srepo, "rev-parse", "origin/19.0")
     sub_git(srepo, "fetch", "-q", "origin", "19.0")
     change_shared(srepo)
     assert "are on 19.0, not in this checkout: rebase it onto origin/19.0" \
         in shared_section(srepo, "s1")
     srepo.git("checkout", "--", ".")
     sub_git(srepo, "checkout", "--", ".")
-    finish_shared_task(srepo, task="T10", knowledge=False)
+    # verify fetches: origin/19.0 as last fetched still predates the merge
+    sub_git(srepo, "update-ref", "refs/remotes/origin/19.0", stale)
+    verified = finish_shared_task(srepo, task="T10", knowledge=False)
+    assert "its knowledge files are on 19.0, not in this checkout" in verified.stdout
+    assert f"git -C {SUB} rebase --autostash origin/19.0" in verified.stdout
     result = srepo.run(CLI, "gitlab", "mr", "T10")
     assert result.returncode == 0, result.stdout + result.stderr
     assert [mr["source_branch"] for mr in gitlab.mrs["k8s/shared"]] == ["T9", "T10"]
+
+
+def test_a_failed_merge_request_is_opened_by_the_next_run(srepo, gitlab):
+    """The push went through, the merge request did not: the next run opens it, from the same
+    worktree, without taking the branch it pushed for someone else's."""
+    assert srepo.run(CLI, "gitlab", "shared", "T9").returncode == 0
+    architecture = srepo.path / KNOWLEDGE / "ARCHITECTURE.md"
+    architecture.write_text(architecture.read_text() + "\n\n")  # blank lines fill nothing
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1 and "not filled yet" in result.stderr
+    architecture.unlink()  # a deleted map is not a filled one
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1 and "not filled yet" in result.stderr
+    shutil.rmtree(srepo.path / KNOWLEDGE)
+    assert srepo.run(CLI, "gitlab", "shared", "T9").returncode == 0
+    gitlab.fail_posts = 1
+    architecture.write_text(architecture.read_text() + "- shared_mod\n")
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 1 and remote_branch(srepo, "T9")
+    assert (srepo.path / KNOWLEDGE).exists()
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(gitlab.mrs["k8s/shared"]) == 1 and not (srepo.path / KNOWLEDGE).exists()
+
+
+def test_a_filled_worktree_is_kept_when_the_files_arrive_another_way(srepo, gitlab):
+    assert srepo.run(CLI, "gitlab", "shared", "T9").returncode == 0
+    architecture = srepo.path / KNOWLEDGE / "ARCHITECTURE.md"
+    architecture.write_text(architecture.read_text() + "- shared_mod: the rates\n")
+    run(srepo.work, "git", "pull", "-q", str(srepo.shared), "19.0")
+    for name in ("CLAUDE.md", "DECISIONS.md", "ARCHITECTURE.md"):
+        (srepo.work / name).write_text(f"# {name}\n")
+    run(srepo.work, "git", "add", "-A")
+    run(srepo.work, "git", "commit", "-q", "-m", "another project's knowledge files")
+    run(srepo.work, "git", "push", "-q", str(srepo.shared), "19.0")
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"! {SUB}: {KNOWLEDGE} kept, its ARCHITECTURE.md is filled" in result.stdout
+    assert "- shared_mod: the rates" in architecture.read_text()
+
+
+def test_another_open_merge_request_adding_the_files_is_not_doubled(srepo, gitlab):
+    add_knowledge(srepo, "T100")  # another project's install, not merged yet
+    result = srepo.run(CLI, "gitlab", "shared", "T200")
+    assert result.returncode == 0, result.stdout + result.stderr
+    url = gitlab.mrs["k8s/shared"][0]["web_url"]
+    assert f"✓ {SUB}: merge request {url} adds the knowledge files" in result.stdout
+    assert len(gitlab.mrs["k8s/shared"]) == 1 and not (srepo.path / KNOWLEDGE).exists()
+    # a task that adds them in the submodule's checkout ships them itself
+    srepo.run(sys.executable, str(ROOT / "scripts/install_template.py"), "--shared", SUB)
+    gitlab.mrs["k8s/shared"][0]["state"] = "closed"
+    result = srepo.run(CLI, "gitlab", "shared", "T200")
+    assert f"✓ {SUB}: its checkout has the knowledge files" in result.stdout
+
+
+def test_a_relative_submodule_url_is_a_project_of_the_gitlab(srepo, gitlab):
+    srepo.git("config", "-f", ".gitmodules", f"submodule.{SUB}.url", "../k8s/shared.git")
+    assert value(srepo, "hlib.submodules()")[0]["url"] == SHARED_URL
+    result = srepo.run(CLI, "gitlab", "shared", "T9")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"✓ {SUB}: knowledge files written in {KNOWLEDGE}" in result.stdout

@@ -601,7 +601,6 @@ def git(*args, cwd=None):
 
 SHARED_FILES = ("CLAUDE.md", "DECISIONS.md", "ARCHITECTURE.md")
 INSTALL_TEMPLATE = ENGINE_DIR.parent / "scripts" / "install_template.py"  # --shared <path>
-SHARED_TEMPLATE_DIR = ENGINE_DIR.parent / "shared-template"  # what --shared writes
 GIT_URL_RE = re.compile(r"^(?:[\w.+-]+://)?(?:[^@/]+@)?([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?/?$")
 
 
@@ -622,6 +621,10 @@ def submodules(root=None):
         if sub.get("path"):
             sub["path"] = sub["path"].strip("/")
             sub["initialized"] = (root / sub["path"] / ".git").exists()
+            if sub["url"].startswith(("./", "../")) and sub["initialized"]:
+                # relative to the project's remote: git resolved it when it cloned the submodule
+                sub["url"] = git("config", "--get", "remote.origin.url",
+                                 cwd=root / sub["path"]) or sub["url"]
             subs.append(sub)
     return sorted(subs, key=lambda s: s["path"])
 
@@ -659,13 +662,18 @@ def addon_submodules(env, root=None, keys=("CUSTOM_ADDONS", "THIRD_PARTY_ADDONS"
                    or sub["path"].startswith(r + "/") for r in roots)]
 
 
-def shared_files_upstream(sub, root=None):
-    """The submodule's branch (origin/<branch>, as last fetched) has every knowledge file: a
-    pointer older than the merge that added them lacks them, and a rebase brings them."""
+def shared_files_upstream(sub, root=None, fetch=False):
+    """The submodule's branch (origin/<branch>, fetched first with fetch, else as last
+    fetched) has every knowledge file: a pointer older than the merge that added them lacks
+    them, and a rebase brings them."""
     folder = Path(root or REPO_ROOT) / sub["path"]
-    return bool(sub["branch"]) and all(
-        git("rev-parse", "--verify", "-q", f"origin/{sub['branch']}:{name}", cwd=folder)
-        for name in SHARED_FILES)
+    if not sub["branch"]:
+        return False
+    if fetch:
+        git("fetch", "-q", "origin", sub["branch"], cwd=folder)  # offline: as last fetched
+    found = git("ls-tree", "--name-only", f"origin/{sub['branch']}", "--", *SHARED_FILES,
+                cwd=folder)
+    return set(found.splitlines()) == set(SHARED_FILES)
 
 
 def submodule_problems(env):

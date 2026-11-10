@@ -442,10 +442,11 @@ def cmd_verify(args):
             path = sub["path"]
             missing = [f for f in hlib.SHARED_FILES if not (hlib.REPO_ROOT / path / f).is_file()]
             first = ""
-            if missing and hlib.shared_files_upstream(sub):
+            # fetched: files merged since the last fetch would otherwise ask for a copy
+            if missing and hlib.shared_files_upstream(sub, fetch=True):
                 first = (f"its knowledge files are on {sub['branch']}, not in this checkout: "
                          f"rebase it before recording its decisions (git -C {path} rebase "
-                         f"origin/{sub['branch']}), verify again, ")
+                         f"--autostash origin/{sub['branch']}), verify again, ")
             elif missing:
                 first = (f"add its knowledge files (python3 {hlib.INSTALL_TEMPLATE} --shared "
                          f"{path}, then fill its ARCHITECTURE.md), ")

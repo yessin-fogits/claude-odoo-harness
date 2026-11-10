@@ -212,9 +212,13 @@ pointer (a gitlink), so the harness looks inside it:
   read from GitLab and the disk, never from a state file:
   - its branch has the files: nothing to do;
   - the task's merge request is open: nothing to do;
+  - the submodule's checkout has the files, or another open merge request to its branch adds
+    them: nothing to do (a second set would conflict with theirs);
   - no worktree yet: write the files (pass 1) in a detached worktree of `origin/<branch>` at
-    `.harness/shared/<path>`, git-ignored. Pass 2 compares `ARCHITECTURE.md` with the
-    rendered template and only reads until it ships, so a refused run leaves nothing behind;
+    `.harness/shared/<path>`, git-ignored. Pass 2 compares `ARCHITECTURE.md` with the copy
+    pass 1 kept in the worktree's git dir and only reads until it ships, so a refused run
+    leaves nothing behind. A worktree whose `ARCHITECTURE.md` is filled is never removed
+    without shipping it: a run that finds nothing to do keeps it and says so;
   - worktree filled: commit, push `HEAD:refs/heads/<task>`, open the merge request, remove the
     worktree (pass 2).
 
