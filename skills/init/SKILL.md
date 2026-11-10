@@ -80,9 +80,16 @@ The goal: the next session, human or agent, understands the project from the rep
    hard-coded secrets first, without their values), version problems, and unfinished
    branches. Facts come from the tools and the code, never from memory. List the **shared
    submodules** too (`.gitmodules`: the path, its GitLab project, its `branch`): other
-   projects include them, so a change there reaches them all. Do not write their knowledge
-   files (`CLAUDE.md`, `DECISIONS.md`, `ARCHITECTURE.md` inside the submodule) now: they
-   belong to the shared project, and the first task that changes one adds them
+   projects include them, so a change there reaches them all. Their knowledge files
+   (`CLAUDE.md`, `DECISIONS.md`, `ARCHITECTURE.md` inside the submodule) belong to the shared
+   project, never to this repository. When their branch lacks them, offer to add them now
+   with `odoo-harness gitlab shared <task>`, using the install's task code. Ask first: it opens
+   one merge request in each shared project. The first run writes the files in
+   `.harness/shared/<path>/`, a checkout of the submodule's branch tip. Fill each
+   `ARCHITECTURE.md` there from the code beside it: one line per module, the dependencies,
+   this project under "Projects using it". Use the `odoo-explorer` agent when there are many
+   modules. Then run the command again: it pushes the branch `<task>` and opens the merge
+   requests. If the user declines, the first task that changes a submodule adds them
    (`odoo-harness feature verify` says how). A submodule that is not checked out is a
    `git submodule update --init <path>` before `odoo-harness init`.
 4. **CLAUDE.md.** Fill the `# This project` section from what you read (see "Project

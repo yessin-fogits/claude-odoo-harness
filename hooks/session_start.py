@@ -186,7 +186,11 @@ def shared_submodules(root):
             continue
         lines.append("  This task changes it.")
         missing = [f for f in hlib.SHARED_FILES if not (root / path / f).is_file()]
-        if missing:
+        if missing and hlib.shared_files_upstream(sub, root):
+            lines.append(f"  Its {', '.join(missing)} are on {sub['branch']}, not in this "
+                         f"checkout: rebase it onto origin/{sub['branch']} to read them first "
+                         f"(git -C {path} rebase --autostash origin/{sub['branch']}).")
+        elif missing:
             lines.append(f"  No {', '.join(missing)} yet: the first task that changes it adds "
                          "them (odoo-harness feature verify says how).")
         decisions = root / path / "DECISIONS.md"

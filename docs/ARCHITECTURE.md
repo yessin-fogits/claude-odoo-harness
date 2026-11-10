@@ -206,6 +206,36 @@ pointer (a gitlink), so the harness looks inside it:
     it moves its pointer);
   - no full harness in the shared project.
 
+- **Knowledge files for every shared submodule at once** (`gitlab shared <task>`, in
+  `gitlab.py`). It takes the submodules in a `CUSTOM_ADDONS` folder on `GITLAB_URL`; an OCA
+  mirror or an Odoo checkout on the same GitLab is skipped. Each one goes through these states,
+  read from GitLab and the disk, never from a state file:
+  - its branch has the files: nothing to do;
+  - the task's merge request is open: nothing to do;
+  - the submodule's checkout has the files, or another open merge request to its branch adds
+    them: nothing to do (a second set would conflict with theirs);
+  - no worktree yet: write the files (pass 1) in a detached worktree of `origin/<branch>` at
+    `.harness/shared/<path>`, git-ignored. Pass 2 compares `ARCHITECTURE.md` with the copy
+    pass 1 kept in the worktree's git dir and only reads until it ships, so a refused run
+    leaves nothing behind. A worktree whose `ARCHITECTURE.md` is filled is never removed
+    without shipping it: a run that finds nothing to do keeps it and says so;
+  - worktree filled: commit, push `HEAD:refs/heads/<task>`, open the merge request, remove the
+    worktree (pass 2).
+
+  Every refusal comes before anything is written or pushed:
+  - a task named like a shared branch;
+  - no `.gitmodules` branch;
+  - a submodule that is not checked out;
+  - a branch `<task>` in its project that pass 2 did not push;
+  - an `ARCHITECTURE.md` still equal to the template;
+  - changes other than the knowledge files.
+
+  The worktree starts at the branch tip, not the pointer: the merge request then adds only the
+  files, and the map describes the code it merges into. The project's pointers are not moved.
+  Moving them to the branch tip would bring others' changes that no verify has tested.
+  `check_submodule` accepts files that are on `origin/<branch>` but not at the pointer. The
+  `feature verify` and session start hints then say to rebase instead of writing a second copy,
+  which would conflict with the merged one.
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
 1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly. In dev DB mode (`DEV_DB`) the harness has no PostgreSQL of its own: the test DB lives on the dev stack's server, and the e2e layer runs on the dev DB after checking it is neutralized and updating it with `-u` (never dropped or reset).
 2. **Verifiable test frame**: `verify.sh` runs pylint-odoo, the `odoo-bin --test-enable` unit and integration tests, and the Playwright e2e tests. A sample passing test exists at each level.

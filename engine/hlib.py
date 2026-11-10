@@ -621,6 +621,10 @@ def submodules(root=None):
         if sub.get("path"):
             sub["path"] = sub["path"].strip("/")
             sub["initialized"] = (root / sub["path"] / ".git").exists()
+            if sub["url"].startswith(("./", "../")) and sub["initialized"]:
+                # relative to the project's remote: git resolved it when it cloned the submodule
+                sub["url"] = git("config", "--get", "remote.origin.url",
+                                 cwd=root / sub["path"]) or sub["url"]
             subs.append(sub)
     return sorted(subs, key=lambda s: s["path"])
 
@@ -650,13 +654,26 @@ def git_host_project(url):
     return (match.group(1), match.group(2)) if match else ("", "")
 
 
-def addon_submodules(env, root=None):
-    """The submodules that hold an addons folder (CUSTOM_ADDONS, THIRD_PARTY_ADDONS) or sit in
-    one."""
-    roots = env_list(env, "CUSTOM_ADDONS") + env_list(env, "THIRD_PARTY_ADDONS")
+def addon_submodules(env, root=None, keys=("CUSTOM_ADDONS", "THIRD_PARTY_ADDONS")):
+    """The submodules that hold an addons folder of the settings keys or sit in one."""
+    roots = [folder for key in keys for folder in env_list(env, key)]
     return [sub for sub in submodules(root)
             if any(r == sub["path"] or r.startswith(sub["path"] + "/")
                    or sub["path"].startswith(r + "/") for r in roots)]
+
+
+def shared_files_upstream(sub, root=None, fetch=False):
+    """The submodule's branch (origin/<branch>, fetched first with fetch, else as last
+    fetched) has every knowledge file: a pointer older than the merge that added them lacks
+    them, and a rebase brings them."""
+    folder = Path(root or REPO_ROOT) / sub["path"]
+    if not sub["branch"]:
+        return False
+    if fetch:
+        git("fetch", "-q", "origin", sub["branch"], cwd=folder)  # offline: as last fetched
+    found = git("ls-tree", "--name-only", f"origin/{sub['branch']}", "--", *SHARED_FILES,
+                cwd=folder)
+    return set(found.splitlines()) == set(SHARED_FILES)
 
 
 def submodule_problems(env):
@@ -685,6 +702,22 @@ def task_sort_key(task):
 
 def task_file(task):
     return TASKS_DIR / f"{task}.json"
+
+
+def check_task_name(task):
+    """A task name is also its git branch and part of file names; a shared branch is refused."""
+    if not TASK_RE.match(task):
+        raise RedPen("features", f"invalid task name {task!r}",
+                     "A task name is also its git branch and part of file names: only letters, "
+                     "digits, - and _.",
+                     "Use the Odoo task code (T2003), or a short name until the task exists "
+                     "(remise-devis).")
+    shared = {"HEAD", "main", "master", "production", load_env().get("BASE_BRANCH") or "staging"}
+    if task in shared:
+        raise RedPen("features", f"a task cannot be named {task}",
+                     "A task is worked on the branch of the same name, and this one is shared.",
+                     "Use the Odoo task code (T2003), or a short name until the task exists "
+                     "(remise-devis).")
 
 
 def load_features():

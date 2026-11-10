@@ -177,6 +177,7 @@ and copies no Odoo image: it uses the dev stack's image as it is and mounts its 
 
 ### Harness
 
+| `gitlab shared T2003` | Adds the knowledge files to every shared submodule that lacks them: the branch `T2003` and a merge request in each submodule's project. Run it twice: the first run writes the files, the second ships them once `ARCHITECTURE.md` is filled (see "Shared submodules") |
 | Command | What it does |
 |---|---|
 | `loop run`, `loop status` | Runs the [autonomous loop](#autonomous-loop), or shows its last run |
@@ -321,8 +322,18 @@ both the project and such a module. The harness handles that case:
 - The shared project carries its own `CLAUDE.md`, `DECISIONS.md` and `ARCHITECTURE.md`, so its
   rules and decisions travel with its code. The first task that changes it adds them, in the
   same commit as its change (`feature verify` gives the command; `gitlab mr` refuses without
-  them). The session start names each shared submodule in one line, and shows its last
-  decisions only when the current task branch changes it.
+  them). To add them to every shared submodule at once, before any task changes one (at
+  install, for example), use `odoo-harness gitlab shared <task>`:
+  - **First run:** for each submodule in `CUSTOM_ADDONS`, on the project's GitLab, whose branch
+    lacks the files, it writes them in a worktree of the branch tip,
+    `.harness/shared/<path>/`. Nothing is pushed. Fill each `ARCHITECTURE.md` from the code in
+    the same folder.
+  - **Second run:** it commits the files there, pushes the branch `<task>` of the submodule's
+    project and opens its merge request to the `.gitmodules` branch.
+  - The project and its pointers do not change: it gets the files when its pointer moves. A
+    task that changes the submodule from an older pointer is not asked to add them again.
+- The session start names each shared submodule in one line, and shows its last decisions only
+  when the current task branch changes it.
 - The guard denies pushes to the submodule's branch, and `feature start` checks out the
   submodule commit that each task branch records.
 

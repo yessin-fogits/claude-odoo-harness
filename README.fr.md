@@ -184,6 +184,7 @@ commande `docker build` à lancer et s'arrête.
 ### Harness
 
 | Commande | Effet |
+| `gitlab shared T2003` | Ajoute les fichiers de connaissance à chaque sous-module partagé qui ne les a pas : la branche `T2003` et une merge request dans le projet de chaque sous-module. À lancer deux fois : le premier lancement écrit les fichiers, le second les livre une fois `ARCHITECTURE.md` rempli (voir « Sous-modules partagés ») |
 |---|---|
 | `loop run`, `loop status` | Lance la [boucle autonome](#boucle-autonome), ou affiche sa dernière exécution |
 | `where` | Affiche le dépôt, le moteur et leurs versions |
@@ -331,8 +332,20 @@ peut modifier à la fois le projet et un tel module. Le harness gère ce cas :
 - Le projet partagé porte ses propres `CLAUDE.md`, `DECISIONS.md` et `ARCHITECTURE.md` : ses
   règles et ses décisions voyagent avec son code. La première tâche qui le modifie les ajoute,
   dans le même commit que sa modification (`feature verify` donne la commande ; `gitlab mr`
-  refuse sans eux). Le début de session nomme chaque sous-module partagé en une ligne, et
-  n'affiche ses dernières décisions que si la branche de la tâche en cours le modifie.
+  refuse sans eux). Pour les ajouter d'un coup à tous les sous-modules partagés, avant
+  qu'une tâche n'en modifie un (à l'installation par exemple), lancez
+  `odoo-harness gitlab shared <tâche>` :
+  - **Premier lancement :** pour chaque sous-module de `CUSTOM_ADDONS`, sur le GitLab du
+    projet, dont la branche n'a pas les fichiers, elle les écrit dans un worktree de la pointe
+    de cette branche, `.harness/shared/<chemin>/`. Rien n'est poussé. Remplissez chaque
+    `ARCHITECTURE.md` à partir du code du même dossier.
+  - **Second lancement :** elle y commite les fichiers, pousse la branche `<tâche>` du projet
+    du sous-module et ouvre sa merge request vers la branche du `.gitmodules`.
+  - Le projet et ses pointeurs ne changent pas : il reçoit les fichiers quand son pointeur
+    avance. Une tâche qui modifie le sous-module depuis un pointeur plus ancien n'a pas à les
+    ajouter de nouveau.
+- Le début de session nomme chaque sous-module partagé en une ligne, et n'affiche ses dernières
+  décisions que si la branche de la tâche en cours le modifie.
 - Le garde refuse les push sur la branche du sous-module, et `feature start` récupère le commit
   du sous-module que chaque branche de tâche enregistre.
 
