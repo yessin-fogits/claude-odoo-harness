@@ -88,9 +88,16 @@ check_dev_db() {
     ok "dev database '$DEV_DB' reachable and neutralized"
 }
 
+# A .pylintrc validating another Odoo version: the harness lint passes the right version
+# itself, so it only misleads CI and pre-commit. Reported, never blocking (a human change).
+check_lint_config() {
+    python3 "$ENGINE_DIR/static_checks.py" --lint-config >/dev/null || true
+}
+
 check() {
     local failed=0 running svc services=(db odoo)
     python3 "$ENGINE_DIR/hlib.py" submodules || failed=1
+    check_lint_config
     dev_mode && services=(odoo)
     running="$(dc ps --status running --services 2>/dev/null)"
     for svc in "${services[@]}"; do
@@ -192,6 +199,7 @@ python3 "$ENGINE_DIR/hlib.py" localenv || true
 python3 "$ENGINE_DIR/hlib.py" prune-images
 # A submodule holding addons (often a GitLab project several projects share) must be checked out.
 python3 "$ENGINE_DIR/hlib.py" submodules || exit 1
+check_lint_config
 require_enterprise
 build_image
 

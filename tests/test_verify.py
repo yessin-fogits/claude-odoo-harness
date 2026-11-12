@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from conftest import CLI, ODOO_VERSION, ROOT, add_feature
+from conftest import CLI, ENGINE, ODOO_VERSION, ROOT, add_feature
 
 HARNESS = ROOT / "engine"
 
@@ -391,6 +391,22 @@ def test_project_rcfile_and_odoo_version_are_passed_to_pylint(hrepo):
     assert any("unknown-option-value" in a for a in lint)
     debt = hrepo.run(CLI, "static", "--all")
     assert "lint config validates Odoo 11.0" in debt.stderr
+
+
+def test_init_reports_a_lint_config_for_another_odoo_version(hrepo):
+    rcfile = hrepo.path / ".pylintrc-mandatory"  # the demo's fogits rcfile
+    rcfile.write_text(f"[ODOOLINT]\nvalid-odoo-versions=16.0,{ODOO_VERSION}\n")
+    lint = hrepo.run(CLI, "static", "--lint-config")
+    assert lint.returncode == 0 and "lint config" not in lint.stderr
+    rcfile.write_text("[ODOOLINT]\nvalid-odoo-versions=11.0\n")
+    lint = hrepo.run(CLI, "static", "--lint-config")
+    assert lint.returncode == 1
+    assert (f".pylintrc-mandatory:1: lint config validates Odoo 11.0, the project runs Odoo "
+            f"{ODOO_VERSION}") in lint.stderr
+    # init and init --check run it without stopping on it
+    init = (ENGINE / "init.sh").read_text()
+    assert init.count("check_lint_config\n") == 2
+    assert 'static_checks.py" --lint-config >/dev/null || true' in init
 
 
 # --- dev DB mode ----------------------------------------------------------------

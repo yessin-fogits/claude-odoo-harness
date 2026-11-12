@@ -6,6 +6,7 @@
     odoo-harness static --all        check the whole project: every custom module and
                                           the project files (debt report, used by discovery)
     odoo-harness static FILE...      check only these files (used after each edit)
+    odoo-harness static --lint-config  check only the lint configuration (used by init)
 
 Checks: Python compiles, XML is well formed, manifests are consistent, security CSV
 headers, and the project checks in harness/checks/ (born from code reviews). With
@@ -289,6 +290,8 @@ def main(argv):
     env = hlib.load_env()
     if argv == ["--all"]:
         findings = run(env, whole_project=True)
+    elif argv == ["--lint-config"]:
+        findings = check_lint_config(env)
     elif argv:
         findings = new_on_branch(env, run(env, [Path(a) for a in argv if Path(a).is_file()]))
     else:
