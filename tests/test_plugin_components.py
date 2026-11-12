@@ -24,17 +24,14 @@ def test_one_plugin_for_every_version():
     assert all(v in manifest["description"] for v in (min(versions), max(versions)))
 
 
-def test_marketplace_serves_the_plugin_and_keeps_the_old_ones():
+def test_marketplace_serves_only_the_plugin():
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
-    plugins = {p["name"]: p for p in market["plugins"]}
-    current = plugins["odoo-harness"]["source"]
+    # the deprecated per-version plugins (odoo-harness-17...-20) were removed on 2026-11-12
+    assert [p["name"] for p in market["plugins"]] == ["odoo-harness"]
+    current = market["plugins"][0]["source"]
     # HTTPS, so no SSH key is needed to install
     assert current["source"] == "url" and current["url"].startswith("https://")
     assert current["ref"] == "main"
-    # the frozen branches of the vendored harness; versions added later (16.0) never had one
-    for version in ("17.0", "18.0", "19.0", "20.0"):
-        old = plugins[f"odoo-harness-{version.split('.')[0]}"]
-        assert old["source"]["ref"] == version and "Deprecated" in old["description"]
 
 
 def test_skill_and_agent_paths_exist():
