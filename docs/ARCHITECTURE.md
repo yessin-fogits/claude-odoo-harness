@@ -76,9 +76,9 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
   - The project's version is `ODOO_VERSION` in `harness/harness.env`, detected by `init`.
   - The `odoo` skill holds one guide per version: `skills/odoo/versions/<version>/`.
   - CI runs the tests, the skill check and the e2e demo for each version (a matrix).
-  - The old `17.0`...`20.0` branches are frozen: they serve the deprecated
-    `odoo-harness-<N>` plugins until every project is migrated. 16.0 came later and never
-    had a branch: it exists only in the one plugin.
+  - The old `17.0`...`20.0` branches are frozen. The marketplace no longer lists the
+    `odoo-harness-<N>` plugins they served: a project still on the vendored harness is
+    migrated by `/odoo-harness:update`. 16.0 came later and never had a branch.
 - **Runtime**: Docker Compose with these services:
   - `odoo`, using the image of the project's version.
   - `db`, running Postgres.
@@ -347,7 +347,7 @@ When a code review finds a new type of agent mistake:
 
 ## Plugin repo layout (branch `main`)
 ```
-.claude-plugin/{plugin.json, marketplace.json}   # odoo-harness, plus the deprecated per-version plugins
+.claude-plugin/{plugin.json, marketplace.json}   # the odoo-harness plugin and its marketplace
 bin/odoo-harness                 # the command (-> engine/cli.py)
 engine/                          # the engine, run on the repository in $HARNESS_REPO
   cli.py VERSION hlib.py feature.py verify.py init.sh lib.sh loop.py gitlab.py guide.py
