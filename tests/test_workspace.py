@@ -1,5 +1,6 @@
 """Claude Code started in the client workspace (~/Project/<client>), the harness in git/."""
 
+import json
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import install_template
-from conftest import CLI, MODULE_DIR, TESTS, HarnessRepo, add_feature
+from conftest import CLI, MODULE_DIR, ROOT, TESTS, HarnessRepo, add_feature
 from make_demo_project import adapt_fixture_module, write_layout
 from test_hooks import denied, hook, pre, start_session, stop
 from conftest import ODOO_VERSION  # noqa: E402
@@ -56,6 +57,26 @@ def test_the_command_finds_the_repository_from_the_workspace(ws):
     status = subprocess.run([CLI, "feature", "status"], cwd=ws.path, capture_output=True,
                             text=True, env=ws.env)
     assert status.returncode == 0, status.stderr
+
+
+def test_the_command_finds_a_repository_not_named_git(ws):
+    """Same rule as the hooks: else git/, the one subfolder that holds a harness."""
+    (ws.path / "git").rename(ws.path / "odoo")
+    result = subprocess.run([CLI, "where"], cwd=ws.path, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert f"repository: {(ws.path / 'odoo').resolve()}" in result.stdout
+
+
+def test_the_plugin_template_is_not_a_project(tmp_path):
+    """The plugin's own template/ has harness.env and feature_list.json, but unrendered:
+    neither the hooks nor the command may take it for a project."""
+    shutil.copytree(ROOT / "template", tmp_path / "template",
+                    ignore=shutil.ignore_patterns(".harness"))
+    output = start_session(tmp_path) or {}
+    assert "PROGRESS.md" not in json.dumps(output)
+    assert not (tmp_path / "template" / ".harness").exists()
+    result = subprocess.run([CLI, "where"], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 2 and "no harness in" in result.stderr
 
 
 # --- hooks ------------------------------------------------------------------------

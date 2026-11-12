@@ -48,7 +48,12 @@ Arguments given: `$ARGUMENTS`
    ```
    It writes the project's state and configuration only (no copy of the engine: the
    `odoo-harness` command of this plugin runs it). Nothing is written in the workspace.
-   Show the report (created / merged / kept). Files reported `kept` were not touched.
+   Show the report (created / merged / kept / renamed / duplicate). Files reported `kept` were
+   not touched. `renamed`: a document the project already had under another name or place
+   (`Architecture.md`, `docs/decisions.md`, `claude.md`...) now has the harness name, with its
+   content unchanged; a `link` line names a file that still points to its old path: fix that
+   path now. `duplicate`: the project has another copy of a harness document; discovery
+   merges it. Tell the user which of their documents were moved or found.
    Then check the command works: `odoo-harness where` (it prints the repository, the engine
    and the Odoo version). If `odoo-harness` is not found, use
    `"${CLAUDE_PLUGIN_ROOT}/bin/odoo-harness"` for this session and tell the user that a new
@@ -92,9 +97,25 @@ The goal: the next session, human or agent, understands the project from the rep
    requests. If the user declines, the first task that changes a submodule adds them
    (`odoo-harness feature verify` says how). A submodule that is not checked out is a
    `git submodule update --init <path>` before `odoo-harness init`.
+   If the project already had an ARCHITECTURE.md (reported `kept` or `renamed` at install),
+   do not start from the empty template: check each of its claims against the facts and the
+   code, correct the false ones, keep the true ones in the author's words, and add the
+   sections it lacks. Merge a `duplicate` copy the same way.
 4. **CLAUDE.md.** Fill the `# This project` section from what you read (see "Project
    description" below): the key modules, the conventions you saw, the risky modules (many
-   dependents, no tests). Keep it short: details belong in ARCHITECTURE.md.
+   dependents, no tests). Keep it short: details belong in ARCHITECTURE.md. Text the project
+   had in CLAUDE.md before the harness block is checked the same way: correct what the code
+   contradicts (a module that no longer exists, a wrong version, a renamed folder).
+4b. **The other documents the project had.** For DECISIONS.md, PROGRESS.md and BOOTSTRAP.md
+   reported `kept`, `renamed` or `duplicate`:
+   - DECISIONS.md is a history: never rewrite a past decision, even one that is no longer
+     true; append a dated line that supersedes it. Write each past entry that is not a
+     `- YYYY-MM-DD: ...` line as one (its date from the entry, or from `git log` of the file),
+     since sessions only load those lines.
+   - PROGRESS.md and BOOTSTRAP.md describe the present: correct what is false, keep the rest
+     under the harness headings.
+   Before writing, show the user each correction (what the document said, what the code
+   shows). After merging a `duplicate`, remove it with `git rm` only when the user agrees.
 5. **Open tasks from Odoo.** Use the Odoo MCP connector of this client (its tools are named
    `mcp__Odoo_<client>__*`; pick the one matching the project).
    - Find the `project.project` that matches the repository (the GitLab project name, the

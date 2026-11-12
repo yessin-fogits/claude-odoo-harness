@@ -360,6 +360,67 @@ def test_existing_claude_md_is_merged_not_replaced(repo):
     assert (repo / "CLAUDE.md").read_text().count("<!-- odoo-harness:start -->") == 1
 
 
+def test_misplaced_docs_are_moved_to_the_harness_names(repo, capsys):
+    (repo / "docs").mkdir()
+    (repo / "docs/Architecture.md").write_text("my map\n")
+    (repo / "decision.md").write_text("- 2025-01-01: old decision\n")
+    (repo / "README.md").write_text("See docs/Architecture.md.\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    run_install(repo)
+    out = capsys.readouterr().out
+    assert (repo / "ARCHITECTURE.md").read_text() == "my map\n"
+    assert (repo / "DECISIONS.md").read_text() == "- 2025-01-01: old decision\n"
+    assert not (repo / "docs/Architecture.md").exists() and not (repo / "decision.md").exists()
+    assert "docs/Architecture.md -> ARCHITECTURE.md" in out
+    assert "README.md still points to docs/Architecture.md" in out
+    tracked = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True,
+                             text=True).stdout.split()
+    assert "ARCHITECTURE.md" in tracked and "docs/Architecture.md" not in tracked
+    report = install_template.install(*install_template.build_context(
+        install_template.parse_args([str(repo)])))
+    assert all(action == "kept" for action, _ in report), report
+
+
+def test_untracked_doc_is_renamed_when_only_the_case_differs(repo):
+    (repo / "Architecture.md").write_text("my map\n")
+    run_install(repo)
+    assert "ARCHITECTURE.md" in os.listdir(repo) and "Architecture.md" not in os.listdir(repo)
+    assert (repo / "ARCHITECTURE.md").read_text() == "my map\n"
+
+
+def test_moved_claude_md_gets_one_harness_block(repo):
+    (repo / "claude.md").write_text("# Project notes\nKeep me.\n")
+    run_install(repo)
+    assert "claude.md" not in os.listdir(repo)
+    claude = (repo / "CLAUDE.md").read_text()
+    assert claude.startswith("# Project notes\nKeep me.\n")
+    assert claude.count("<!-- odoo-harness:start -->") == 1
+
+
+def test_duplicate_docs_are_reported_not_moved(repo, capsys):
+    (repo / "ARCHITECTURE.md").write_text("harness map\n")
+    (repo / "docs").mkdir()
+    (repo / "docs/architecture.md").write_text("old map\n")
+    (repo / "Progress.md").write_text("one\n")
+    (repo / "docs/progress.md").write_text("two\n")
+    run_install(repo)
+    out = capsys.readouterr().out
+    assert (repo / "ARCHITECTURE.md").read_text() == "harness map\n"
+    assert (repo / "docs/architecture.md").read_text() == "old map\n"
+    assert "docs/architecture.md (of ARCHITECTURE.md)" in out
+    assert (repo / "Progress.md").read_text() == "one\n"
+    assert (repo / "docs/progress.md").read_text() == "two\n"
+    assert "Progress.md (of PROGRESS.md)" in out and "docs/progress.md (of PROGRESS.md)" in out
+
+
+def test_docs_of_addons_are_never_moved(repo):
+    module_doc = repo / "extra-addons/acme/sale_x/architecture.md"
+    module_doc.write_text("module notes\n")
+    run_install(repo)
+    assert module_doc.read_text() == "module notes\n"
+    assert (repo / "ARCHITECTURE.md").read_text() != "module notes\n"
+
+
 def test_claude_md_has_project_section(repo):
     run_install(repo)
     claude = (repo / "CLAUDE.md").read_text()

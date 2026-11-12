@@ -8,6 +8,7 @@ every session: in a folder without the harness they do nothing, after a cheap fi
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,8 @@ def read_input():
 
 
 WORKSPACE_REPO = "git"
+# install_template.py replaces every {{NAME}}: one left means the file was never installed.
+TEMPLATE_PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 ENGINE_DIR = PLUGIN_ROOT / "engine"
 
@@ -53,9 +56,16 @@ def project_dir(payload):
 
 def has_harness(root):
     """The marker of a repository with the harness: its settings and its task files (or the
-    single feature list of an engine before 3.0: the engine then asks for the update)."""
-    return (root / "harness" / "harness.env").is_file() and (
-        (root / "tasks").is_dir() or (root / "feature_list.json").exists())
+    single feature list of an engine before 3.0: the engine then asks for the update).
+    Settings still holding {{PLACEHOLDERS}} are the plugin's own template/, not a project."""
+    env = root / "harness" / "harness.env"
+    task_files = (root / "tasks").is_dir() or (root / "feature_list.json").exists()
+    if not (env.is_file() and task_files):
+        return False
+    try:
+        return not TEMPLATE_PLACEHOLDER.search(env.read_text())
+    except OSError:
+        return False
 
 
 def features(root):

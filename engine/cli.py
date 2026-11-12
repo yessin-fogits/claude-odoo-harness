@@ -27,6 +27,7 @@ Standard library only. Exit codes: the command's own, or 2 when it cannot run.
 """
 
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -35,6 +36,8 @@ ENGINE_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = ENGINE_DIR.parent
 ENGINE_VERSION = (ENGINE_DIR / "VERSION").read_text().strip()
 WORKSPACE_REPO = "git"
+# install_template.py replaces every {{NAME}}: one left means the file was never installed.
+TEMPLATE_PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 HOME_DIR = Path(os.environ.get("ODOO_HARNESS_HOME") or Path.home() / ".odoo-harness")
 SHIM = Path(os.environ.get("ODOO_HARNESS_BIN") or Path.home() / ".local" / "bin") / "odoo-harness"
 
@@ -60,18 +63,31 @@ def redpen(what, why, fix):
 
 
 def has_harness(root):
-    return (root / "harness" / "harness.env").is_file()
+    """Settings still holding {{PLACEHOLDERS}} are the plugin's own template/, not a project."""
+    env = root / "harness" / "harness.env"
+    if not env.is_file():
+        return False
+    try:
+        return not TEMPLATE_PLACEHOLDER.search(env.read_text())
+    except OSError:
+        return False
 
 
 def find_repo(start):
-    """The repository holding the harness for a command run in `start`, or None."""
+    """The repository holding the harness for a command run in `start`, or None.
+    Same workspace rule as the hooks (hooks/_common.py harness_root): git/, else the one
+    subfolder that holds a harness."""
     start = Path(start).resolve()
     for folder in (start, *start.parents):
         if has_harness(folder):
             return folder
     if has_harness(start / WORKSPACE_REPO):
         return start / WORKSPACE_REPO
-    return None
+    try:
+        found = [d for d in start.iterdir() if d.is_dir() and has_harness(d)]
+    except OSError:
+        found = []
+    return found[0] if len(found) == 1 else None
 
 
 def version_tuple(version):
