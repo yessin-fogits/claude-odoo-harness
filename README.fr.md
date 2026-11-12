@@ -178,13 +178,13 @@ commande `docker build` à lancer et s'arrête.
 |---|---|
 | `gitlab push T2003` | Pousse la branche de la tâche |
 | `gitlab mr T2003 [--title ...]` | Pousse la branche de la tâche et ouvre sa merge request vers la branche de base (`staging` par défaut), une fois que toutes les fonctionnalités de la tâche passent |
+| `gitlab shared T2003` | Ajoute les fichiers de connaissance à chaque sous-module partagé qui ne les a pas : la branche `T2003` et une merge request dans le projet de chaque sous-module. À lancer deux fois : le premier lancement écrit les fichiers, le second les livre une fois `ARCHITECTURE.md` rempli (voir « Sous-modules partagés ») |
 | `guide capture T2003`, `guide build T2003` | Produit le guide utilisateur en français d'une tâche terminée, avec des captures de ses tests e2e. `/odoo-harness:guide T2003` déroule tout le processus |
 | `guide check` | Liste les guides qui ne correspondent plus à leur tâche |
 
 ### Harness
 
 | Commande | Effet |
-| `gitlab shared T2003` | Ajoute les fichiers de connaissance à chaque sous-module partagé qui ne les a pas : la branche `T2003` et une merge request dans le projet de chaque sous-module. À lancer deux fois : le premier lancement écrit les fichiers, le second les livre une fois `ARCHITECTURE.md` rempli (voir « Sous-modules partagés ») |
 |---|---|
 | `loop run`, `loop status` | Lance la [boucle autonome](#boucle-autonome), ou affiche sa dernière exécution |
 | `where` | Affiche le dépôt, le moteur et leurs versions |

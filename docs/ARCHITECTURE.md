@@ -200,12 +200,6 @@ pointer (a gitlink), so the harness looks inside it:
   decisions when the current branch changes it (pointer moved since the base branch, or work
   in progress inside), and Claude Code loads its `CLAUDE.md` when it reads files there. Task features and evidence stay in the project where
   verify ran.
-- **Not done:**
-  - no registry of the projects that use a submodule;
-  - no verification of those projects from this one (each one's verify covers the change when
-    it moves its pointer);
-  - no full harness in the shared project.
-
 - **Knowledge files for every shared submodule at once** (`gitlab shared <task>`, in
   `gitlab.py`). It takes the submodules in a `CUSTOM_ADDONS` folder on `GITLAB_URL`; an OCA
   mirror or an Odoo checkout on the same GitLab is skipped. Each one goes through these states,
@@ -236,6 +230,12 @@ pointer (a gitlink), so the harness looks inside it:
   `check_submodule` accepts files that are on `origin/<branch>` but not at the pointer. The
   `feature verify` and session start hints then say to rebase instead of writing a second copy,
   which would conflict with the merged one.
+- **Not done:**
+  - no registry of the projects that use a submodule;
+  - no verification of those projects from this one (each one's verify covers the change when
+    it moves its pointer);
+  - no full harness in the shared project.
+
 ## Initialization (4 steps, done by `/odoo-harness:init` and re-checked each session)
 1. **Executable environment**: `odoo-harness init` (the engine's compose stack). Odoo starts, the test DB is created and the custom modules install cleanly. In dev DB mode (`DEV_DB`) the harness has no PostgreSQL of its own: the test DB lives on the dev stack's server, and the e2e layer runs on the dev DB after checking it is neutralized and updating it with `-u` (never dropped or reset).
 2. **Verifiable test frame**: `verify.sh` runs pylint-odoo, the `odoo-bin --test-enable` unit and integration tests, and the Playwright e2e tests. A sample passing test exists at each level.

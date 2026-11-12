@@ -172,12 +172,12 @@ and copies no Odoo image: it uses the dev stack's image as it is and mounts its 
 |---|---|
 | `gitlab push T2003` | Pushes the task branch |
 | `gitlab mr T2003 [--title ...]` | Pushes the task branch and opens its merge request to the base branch (`staging` by default), once every feature of the task passes |
+| `gitlab shared T2003` | Adds the knowledge files to every shared submodule that lacks them: the branch `T2003` and a merge request in each submodule's project. Run it twice: the first run writes the files, the second ships them once `ARCHITECTURE.md` is filled (see "Shared submodules") |
 | `guide capture T2003`, `guide build T2003` | Produces the French user guide of a completed task, with screenshots from its e2e tests. `/odoo-harness:guide T2003` runs the whole process |
 | `guide check` | Lists the guides that no longer match their task |
 
 ### Harness
 
-| `gitlab shared T2003` | Adds the knowledge files to every shared submodule that lacks them: the branch `T2003` and a merge request in each submodule's project. Run it twice: the first run writes the files, the second ships them once `ARCHITECTURE.md` is filled (see "Shared submodules") |
 | Command | What it does |
 |---|---|
 | `loop run`, `loop status` | Runs the [autonomous loop](#autonomous-loop), or shows its last run |
