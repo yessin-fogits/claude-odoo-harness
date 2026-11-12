@@ -66,6 +66,12 @@ Sur un projet qui contient déjà du code, il écrit aussi une carte des modules
 `ARCHITECTURE.md` et propose les tâches ouvertes de votre Odoo comme fonctionnalités, via le
 connecteur MCP Odoo.
 
+Les documents que le projet avait déjà sous d'autres noms (`Architecture.md`,
+`docs/decisions.md`, `claude.md`...) sont déplacés sous les noms du harness au lieu de recevoir
+un modèle vide à côté, et une seconde copie est signalée. `init` vérifie ensuite ce qu'ils disent
+contre le code et corrige ce qui est faux. Les décisions passées ne sont jamais réécrites : une
+nouvelle décision datée les remplace.
+
 Il enchaîne ensuite quatre étapes :
 
 | Étape | Résultat |

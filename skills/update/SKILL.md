@@ -59,6 +59,10 @@ Show the user the report. What each action means:
   branch, each teammate sets their own port and dev database mode in their own
   `harness/dev.local.env` (`odoo-harness init` creates it from the template when missing);
   until they do, their harness uses port 18069 and runs the e2e tests on the test DB.
+- `renamed` / `link` / `duplicate`: a project document under another name or place
+  (`Architecture.md`, `docs/decisions.md`...) was renamed to the harness name, a file still points
+  to its old path, or a second copy sits next to the harness file. Fix the paths, then check and
+  merge those documents as step 4b of the init skill describes.
 
 `HARNESS_VERSION` is the oldest engine the project accepts: once this update is committed, a
 teammate whose plugin is older is asked to update it before `odoo-harness` runs. Tell the user.

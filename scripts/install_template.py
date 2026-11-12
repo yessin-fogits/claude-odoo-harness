@@ -34,6 +34,12 @@ Deterministic and idempotent. Files have an owner:
   time. The
   `# This project` section of CLAUDE.md is the project's: added when missing, never changed.
 
+A project document written before the harness under another name or place (Architecture.md,
+docs/decisions.md, decision.md, claude.md...) is moved to the harness name when that name is
+free, so it is kept instead of getting an empty template next to it. When both exist, neither
+is touched and the other one is reported `duplicate`: the init skill merges them. Correcting
+what such a document says is the init skill's job (it needs the code read), not the installer's.
+
 The workspace is the folder Claude Code is started in when it is not the repository
 itself: the fogits client folder ~/Project/<client>, with the repository in git/. Nothing is
 generated there any more: the hooks find git/ and load its CLAUDE.md themselves.
@@ -45,6 +51,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -102,6 +109,15 @@ LEGACY_PROGRESS_LINE_RE = re.compile(r"^- \[([ xX])\] (F-\d{3,}) (?:\[([A-Za-z0-
 NOTES_SECTIONS = ("Features", "Notes", "Known issues", "Decisions", "Next steps")
 BLOCK_RE = re.compile(r"<!-- odoo-harness:start -->.*?<!-- odoo-harness:end -->\n?", re.S)
 PROJECT_SECTION_RE = re.compile(r"^# This project\s*$", re.M)
+# Names a project gave its documents before the harness (compared lower-case), and the folders
+# they are looked for in. Addon folders are never searched: module docs are not project docs.
+# CLAUDE.md is only looked for at the root: Claude Code loads .claude/CLAUDE.md by itself.
+DOC_ALIASES = {"ARCHITECTURE.md": {"architecture.md"},
+               "DECISIONS.md": {"decisions.md", "decision.md"},
+               "PROGRESS.md": {"progress.md"},
+               "BOOTSTRAP.md": {"bootstrap.md"},
+               CLAUDE_MD: {"claude.md"}}
+DOC_DIRS = (".", "docs")
 
 ENV_KEY_RE = re.compile(r"^([A-Z_]+)=(.*)$")
 SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()$`'\"\\*?\[\]{}~!#]")
@@ -279,7 +295,7 @@ def install(target, ctx, force=False, update=False):
     """Install or update the template in target. Returns a list of (action, relpath)."""
     if not target.is_dir():
         raise SystemExit(f"target {target} is not a directory")
-    report = []
+    report = relocate_docs(target)
     for src, rel in template_files():
         content = render(src.read_text(), ctx)
         if rel == GITIGNORE_FRAGMENT:
@@ -339,6 +355,57 @@ def install_shared(folder):
             (folder / src.name).write_text(content)
             report.append(("created", src.name))
     return report
+
+
+def relocate_docs(target):
+    """Move the project's own documents to the harness names (see the module docstring).
+    Directory entries are compared by name, not with exists(): on a case-insensitive
+    filesystem Architecture.md 'exists' as ARCHITECTURE.md although it has the wrong name."""
+    report = []
+    root_names = set(os.listdir(target))
+    for canonical, aliases in DOC_ALIASES.items():
+        dirs = (".",) if canonical == CLAUDE_MD else DOC_DIRS
+        found = []
+        for folder in dirs:
+            directory = target / folder
+            if not directory.is_dir():
+                continue
+            for name in sorted(os.listdir(directory)):
+                rel = name if folder == "." else f"{folder}/{name}"
+                if (name.lower() in aliases and rel != canonical
+                        and (directory / name).is_file()):
+                    found.append(rel)
+        if not found:
+            continue
+        if canonical in root_names or len(found) > 1:
+            report += [("duplicate", f"{rel} (of {canonical})") for rel in found]
+            continue
+        move_file(target, found[0], canonical)
+        report.append(("renamed", f"{found[0]} -> {canonical}"))
+        report += [("link", f"{path} still points to {found[0]}")
+                   for path in files_naming(target, found[0], canonical)]
+    return report
+
+
+def in_git(target, *args):
+    return subprocess.run(["git", "-C", str(target), *args], capture_output=True, text=True)
+
+
+def move_file(target, src, dest):
+    """git mv when the file is tracked (git records a case-only rename then, even with
+    core.ignorecase), otherwise a rename through a temporary name (case-only renames)."""
+    if in_git(target, "ls-files", "--error-unmatch", "--", src).returncode == 0:
+        in_git(target, "mv", "--", src, dest).check_returncode()
+        return
+    tmp = target / f".{Path(dest).name}.moving"
+    (target / src).rename(tmp)
+    tmp.rename(target / dest)
+
+
+def files_naming(target, old, new):
+    """Tracked files that still mention the old path of a moved document."""
+    result = in_git(target, "grep", "-l", "-F", "-e", old)
+    return [path for path in result.stdout.splitlines() if path != new]
 
 
 def merge_claude_md(dest, content, name=CLAUDE_MD):
@@ -668,6 +735,13 @@ def main(argv=None):
         print(ctx["DETECTED"] + "\n")
     for action, rel in report:
         print(f"{action:8} {rel}")
+    actions = {action for action, _ in report}
+    if "renamed" in actions:
+        print("\nrenamed: a document the project had under another name or place now has the "
+              "harness name; check what it says against the code (init skill, discovery).")
+    if "duplicate" in actions:
+        print("\nduplicate: the project has another copy of a harness document: merge it into "
+              "the harness file, then remove it (init skill, discovery).")
     if args.update:
         print(f"\nodoo-harness files updated for Odoo {ctx['ODOO_VERSION']} in {target} "
               f"(engine {ENGINE_VERSION})")

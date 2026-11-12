@@ -62,6 +62,11 @@ addons, Enterprise, Odoo version and image, base branch, GitLab project and depl
 On a project that already has code, it also writes a map of the modules in `ARCHITECTURE.md`
 and proposes the open tasks from your Odoo as features, through the Odoo MCP connector.
 
+Documents the project already had under other names (`Architecture.md`, `docs/decisions.md`,
+`claude.md`...) are moved to the harness names instead of getting an empty template next to
+them, and a second copy is reported. `init` then checks what they say against the code and
+corrects what is false. Past decisions are never rewritten: a new dated decision supersedes them.
+
 It then goes through four steps:
 
 | Step | Result |

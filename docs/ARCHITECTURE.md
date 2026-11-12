@@ -58,6 +58,12 @@ repository: the task files, the evidence and PROGRESS.md are the team's shared r
   once per machine whether to add `Bash(odoo-harness:*)` to `~/.claude/settings.json`; the
   repository's `.claude/settings.json` keeps its deny rules and enables the plugin for
   teammates.
+- **The project's own documents.** Before writing the templates, the installer looks at the
+  root and `docs/` (never addon folders) for documents the project wrote under other names
+  (`Architecture.md`, `decision.md`, `claude.md`...). One copy and a free harness name: it is
+  moved (`git mv` when tracked) and the files still naming the old path are listed. Otherwise
+  every copy is reported `duplicate` and nothing moves. Correcting their content needs the code
+  read, so it is the init skill's discovery, not the installer.
 - **The engine is protected.** Edits under the plugin folder and `~/.odoo-harness/` are denied
   like `tasks/*.json`: the judge cannot be rewritten by the agent it judges.
 - **Migration of a project with the old vendored harness.** While `harness/feature.py` is
