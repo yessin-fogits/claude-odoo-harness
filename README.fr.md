@@ -360,8 +360,9 @@ teste alors les modules partagés modifiés avec ses propres modules.
 
 ## Mise à jour
 
-**Le plugin** se met à jour automatiquement. Claude Code vous demande ensuite de lancer
-`/reload-plugins`. Pour mettre à jour tout de suite :
+**Le plugin** se met à jour automatiquement quand une nouvelle version est publiée (sa `version`
+dans `marketplace.json`). Claude Code vous demande ensuite de lancer `/reload-plugins`. Pour
+mettre à jour tout de suite (application de bureau : Customize → Odoo harness → **Update**) :
 
 ```bash
 claude plugin update odoo-harness@odoo-harness
@@ -443,6 +444,10 @@ python -m pytest -q
   ajoutez-la à la matrice CI dans `.github/workflows/ci.yml`.
 - **Modifier le moteur :** augmentez `engine/VERSION` dès qu'un changement peut modifier un verdict
   ou une commande.
+- **Publier :** augmentez `version` de l'entrée `odoo-harness` dans
+  `.claude-plugin/marketplace.json` dans chaque pull request qui change un fichier livré (le job CI
+  `release-version` le vérifie). Claude Code et l'application de bureau ne proposent la mise à
+  jour que lorsque cette version augmente.
 
 Conception et décisions : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) et
 [DECISIONS.md](DECISIONS.md). Le harness s'appuie sur

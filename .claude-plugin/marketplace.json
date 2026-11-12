@@ -7,6 +7,7 @@
   "plugins": [
     {
       "name": "odoo-harness",
+      "version": "3.5.1",
       "source": {
         "source": "url",
         "url": "https://github.com/yessin-fogits/claude-odoo-harness.git",

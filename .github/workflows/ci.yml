@@ -21,6 +21,21 @@ jobs:
       - run: actionlint .github/workflows/ci.yml
       - run: python -m pytest -q
 
+  release-version:
+    # A merge reaches users only when the plugin version in marketplace.json goes up.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python tools/check_release_version.py "origin/$BASE_REF"
+
   skill-check:
     # The guide of each version in the odoo skill must match the real Odoo source of it.
     runs-on: ubuntu-latest

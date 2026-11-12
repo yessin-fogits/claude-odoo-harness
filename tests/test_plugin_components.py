@@ -18,7 +18,7 @@ def frontmatter(path):
 def test_one_plugin_for_every_version():
     manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())
     assert manifest["name"] == "odoo-harness"
-    # no version field: Claude Code then follows the commits of the marketplace ref
+    # the version lives in the marketplace entry only: a version here would win over it
     assert "version" not in manifest
     versions = json.loads((ROOT / "versions.json").read_text())
     assert all(v in manifest["description"] for v in (min(versions), max(versions)))
@@ -32,6 +32,10 @@ def test_marketplace_serves_only_the_plugin():
     # HTTPS, so no SSH key is needed to install
     assert current["source"] == "url" and current["url"].startswith("https://")
     assert current["ref"] == "main"
+    # the version the app compares to offer an update; never behind the engine's
+    release = tuple(int(p) for p in market["plugins"][0]["version"].split("."))
+    engine = tuple(int(p) for p in (ROOT / "engine" / "VERSION").read_text().strip().split("."))
+    assert release >= engine
 
 
 def test_skill_and_agent_paths_exist():
