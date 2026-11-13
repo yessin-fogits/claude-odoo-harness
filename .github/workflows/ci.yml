@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest shellcheck-py actionlint-py "pylint-odoo==10.0.12"
-      - run: actionlint .github/workflows/ci.yml
+      - run: actionlint .github/workflows/ci.yml .github/workflows/mirror-gitlab.yml
       - run: python -m pytest -q
 
   release-version:

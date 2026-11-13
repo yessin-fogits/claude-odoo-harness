@@ -1,0 +1,37 @@
+name: mirror-gitlab
+# GitHub is the source; gitlab.fogits.com/yessin.montassar/claude-odoo-harness is a copy.
+# Each run makes every branch and tag on GitLab equal to GitHub, deleting the ones GitHub
+# no longer has. A push runs the workflow of the pushed commit, so branches older than this
+# file and branch deletions are caught by the schedule, which runs from main.
+on:
+  push:
+  delete:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+concurrency:
+  group: mirror-gitlab
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  mirror:
+    if: github.repository == 'yessin-fogits/claude-odoo-harness'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push every branch and tag to GitLab
+        env:
+          # Project access token of the GitLab project: role maintainer (main is protected),
+          # scope write_repository.
+          GITLAB_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
+          SOURCE: https://github.com/${{ github.repository }}.git
+        run: |
+          if [ -z "$GITLAB_TOKEN" ]; then
+            echo "::error::secret GITLAB_MIRROR_TOKEN is not set"; exit 1
+          fi
+          git init -q --bare mirror.git
+          cd mirror.git
+          git fetch -q "$SOURCE" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          git push --prune \
+            "https://mirror:${GITLAB_TOKEN}@gitlab.fogits.com/yessin.montassar/claude-odoo-harness.git" \
+            '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
