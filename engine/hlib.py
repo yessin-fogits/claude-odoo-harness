@@ -870,11 +870,6 @@ def in_progress_here(data):
             if f["state"] == "in_progress" and (f["task"] == branch or f["id"] in started)]
 
 
-def commit_message(feat):
-    """Commit message of a verified feature: [T2003] F-T2003-1 behavior."""
-    return f"[{feat['task']}] {feat['id']} {feat['behavior']}"
-
-
 def current_branch():
     return git("symbolic-ref", "-q", "--short", "HEAD")
 

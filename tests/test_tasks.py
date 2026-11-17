@@ -398,10 +398,11 @@ def test_loop_leaves_a_teammates_task_alone(trepo, tmp_path):
         (trepo.path / f"e2e/test_{task}_1_x.py").write_text("def test_x(odoo_page):\n    pass\n")
     trepo.commit("seeded")
     trepo.git("push", "-q", "origin", "staging:T1")  # a teammate took T1
-    result = trepo.run(CLI, "loop", "run", "--no-mr", fake_maker="fix")
+    result = trepo.run(CLI, "loop", "run", fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
     assert git(trepo, "symbolic-ref", "--short", "HEAD") == "T2"
-    assert git(trepo, "log", "-1", "--format=%s") == "[T2] F-T2-1 Behavior T2"
+    assert {f["task"]: f["state"] for f in trepo.features()} == {"T1": "not_started",
+                                                                 "T2": "passing"}
 
 
 # --- merge requests --------------------------------------------------------------
@@ -518,9 +519,9 @@ def test_mr_refuses_uncommitted_work(trepo, gitlab):
     assert result.returncode == 1 and "not committed" in result.stderr
 
 
-# --- the loop ships a finished task ------------------------------------------------
+# --- the loop leaves the commit and the merge request to the developer -----------------
 
-def test_loop_commits_with_the_task_and_opens_the_mr(trepo, gitlab, tmp_path):
+def test_loop_neither_commits_nor_opens_the_mr(trepo, gitlab, tmp_path):
     trepo.env.update({"HARNESS_AGENT": f"{sys.executable} {TESTS / 'fake_claude.py'}",
                       "HARNESS_LOOP_SKIP_HEALTH": "1",
                       "FAKE_AGENT_CALLS": str(tmp_path / "agent_calls.jsonl")})
@@ -529,7 +530,7 @@ def test_loop_commits_with_the_task_and_opens_the_mr(trepo, gitlab, tmp_path):
     result = trepo.run(CLI, "loop", "run", fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
     assert git(trepo, "symbolic-ref", "--short", "HEAD") == "T2003"
-    assert git(trepo, "log", "-1", "--format=%s") == "[T2003] F-T2003-1 User sees the overview page"
+    assert git(trepo, "log", "-1", "--format=%s") == "features"
     summary = json.loads((trepo.path / ".harness/loop/last.json").read_text())
-    assert summary["merge_requests"] == ["https://gitlab.test/acme/-/merge_requests/7"]
-    assert git(trepo, "ls-remote", "--heads", "origin", "T2003")
+    assert "merge_requests" not in summary
+    assert not git(trepo, "ls-remote", "--heads", "origin", "T2003")

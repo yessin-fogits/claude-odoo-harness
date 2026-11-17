@@ -73,10 +73,22 @@ def test_feature_verified_but_not_committed_is_refused(trepo):  # noqa: F811
     trepo.feature("start", "F-T2003-1")
     change_module(trepo, "F-T2003-1")
     assert trepo.feature("verify", "F-T2003-1").returncode == 0
-    trepo.commit("wip")
     result = guide(trepo, "capture", "T2003")
     assert result.returncode == 1
-    assert "no commit '[T2003] F-T2003-1 Salesperson creates a discount'" in result.stderr
+    assert "uncommitted changes:" in result.stderr
+    assert "tasks/T2003.json" in result.stderr and "harness/evidence/F-T2003-1.json" in result.stderr
+    assert "Ask the developer for the commit message" in result.stderr
+
+
+def test_any_commit_message_completes_the_task(trepo):  # noqa: F811
+    add_task_feature(trepo, "T2003", 1, "Salesperson creates a discount")
+    trepo.commit("features")
+    trepo.feature("start", "F-T2003-1")
+    change_module(trepo, "F-T2003-1")
+    assert trepo.feature("verify", "F-T2003-1").returncode == 0
+    trepo.commit("remise sur les devis")
+    result = guide(trepo, "capture", "T2003")
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_uncommitted_module_changes_are_refused(done):
@@ -95,9 +107,9 @@ def test_uncommitted_third_party_changes_are_refused(done):
     assert "uncommitted changes: extra-addons/oca/web_x/__manifest__.py" in result.stderr
 
 
-def test_renamed_task_keeps_its_commits_under_the_old_name(done):
+def test_renamed_task_gets_its_guide(done):
     assert done.feature("rename-task", "T2003", "T2004").returncode == 0
-    done.commit("[T2004] Rename task T2003")
+    done.commit("renommage de la tâche")
     assert guide(done, "capture", "T2004").returncode == 0
 
 
@@ -196,7 +208,7 @@ def test_build_writes_the_pdf_and_records_it(done):
     index = json.loads((done.path / "docs/guides/guides.json").read_text())
     assert index["T2003"]["pdf"] == "docs/guides/T2003.pdf"
     assert set(index["T2003"]["features"]) == {"F-T2003-1", "F-T2003-2"}
-    assert "[T2003] Guide utilisateur" in result.stdout
+    assert "Ask the developer for the commit message" in result.stdout
 
 
 def test_build_reports_a_pdf_failure(done):

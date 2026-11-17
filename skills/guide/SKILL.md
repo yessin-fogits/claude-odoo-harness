@@ -81,8 +81,8 @@ Fix what a red-pen message reports and build again.
 
 ## 5. Hand over
 
-Commit the two files with the message `build` printed (`[<task>] Guide utilisateur`).
-Then tell the user, in their language: the PDF path, how many features and screenshots
+Ask the user for the commit message, then commit the two files `build` printed with that
+message exactly as given. Then tell the user, in their language: the PDF path, how many features and screenshots
 it has, and any test that had no `guide.step()`.
 
 `odoo-harness guide check` lists the guides made stale by a later change (a feature

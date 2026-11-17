@@ -7,9 +7,9 @@
                           .harness/guide/<TASK>/content.json into docs/guides/<TASK>.pdf
   guide.py check          list the guides that no longer match their task (stale)
 
-A task is completed when every one of its features is passing with valid evidence and
-committed ([T2003] F-T2003-1 ...), and nothing uncommitted is left in the custom modules or
-e2e/. The screenshots come from the features' own e2e tests, so the guide shows behavior
+A task is completed when every one of its features is passing with valid evidence, and
+nothing uncommitted is left in its task file, the evidence, the custom modules or e2e/ (the
+commit messages are the developer's). The screenshots come from the features' own e2e tests, so the guide shows behavior
 a test proved. The /odoo-harness:guide skill runs the three steps.
 """
 
@@ -69,27 +69,23 @@ def completed_features(task):
                      "verified and committed.",
                      "Finish the task first (odoo-harness feature verify <id>, then commit), and "
                      "ask for the guide again.")
-    problems = []
-    # Without the [task] tag: the commits of a renamed task keep its old name.
-    subjects = {re.sub(r"^\[[^\]]*\] ", "", s) for s in hlib.git("log", "--format=%s").splitlines()}
-    for feat in feats:
-        problems += evidence_problems(feat)
-        if f"{feat['id']} {feat['behavior']}" not in subjects:
-            problems.append(f"{feat['id']}: no commit '{hlib.commit_message(feat)}'")
+    problems = [p for feat in feats for p in evidence_problems(feat)]
     if problems:
         raise RedPen("guide", f"task {task} is not completed: " + "; ".join(problems),
-                     "Every feature must be verified (valid evidence) and committed with its "
-                     "[task] F-xxx message before its guide is written.",
-                     "Run odoo-harness feature check, verify again what it reports, and commit "
-                     "with the message odoo-harness feature verify printed.")
+                     "Every feature must be verified (valid evidence) before its guide is "
+                     "written.",
+                     "Run odoo-harness feature check and verify again what it reports.")
     env = hlib.load_env()
+    evidence = f"{hlib.EVIDENCE_DIR.relative_to(hlib.REPO_ROOT)}/"
     dirty = sorted(f for f in hlib.changed_files()
-                   if f.startswith("e2e/") or hlib.module_of(env, f)
+                   if f == f"tasks/{task}.json" or f.startswith((evidence, "e2e/"))
+                   or hlib.module_of(env, f)
                    or hlib.module_of(env, f, hlib.third_party_roots(env)))
     if dirty:
         raise RedPen("guide", f"uncommitted changes: {', '.join(dirty[:8])}",
-                     "The guide must show the committed code, the code that was verified.",
-                     "Commit or stash these changes, then ask for the guide again.")
+                     "The guide must show the committed work, the code that was verified.",
+                     "Ask the developer for the commit message and commit these changes (or "
+                     "stash them), then ask for the guide again.")
     return feats
 
 
@@ -377,8 +373,8 @@ def cmd_build(args):
     hlib.write_atomic(GUIDES_INDEX, json.dumps(dict(sorted(index.items())), indent=2,
                                                ensure_ascii=False) + "\n")
     verify.ok(f"guide of {task}: {verify.rel(pdf)}")
-    print(f"Commit it: git add {verify.rel(pdf)} {verify.rel(GUIDES_INDEX)} && "
-          f"git commit -m '[{task}] Guide utilisateur'")
+    print(f"Ask the developer for the commit message, then commit it: "
+          f"git add {verify.rel(pdf)} {verify.rel(GUIDES_INDEX)} && git commit -m \"<message>\"")
     return 0
 
 

@@ -109,8 +109,8 @@ odoo-harness feature start F-T2003-1
 # 3. Écrire le code et les tests, puis vérifier
 odoo-harness feature verify F-T2003-1
 
-# 4. Committer avec "[T2003] F-T2003-1 <comportement>", puis ouvrir la merge request
-#    (possible une fois que toutes les fonctionnalités de la tâche passent)
+# 4. Une fois que toutes les fonctionnalités de la tâche passent, committer avec votre
+#    propre message (Claude vous le demande), puis ouvrir la merge request
 odoo-harness gitlab mr T2003
 ```
 
@@ -248,8 +248,9 @@ commande `docker build` à lancer et s'arrête.
 
 ## Boucle autonome
 
-`odoo-harness loop run` laisse des sessions Claude Code sans interface traiter les
-fonctionnalités de `tasks/`. Elle laisse de côté les tâches dont la branche est déjà sur
+`odoo-harness loop run` laisse une session Claude Code sans interface implémenter et vérifier
+la fonctionnalité suivante de `tasks/`, une par exécution. Elle ne committe jamais : vous relisez
+le résultat et le committez avec votre propre message. Elle laisse de côté les tâches dont la branche est déjà sur
 GitLab : un collègue y travaille.
 
 ```mermaid
@@ -259,16 +260,12 @@ flowchart TD
     S -->|"oui"| M["Claude l'implémente"]
     M --> V["odoo-harness feature verify"]
     V -->|"réussite, avec --review"| R["Agent odoo-reviewer"]
-    V -->|"réussite, sans --review"| C["Commit, puis ouverture de la MR<br/>si la tâche est terminée"]
+    V -->|"réussite, sans --review"| C(["Fin : vérifiée, non committée"])
     V -->|"échec"| A{"Reste-t-il des tentatives ?"}
     R -->|"acceptée"| C
     R -->|"refusée"| A
     A -->|"oui"| M
-    A -->|"non"| B["Mise en stash du travail<br/>et blocage de la fonctionnalité"]
-    C --> N{"--max-features atteint ?"}
-    B --> N
-    N -->|"non"| S
-    N -->|"oui"| E
+    A -->|"non"| B(["Fin : travail en stash,<br/>fonctionnalité bloquée, non committé"])
 ```
 
 **Avant de commencer**
@@ -280,18 +277,17 @@ flowchart TD
 **Bon à savoir**
 
 - La boucle prend la fonctionnalité en cours, sinon la première non démarrée.
-- Quand une fonctionnalité termine sa tâche, la boucle pousse la branche et ouvre la merge
-  request. Utilisez `--no-mr` pour désactiver ce comportement.
+- La boucle ne committe pas, ne pousse pas et n'ouvre pas de merge request. Committez son
+  travail avec votre propre message avant l'exécution suivante, qui exige un arbre propre ;
+  ouvrez la merge request avec `odoo-harness gitlab mr <tâche>` une fois la tâche terminée.
 - Le travail en échec est conservé dans un `git stash` nommé. Le nom et la raison sont dans
   les notes de la tâche.
 
 | Option | Effet | Défaut |
 |---|---|---|
-| `--max-features N` | Fonctionnalités à terminer dans cette exécution | 1 |
 | `--attempts N` | Tentatives par fonctionnalité | 3 |
 | `--review` | Exige aussi un Accept de l'agent `odoo-reviewer` | désactivé |
 | `--branch NOM` | Crée d'abord cette branche et travaille dessus | aucune |
-| `--no-mr` | Ne pousse pas et n'ouvre pas de merge request | désactivé |
 | `--max-turns N` | Limite de tours par appel d'agent | 80 |
 | `--max-budget-usd N` | Limite en dollars par appel d'agent | aucune |
 | `--timeout N` | Limite de temps par appel d'agent, en secondes | 3600 |

@@ -46,15 +46,15 @@ This is a whole Odoo project. Its own modules are in `{{CUSTOM_ADDONS}}`; third-
 
 # Odoo tasks and git
 - The work comes from Odoo tasks (code `T2003`). A task is split into one or more features: `odoo-harness feature add --task T2003 ...`, which checks out the task's branch and writes `tasks/T2003.json` there. Add a task's features when you take the task.
-- No Odoo task yet? Do not wait: use any short name (`--task remise-devis`, letters, digits, `-` and `_`). When the task exists, `odoo-harness feature rename-task remise-devis T2003` renames its files and its branch (feature ids are kept), then commit. Commits already made keep the old name.
+- No Odoo task yet? Do not wait: use any short name (`--task remise-devis`, letters, digits, `-` and `_`). When the task exists, `odoo-harness feature rename-task remise-devis T2003` renames its files and its branch (feature ids are kept). Commits already made keep the old name.
 - A task is worked on its own branch, named after the task. `odoo-harness feature add` and `start` check it out: the local branch, else a teammate's from GitLab (`origin/T2003`), else a new one from `{{BASE_BRANCH}}`.
-- Commit each verified feature with the message `[T2003] F-T2003-1 <behavior>` (`odoo-harness feature verify` prints it).
+- The developer chooses every commit message. Never commit with a message you wrote: when the task is finished (every feature passing), ask the developer for the commit message, then commit with it exactly as given. Same for any other commit (a renamed task, a user guide).
 - When every feature of the task passes and is committed: `odoo-harness gitlab mr T2003` pushes the branch and opens the merge request to `{{BASE_BRANCH}}`. Never push to `{{BASE_BRANCH}}` or `main` yourself.
 
 # Shared submodules
 - A git submodule under the addons folders (`.gitmodules`) is a GitLab project that other projects include too. Its modules are verified like this project's, but a change there reaches every project that uses it: keep it backward compatible (never rename or remove a field, method, XML id, menu or view; add instead; new behavior users see stays off by default).
 - Before changing one, read its own `CLAUDE.md`, `ARCHITECTURE.md` and `DECISIONS.md` (the session start shows its last decisions once this branch changes it). Record the decisions about its modules in its `DECISIONS.md`, not this project's.
-- Commit inside it first, with the task's message (`git -C <path> add -A && git -C <path> commit -m "[T2003] F-T2003-1 <behavior>"`), then commit this project, its new pointer included.
+- Commit inside it first, with the message the developer gives (`git -C <path> add -A && git -C <path> commit -m "<message>"`), then commit this project, its new pointer included.
 - `odoo-harness gitlab mr T2003` ships it in two merge requests, merged in this order: the submodule's (branch `T2003` of its project, to its `.gitmodules` branch), then this project's, opened as Draft meanwhile. Once the submodule's is merged, run `odoo-harness gitlab mr T2003` again: it pulls the submodule's branch into this branch (the pointer moves to the merged commit) and marks the merge request ready. Never push to the submodule's branch yourself.
 
 # Feature List Rules
@@ -71,8 +71,8 @@ A feature is done only when ALL of these are true:
 2. Lint (pylint-odoo) is clean on the changed modules.
 3. The task's notes, `tasks/<task>.md`, are updated (what is done and left, known issues, next steps).
 4. Any decision taken is recorded: under Decisions in the task's notes, or in `DECISIONS.md` when it concerns the whole project.
-5. The work is committed (`[T2003] F-T2003-1 <behavior>`).
-6. When it was the last feature of its task: the merge request is open (`odoo-harness gitlab mr <task>`); it stays Draft while the merge request of a shared submodule waits.
+5. When it was the last feature of its task: the work is committed, with the message the developer gave when asked.
+6. Then the merge request is open (`odoo-harness gitlab mr <task>`); it stays Draft while the merge request of a shared submodule waits.
 
 "It should work" or "the code looks right" is not done. Evidence is done.
 
@@ -114,7 +114,7 @@ When a failure prints "No catalog entry", add its pattern to `harness/errors_pro
 
 ## Conventions
 - TODO module name prefix, manifest author and version scheme, translations, other project rules.
-- Commit messages: `[<task>] F-<id> <behavior>`; task branches start from `{{BASE_BRANCH}}`.
+- Commit messages: the developer's own, asked for when the task is finished; task branches start from `{{BASE_BRANCH}}`.
 
 ## Risky to change
 - TODO modules with many dependents or no tests, and why.

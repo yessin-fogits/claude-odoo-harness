@@ -39,15 +39,18 @@ def agent_prompts(repo):
     return [c[c.index("-p") + 1] for c in calls if "--agent" not in c]
 
 
-def test_feature_verified_and_committed(loop_repo):
+def test_feature_verified_and_left_for_the_developer_to_commit(loop_repo):
     with_feature(loop_repo)
     result = loop(loop_repo, fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
     assert loop_repo.features()[0]["state"] == "passing"
-    assert "[T1] F-T1-1 User creates a demo thing" in git(loop_repo, "log", "-1", "--format=%s")
-    assert git(loop_repo, "status", "--porcelain").strip() == ""
+    assert git(loop_repo, "log", "-1", "--format=%s").strip() == "features"
+    status = git(loop_repo, "status", "--porcelain")
+    assert "tasks/T1.json" in status and "demo_mod/models/thing.py" in status
+    assert "commit them with your own message" in result.stdout
     summary = json.loads((loop_repo.path / ".harness/loop/last.json").read_text())
     assert summary["passing"] == ["F-T1-1"] and summary["blocked"] == []
+    assert summary["stopped"] == "F-T1-1 verified, not committed"
 
 
 def test_retry_gets_the_red_pen_feedback(loop_repo):
@@ -71,10 +74,11 @@ def test_exhausted_attempts_shelve_and_block(loop_repo):
     assert feat["state"] == "blocked"
     assert (loop_repo.path / "extra-addons/client/demo_mod/models/thing.py").read_text() == before
     assert "harness-loop" in git(loop_repo, "stash", "list")
-    assert git(loop_repo, "status", "--porcelain").strip() == ""
+    status = git(loop_repo, "status", "--porcelain")
+    assert "tasks/T1.json" in status and "thing.py" not in status
     known = (loop_repo.path / "tasks/T1.md").read_text().split("## Known issues")[1]
     assert "F-T1-1 blocked" in known and "git stash" in known
-    assert "chore(F-T1-1): blocked by the loop" in git(loop_repo, "log", "-1", "--format=%s")
+    assert git(loop_repo, "log", "-1", "--format=%s").strip() == "features"
 
 
 def test_review_revise_sends_the_maker_back(loop_repo):
@@ -89,12 +93,17 @@ def test_review_revise_sends_the_maker_back(loop_repo):
     assert loop_repo.features()[0]["state"] == "passing"
 
 
-def test_max_features_budget(loop_repo):
-    with_feature(loop_repo, "First thing", "Second thing", "Third thing")
-    result = loop(loop_repo, "--max-features", "2", fake_maker="fix")
+def test_one_feature_per_run(loop_repo):
+    with_feature(loop_repo, "First thing", "Second thing")
+    result = loop(loop_repo, fake_maker="fix")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert [f["state"] for f in loop_repo.features()] == ["passing", "passing", "not_started"]
-    assert "--max-features 2 reached" in result.stdout
+    assert [f["state"] for f in loop_repo.features()] == ["passing", "not_started"]
+    # the next run waits for the developer's commit
+    assert loop(loop_repo, fake_maker="fix").returncode == 2
+    loop_repo.commit("my own message")
+    result = loop(loop_repo, fake_maker="fix")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [f["state"] for f in loop_repo.features()] == ["passing", "passing"]
 
 
 def test_stops_when_nothing_left(loop_repo):
