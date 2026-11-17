@@ -100,7 +100,7 @@ def test_verify_success_sets_passing_with_evidence(hrepo):
     thing.write_text(thing.read_text() + "\n# the feature's change\n")
     result = hrepo.feature("verify", "F-T1-1")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "[T1] F-T1-1 User creates a demo thing" in result.stdout
+    assert "[T1] F-T1-1" not in result.stdout  # the commit message is the developer's
     feat = hrepo.features()[0]
     assert feat["state"] == "passing"
     assert feat["evidence"]["file"] == "harness/evidence/F-T1-1.json"

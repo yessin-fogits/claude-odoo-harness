@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Autonomous feature loop: a maker-checker graph over the task files (tasks/<task>.json).
 
-    odoo-harness loop run [--max-features 1] [--attempts 3] [--review] [--branch NAME]
+    odoo-harness loop run [--attempts 3] [--review] [--branch NAME]
     odoo-harness loop status
 
 The graph (each name is a function below; the code follows it one to one):
@@ -19,11 +19,12 @@ The graph (each name is a function below; the code follows it one to one):
      attempts left?    review? (odoo-reviewer agent, fresh context) -- Revise/Block --> retry
        yes: retry           | Accept / no review
        no:  shelve          v
-            (git stash +  commit --> select (next feature, within --max-features)
+            (git stash +  end: verified, not committed
              feature.py block)
 
-Budgets: features per run (default 1, so a human reviews each one), attempts per feature,
-turns and dollars per agent call, wall-clock timeout per call. Every step is logged to
+One feature per run, and the loop never commits: the developer reviews the verified work (or
+the block), chooses the commit message and commits. The next run needs that committed start.
+Budgets: attempts per feature, turns and dollars per agent call, wall-clock timeout per call. Every step is logged to
 .harness/loop/<run>/events.jsonl with the agents' outputs, and the run summary goes to
 .harness/loop/last.json.
 """
@@ -132,9 +133,10 @@ def preflight(run):
     if changes:
         raise Stop(hlib.format_redpen(
             "loop", "the working tree is not clean",
-            "The loop commits verified work and shelves failed work with git; it must start "
-            "from a committed state so nothing of yours gets mixed in.",
-            "Commit or stash your changes, then run the loop again."))
+            "The loop shelves failed work with git stash; it must start from a committed "
+            "state so nothing of yours gets mixed in.",
+            "Commit your changes with your own message (or stash them), then run the loop "
+            "again."))
     check = sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "check")
     if check.returncode != 0:
         raise Stop(check.stdout + check.stderr)
@@ -207,9 +209,9 @@ def verify(run, feat, attempt):
 
 def review(run, feat, attempt):
     prompt = (f"Review feature {feat['id']} (\"{feat['behavior']}\") of this repository. "
-              "It just passed odoo-harness feature verify. The changes are not committed yet on "
-              "purpose: the loop commits them after your Accept, so judge the code, tests and "
-              "scope, not the missing commit. Answer in your report format, starting with "
+              "It just passed odoo-harness feature verify. The changes are not committed on "
+              "purpose: the developer commits them after your Accept, so judge the code, tests "
+              "and scope, not the missing commit. Answer in your report format, starting with "
               "the ### Verdict section.")
     rc, result = run_agent(run, f"{feat['id']}-attempt{attempt}-review", prompt, REVIEWER_TOOLS,
                            agent=f"{plugin_name()}:odoo-reviewer")
@@ -220,32 +222,6 @@ def review(run, feat, attempt):
         result = ("The reviewer gave no verdict (its last message is below); the work is not "
                   "accepted.\n" + result)
     return verdict == "Accept", verdict, result[-4000:]
-
-
-def commit(run, feat):
-    sh("git", "add", "-A", check=True)
-    sh("git", "commit", "-q", "-m", f"{hlib.commit_message(feat)}\n\n"
-       f"Verified by odoo-harness feature verify (loop run {run.id}).", check=True)
-    run.event("commit", feature=feat["id"], sha=sh("git", "rev-parse", "--short", "HEAD").stdout.strip())
-    run.summary["passing"].append(feat["id"])
-
-
-def ship(run, feat):
-    """When the feature completes its Odoo task: push the branch, open the merge request."""
-    task = feat.get("task")
-    if not task or run.args.no_mr:
-        return
-    if any(f["state"] != "passing" for f in hlib.task_features(hlib.load_features(), task)):
-        return
-    proc = sh(sys.executable, str(hlib.ENGINE_DIR / "gitlab.py"), "mr", task)
-    url = next((ln.split(": ", 1)[1] for ln in proc.stdout.splitlines()
-                if ln.startswith("✓ merge request")), None)
-    run.event("merge_request", task=task, ok=proc.returncode == 0, url=url,
-              error=None if proc.returncode == 0 else proc.stderr.strip()[:300])
-    if proc.returncode == 0:
-        run.summary.setdefault("merge_requests", []).append(url or task)
-    else:
-        print(proc.stderr, file=sys.stderr)
 
 
 def shelve(run, feat, start_commit, reason):
@@ -259,52 +235,51 @@ def shelve(run, feat, start_commit, reason):
         raise Stop(f"HEAD moved during the feature ({start_commit[:8]} -> {head[:8]}); stopping.")
     sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "block", feat["id"], "--reason",
        f"loop {run.id}: {reason}. Work saved in git stash '{label}' ({stash}).", check=True)
-    sh("git", "add", "-A", check=True)
-    sh("git", "commit", "-q", "-m", f"chore({feat['id']}): blocked by the loop ({reason})",
-       check=True)
     run.event("shelve", feature=feat["id"], stash=label, reason=reason)
     run.summary["blocked"].append(feat["id"])
 
 
 # --- the graph ---------------------------------------------------------------------------
 
+def run_feature(run, feat):
+    args = run.args
+    if feat["state"] == "not_started":
+        # checks out the branch of the feature's Odoo task, unless --branch chose one
+        sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"],
+           *(["--no-branch"] if args.branch else []), check=True)
+    start_commit = sh("git", "rev-parse", "HEAD").stdout.strip()
+    run.event("select", feature=feat["id"])
+    feedback, failure = "", "not verified"
+    for attempt in range(1, args.attempts + 1):
+        maker(run, feat, attempt, feedback)
+        passed, feedback = verify(run, feat, attempt)
+        if not passed:
+            failure = "not verified"
+            continue
+        if args.review:
+            accepted, verdict, feedback = review(run, feat, attempt)
+            if not accepted:
+                failure = f"verified, but the review verdict was {verdict}"
+                sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"],
+                   "--reopen", check=True)
+                continue
+        run.event("verified", feature=feat["id"])
+        run.summary["passing"].append(feat["id"])
+        run.summary["stopped"] = f"{feat['id']} verified, not committed"
+        return
+    shelve(run, feat, start_commit, f"{failure} after {args.attempts} attempts")
+    run.summary["stopped"] = f"{feat['id']} blocked, not committed"
+
+
 def run_graph(args):
     run = Run(args)
     try:
         preflight(run)
-        for _ in range(args.max_features):
-            feat = select()
-            if feat is None:
-                run.summary["stopped"] = "no feature left to start"
-                break
-            if feat["state"] == "not_started":
-                # checks out the branch of the feature's Odoo task, unless --branch chose one
-                sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"],
-                   *(["--no-branch"] if args.branch else []), check=True)
-            start_commit = sh("git", "rev-parse", "HEAD").stdout.strip()
-            run.event("select", feature=feat["id"])
-            feedback, done, failure = "", False, "not verified"
-            for attempt in range(1, args.attempts + 1):
-                maker(run, feat, attempt, feedback)
-                passed, feedback = verify(run, feat, attempt)
-                if not passed:
-                    failure = "not verified"
-                    continue
-                if args.review:
-                    accepted, verdict, feedback = review(run, feat, attempt)
-                    if not accepted:
-                        failure = f"verified, but the review verdict was {verdict}"
-                        sh(sys.executable, str(hlib.ENGINE_DIR / "feature.py"), "start", feat["id"], "--reopen",
-                           check=True)
-                        continue
-                commit(run, feat)
-                ship(run, feat)
-                done = True
-                break
-            if not done:
-                shelve(run, feat, start_commit, f"{failure} after {args.attempts} attempts")
+        feat = select()
+        if feat is None:
+            run.summary["stopped"] = "no feature left to start"
         else:
-            run.summary["stopped"] = f"--max-features {args.max_features} reached"
+            run_feature(run, feat)
     except Stop as exc:
         run.summary["stopped"] = "error"
         print(str(exc), file=sys.stderr)
@@ -314,6 +289,9 @@ def run_graph(args):
     print(f"\nloop {run.id}: passing {run.summary['passing'] or '-'}, "
           f"blocked {run.summary['blocked'] or '-'}, stopped: {run.summary['stopped']}")
     print(f"log: {run.dir.relative_to(hlib.REPO_ROOT)}/events.jsonl")
+    if run.summary["passing"] or run.summary["blocked"]:
+        print("Nothing is committed: review the changes (git status, git diff), then commit "
+              "them with your own message before the next run.")
     if run.summary["stopped"] == "error":
         return 2
     return 1 if run.summary["blocked"] else 0
@@ -331,9 +309,7 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command", required=True)
-    r = sub.add_parser("run", help="work through the feature list")
-    r.add_argument("--max-features", type=int, default=1,
-                   help="features to finish in this run (default 1: a human reviews each)")
+    r = sub.add_parser("run", help="implement and verify the next feature")
     r.add_argument("--attempts", type=int, default=3, help="maker attempts per feature")
     r.add_argument("--max-turns", type=int, default=80, help="turns per agent call")
     r.add_argument("--max-budget-usd", type=float, help="dollar budget per agent call")
@@ -341,8 +317,6 @@ def parse_args(argv):
     r.add_argument("--review", action="store_true",
                    help="also require an Accept verdict from the odoo-reviewer agent")
     r.add_argument("--branch", help="create this branch first and work on it")
-    r.add_argument("--no-mr", action="store_true",
-                   help="do not push and open the merge request when a task is complete")
     r.set_defaults(fn=run_graph)
     sub.add_parser("status", help="summary of the last run").set_defaults(fn=cmd_status)
     return p.parse_args(argv)

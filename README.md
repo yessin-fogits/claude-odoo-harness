@@ -103,8 +103,8 @@ odoo-harness feature start F-T2003-1
 # 3. Write the code and the tests, then verify
 odoo-harness feature verify F-T2003-1
 
-# 4. Commit as "[T2003] F-T2003-1 <behavior>", then open the merge request
-#    (this works once every feature of the task passes)
+# 4. Once every feature of the task passes, commit with your own message
+#    (Claude asks you for it), then open the merge request
 odoo-harness gitlab mr T2003
 ```
 
@@ -241,7 +241,9 @@ and copies no Odoo image: it uses the dev stack's image as it is and mounts its 
 
 ## Autonomous loop
 
-`odoo-harness loop run` lets headless Claude Code sessions work through the features of `tasks/`.
+`odoo-harness loop run` lets a headless Claude Code session implement and verify the next feature
+of `tasks/`, one feature per run. It never commits: you review the result and commit it with your
+own message.
 It leaves alone the tasks whose branch is already on GitLab: a teammate is on them.
 
 ```mermaid
@@ -251,16 +253,12 @@ flowchart TD
     S -->|"yes"| M["Claude implements it"]
     M --> V["odoo-harness feature verify"]
     V -->|"pass, with --review"| R["odoo-reviewer agent"]
-    V -->|"pass, no --review"| C["Commit, then open the MR<br/>if the task is complete"]
+    V -->|"pass, no --review"| C(["End: verified, not committed"])
     V -->|"fail"| A{"Attempts left?"}
     R -->|"accepted"| C
     R -->|"rejected"| A
     A -->|"yes"| M
-    A -->|"no"| B["Stash the work<br/>and block the feature"]
-    C --> N{"--max-features reached?"}
-    B --> N
-    N -->|"no"| S
-    N -->|"yes"| E
+    A -->|"no"| B(["End: work stashed,<br/>feature blocked, not committed"])
 ```
 
 **Before you start**
@@ -272,17 +270,16 @@ flowchart TD
 **Good to know**
 
 - The loop picks the feature in progress, otherwise the first one not started.
-- When a feature completes its task, the loop pushes the branch and opens the merge request.
-  Use `--no-mr` to turn this off.
+- The loop does not commit, push or open the merge request. Commit its work with your own
+  message before the next run, which needs a clean tree; open the merge request with
+  `odoo-harness gitlab mr <task>` once the task is complete.
 - Failed work is kept in a named `git stash`. The name and the reason are in the task's notes.
 
 | Option | Effect | Default |
 |---|---|---|
-| `--max-features N` | Features to finish in this run | 1 |
 | `--attempts N` | Attempts per feature | 3 |
 | `--review` | Also requires an Accept from the `odoo-reviewer` agent | off |
 | `--branch NAME` | Creates this branch first and works on it | none |
-| `--no-mr` | Does not push or open a merge request | off |
 | `--max-turns N` | Turn limit per agent call | 80 |
 | `--max-budget-usd N` | Dollar limit per agent call | none |
 | `--timeout N` | Time limit per agent call, in seconds | 3600 |

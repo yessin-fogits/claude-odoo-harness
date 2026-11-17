@@ -80,7 +80,8 @@ Everything that is per checkout (current state, last verify) is git-ignored.
 - The e2e file convention becomes `e2e/test_<id without "F-", "-" as "_">_<name>.py`, for example
   `e2e/test_T2003_1_discount.py`. This goes in the red pen example of `feature add`, in the
   template CLAUDE.md, and in the init skill.
-- Commit message: `[T2003] F-T2003-1 <behavior>`.
+- Commit message: `[T2003] F-T2003-1 <behavior>`. Superseded on 2026-11-17: the developer
+  chooses every commit message (DECISIONS.md).
 
 ### 3. WIP = 1 per task branch
 

@@ -360,7 +360,8 @@ def cmd_rename_task(args):
     hlib.notes_rename(old, new)
     print(f"✓ task {old} is now {new}: {', '.join(f['id'] for f in feats)}"
           + (f", branch {new}" if has_branch else ""))
-    print(f"Commit it: git add -A tasks && git commit -m '[{new}] Rename task {old}'")
+    print("Ask the developer for the commit message, then commit it: "
+          "git add -A tasks && git commit -m \"<message>\"")
     mr = hlib.STATE_DIR / "mr" / f"{old}.json"
     if ref_exists(f"refs/remotes/origin/{old}") or mr.is_file():
         url = json.loads(mr.read_text()).get("url") if mr.is_file() else None
@@ -435,7 +436,7 @@ def cmd_verify(args):
     hlib.notes_set_feature(feat, task_line(feat, done=True, suffix=f" (verified {today()})"))
     print(f"\n✓ {feat['id']} passing. Evidence: {feat['evidence']['file']}")
     print(f"Before moving on: update tasks/{feat['task']}.md (Notes, Known issues, Decisions, "
-          f"Next steps), commit with the message: {hlib.commit_message(feat)}")
+          "Next steps).")
     clean = clean_submodules()
     for sub in hlib.submodules():
         if sub["initialized"] and sub["path"] not in clean:
@@ -451,14 +452,14 @@ def cmd_verify(args):
                 first = (f"add its knowledge files (python3 {hlib.INSTALL_TEMPLATE} --shared "
                          f"{path}, then fill its ARCHITECTURE.md), ")
             print(f"The shared submodule {path} changed: {first}record the decisions about it "
-                  f"in its DECISIONS.md, commit inside it first (git -C {path} add -A "
-                  f"&& git -C {path} commit -m \"{hlib.commit_message(feat)}\"), then "
-                  "commit the project (its pointer included).")
+                  "in its DECISIONS.md. When the task is finished, it is committed inside the "
+                  "submodule first, then in the project (its pointer included).")
     left = [f["id"] for f in hlib.task_features(data, feat["task"]) if f["state"] != "passing"]
     if left:
         print(f"Task {feat['task']}: {', '.join(left)} still to do.")
     else:
-        print(f"Task {feat['task']}: every feature passes. After the commit: "
+        print(f"Task {feat['task']}: every feature passes. Ask the developer for the commit "
+              "message, commit with it as given, then: "
               f"odoo-harness gitlab mr {feat['task']} (pushes the branch, opens the merge "
               "request).")
     return 0

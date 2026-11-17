@@ -134,7 +134,7 @@ def main():
                 "session end", f"code changed this session but {where} was not updated",
                 f"The next session starts from the notes only; it would not know about: {listed}",
                 f"Update {where}: what is done and what is left, Known issues, Next steps. "
-                "Commit finished work."))
+                "To commit finished work, ask the developer for the commit message."))
 
     if problems and payload.get("stop_hook_active"):
         today = datetime.date.today().isoformat()
