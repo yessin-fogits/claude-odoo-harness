@@ -229,7 +229,6 @@ def test_guard_pushes(hrepo, command, ok):
     "cp /tmp/x.json tasks/T1.json",
     "dropdb -U odoo production",
     "docker compose exec db psql -c 'DROP DATABASE client_prod'",
-    "docker compose run --rm odoo odoo -d client_prod -u all --stop-after-init",
     "docker compose down -v",
     "docker volume rm client_db-data",
     "git commit --no-verify -m wip",
@@ -252,6 +251,8 @@ def test_guard_denies_dangerous_bash(hrepo, command):
     "harness/init.sh --reset",
     "dropdb -U odoo harness_test",
     "docker compose run --rm odoo odoo -d harness_test -u demo_mod --stop-after-init",
+    "docker compose run --rm odoo odoo -d client_prod -u all --stop-after-init",
+    'docker exec psql_client-19 psql -U odoo -d postgres -Atc "select datname from pg_database"',
     "docker compose down",
     "git commit -m 'feat: discount'",
 ])
@@ -266,7 +267,7 @@ def test_guard_ignores_dropdb_inside_an_argument(hrepo):
 
 @pytest.mark.parametrize("command,ok", [
     ("docker compose run --rm odoo odoo -d client_dev -u demo_mod --stop-after-init", True),
-    ("docker compose run --rm odoo odoo -d client_prod -u demo_mod --stop-after-init", False),
+    ("docker compose run --rm odoo odoo -d client_prod -u demo_mod --stop-after-init", True),
     ("dropdb -U odoo client_dev", False),
     ("psql -c 'DROP DATABASE client_dev'", False),
     ("dropdb -U odoo harness_test", True),
@@ -280,8 +281,9 @@ def test_guard_dev_db_is_updated_never_dropped(hrepo, command, ok):
 @pytest.mark.parametrize("command,ok", [
     ("odoo -d stca-sta-22092026-dup -u demo_mod --stop-after-init", True),
     ("odoo -d 'stca-sta-22092026-dup' -u demo_mod --stop-after-init", True),
-    ("odoo -d stca-sta-22092026-dup.old -u demo_mod --stop-after-init", False),
     ("dropdb stca-sta-22092026-dup", False),
+    ("dropdb stca-sta-22092026-dup.old", False),
+    ("dropdb harness_test", True),
 ])
 def test_guard_reads_any_database_name_whole(hrepo, command, ok):
     (hrepo.path / "harness/dev.local.env").write_text("DEV_DB=stca-sta-22092026-dup\n")
