@@ -172,8 +172,8 @@ test DB. If yes, fill `DEV_DB`, `DEV_DB_HOST`, `DEV_DB_PORT`, `DEV_DB_USER`, `DE
 `DEV_DB_PASSWORD`, `DEV_ODOO_LOGIN` and `DEV_ODOO_PASSWORD` there (never write a password
 yourself). That file is this developer's, git-ignored: their port (`ODOO_PORT`), dev stack and
 dev database are never written in `harness/harness.env`, which every teammate shares. The dev DB must be neutralized: if `init`
-reports it is not, the user runs `odoo-bin neutralize` in the dev stack. Never neutralize,
-restore or drop the dev DB yourself.
+reports it is not, run `odoo-bin neutralize -d <DEV_DB>` in the dev stack. Never restore or
+drop the dev DB yourself.
 
 ## Step 2: verifiable test frame
 Every level of the validation hierarchy needs at least one test that passes in the project:
