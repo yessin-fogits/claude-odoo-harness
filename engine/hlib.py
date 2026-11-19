@@ -277,8 +277,8 @@ def dev_db_check(env):
                       "It holds the client's data: without neutralization the e2e tests can send "
                       "real e-mails, run scheduled actions and call payment, shipping or EDI "
                       "services.",
-                      f"A human neutralizes it (odoo-bin neutralize -d {dev_db}, in the dev "
-                      "stack), then runs the command again.")
+                      f"Neutralize it (odoo-bin neutralize -d {dev_db}, in the dev "
+                      "stack), then run the command again.")
     return None
 
 
