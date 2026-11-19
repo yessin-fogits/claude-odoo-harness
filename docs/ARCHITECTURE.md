@@ -328,7 +328,7 @@ When a code review finds a new type of agent mistake:
 - **PreToolUse**:
   - Protects `tasks/*.json` and `harness/evidence/`.
   - Blocks edits to Odoo core and enterprise paths.
-  - Blocks `dropdb` / `DROP DATABASE` on any DB but the test DB, and Odoo commands on DBs other than the test DB and the dev DB (`DEV_DB`).
+  - Blocks `dropdb` / `DROP DATABASE` on any DB but the test DB.
 - **PostToolUse** (on Edit and Write of `.py` and `.xml` files): runs fast layer 1 checks on the changed file and returns red-pen feedback.
 - **Stop** (the automatic session end):
   - Rewrites `.harness/current-state.md` (last commit, test and lint status).

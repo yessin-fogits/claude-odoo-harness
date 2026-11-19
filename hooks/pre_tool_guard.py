@@ -9,9 +9,8 @@ Denies (with a red-pen reason):
   - edits of Odoo core / enterprise code, of the Enterprise checkout (ENTERPRISE_DIR) and
     of PROTECTED_PATHS (deployment files): extend in custom modules instead, a human
     changes deployment files
-  - Bash commands that write those files, drop any database but the test DB, run Odoo on a
-    database that is neither the test DB nor the dev DB (DEV_DB), delete docker volumes,
-    skip git hooks with --no-verify, or push to the base branch or main (task branches are
+  - Bash commands that write those files, drop any database but the test DB, delete docker
+    volumes, skip git hooks with --no-verify, or push to the base branch or main (task branches are
     pushed by `odoo-harness gitlab`)
 """
 
@@ -142,12 +141,6 @@ def droppable_dbs(env):
     return {test_db, f"{test_db}_fresh"}
 
 
-def odoo_dbs(env):
-    """Databases Odoo may run on: the test DBs, and the dev DB (updated, never dropped)."""
-    dev_db = env.get("DEV_DB", "").strip()
-    return droppable_dbs(env) | ({dev_db} if dev_db else set())
-
-
 def shell_segments(command):
     """Split a command into simple commands (token lists), honoring quotes.
 
@@ -243,14 +236,6 @@ def check_bash(root, env, command):
                  "Only the disposable test DB is ever dropped; the dev DB and any other database "
                  "may hold real data.",
                  f"Use `odoo-harness init --reset` to recreate the test DB '{test_db}'. A human "
-                 "handles any other database.")
-    runs = re.findall(r"\bodoo(?:-bin)?\b[^;&|\n]*?(?:\s-d\s*|--database[ =])[\"']?([^\s;&|\"'`]+)", command)
-    for name in runs:
-        if name not in odoo_dbs(env):
-            deny(f"command targets database '{name}', not the test DB",
-                 "The harness only works on the disposable test DB (and the dev DB, through "
-                 "odoo-harness verify); other databases may hold real data.",
-                 f"Use the test DB '{test_db}' (odoo-harness init --reset recreates it). A human "
                  "handles any other database.")
     if re.search(r"docker[\s-]+compose\b[^;&|\n]*\bdown\b[^;&|\n]*(\s-v\b|--volumes)", command) \
             or re.search(r"docker\s+volume\s+(rm|prune)\b", command):

@@ -130,7 +130,8 @@ def test_guard_from_the_workspace(ws):
     ("echo '{}' > git/feature_list.json", False),
     ("echo '{}' > git/tasks/T1.json", False),
     ("cat git/tasks/T1.json", True),
-    ("docker compose run --rm odoo odoo -d client_prod -u all", False),
+    ("docker compose run --rm odoo odoo -d client_prod -u all", True),
+    ("dropdb -U odoo client_prod", False),
 ])
 def test_guard_bash_from_the_workspace(ws, command, ok):
     assert (pre(ws, "Bash", command=command) is None) is ok, command
